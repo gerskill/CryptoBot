@@ -1,22 +1,12 @@
-"""Analyse technique 5m — étape 3A du workflow.
+"""Analyse technique — étape 3A du workflow.
 
-⚠️ Contrainte réelle : l'API publique DexScreener ne renvoie AUCUNE bougie
-(pas d'endpoint OHLC). Les bougies 5m sont donc reconstruites à partir des
-snapshots pris à chaque cycle de scan (1 toutes les 90s -> ~3 points par
-bougie de 5m). Conséquence : il faut ~15 min d'observation d'un token avant
-de pouvoir juger la structure sur 3 bougies.
+Source primaire : vraies bougies Birdeye (`/defi/ohlcv`), 60 bougies 1m
+disponibles immédiatement. Repli : bougies reconstruites depuis les snapshots
+de chaque cycle — moins fiables, et avec un délai de chauffe.
 
-Un candidat sans historique suffisant n'est pas rejeté : il est marqué
-`pending`, ré-évalué au cycle suivant. Pour de l'OHLC natif, brancher Birdeye
-(/defi/ohlcv) quand la clé sera disponible.
-
-⚠️ Arbitrage taille de bougie : les buckets sont alignés sur l'horloge, donc
-3 bougies de 5 min = jusqu'à 15 min d'observation avant le moindre verdict.
-Sur un token de 40 min, le mouvement est souvent déjà fini. D'où
-`entry_rules.candle_seconds` (défaut 180 s = ~9 min pour 3 bougies, soit
-~2 snapshots par bougie à 90 s de cycle). Descendre sous 2x l'intervalle de
-scan produit des bougies à un seul point : high == low, la détection de
-higher lows perd son sens.
+⚠️ Le critère de structure de la spec (higher highs ET higher lows sur 3
+bougies) ne se déclenche JAMAIS : mesuré à 2.3% seul et 0% croisé avec
+l'expansion de volume, sur 43 memecoins Solana réels. Voir STRUCTURE_MODES.
 """
 
 import time
@@ -28,11 +18,10 @@ from src.core.models import Candidate
 
 BUCKET_SECONDS = 180  # surchargé par entry_rules.candle_seconds
 REQUIRED_BUCKETS = 3  # surchargé par entry_rules.required_candles
+MAX_SNAPSHOTS_PER_TOKEN = 240  # ~6h à 90s
 
 # Taux de passage MESURÉS sur 43 memecoins Solana réels, bougies 1m Birdeye.
-# Le mode "strict" applique la spec à la lettre — et ne se déclenche jamais :
-# exiger 3 higher highs ET 3 higher lows consécutifs sur des bougies 1m est un
-# événement à 2.3%, qui tombe à 0% une fois croisé avec l'expansion de volume.
+# Le mode "strict" applique la spec à la lettre — et ne se déclenche jamais.
 # Un bot dans ce mode ne prend aucun trade, donc ne produit aucun apprentissage.
 STRUCTURE_MODES = {
     # mode        structure seule   combiné au volume
@@ -40,7 +29,6 @@ STRUCTURE_MODES = {
     "balanced":  (18.6,             4.7),   # tendance nette close[-1] > close[0]
 }
 DEFAULT_STRUCTURE_MODE = "balanced"
-MAX_SNAPSHOTS_PER_TOKEN = 240  # ~6h à 90s
 
 
 @dataclass(frozen=True)
@@ -182,16 +170,9 @@ def analyze(
     candle_seconds: int = BUCKET_SECONDS,
     required_candles: int = REQUIRED_BUCKETS,
     candles: Optional[Sequence[Candle]] = None,
-    structure_mode: str = "balanced",
+    structure_mode: str = DEFAULT_STRUCTURE_MODE,
 ) -> TechnicalVerdict:
-    """Valide la structure d'entrée : pas de dump, tendance, volume en expansion.
-
-    `candles` : vraies bougies (Birdeye). Si absentes, on retombe sur les
-    bougies reconstruites depuis les snapshots — moins fiables, et avec un
-    délai de chauffe avant le premier verdict.
-
-    `structure_mode` : voir STRUCTURE_MODES.
-    """
+    """Valide la structure d'entrée : pas de dump, tendance, volume en expansion."""
     checks: dict[str, bool] = {}
     reasons: list[str] = []
 
@@ -205,7 +186,11 @@ def analyze(
     series = list(candles) if candles else []
     if not series:
         source = "reconstruites"
-        series = history.candles(candidate.token_address, bucket_seconds=candle_seconds) if history else []
+        series = (
+            history.candles(candidate.token_address, bucket_seconds=candle_seconds)
+            if history
+            else []
+        )
 
     if len(series) < required_candles:
         minutes = candle_seconds // 60
@@ -237,12 +222,13 @@ def analyze(
         checks["uptrend"] = uptrend
         if not uptrend:
             change = 100 * (recent[-1].close - recent[0].close) / recent[0].close
-            reasons.append(f"pas de tendance haussière sur {required_candles} bougies ({change:+.1f}%)")
+            reasons.append(
+                f"pas de tendance haussière sur {required_candles} bougies ({change:+.1f}%)"
+            )
 
     # 3. Volume en EXPANSION, pas strictement croissant bougie par bougie.
     #    Exiger 3 hausses consécutives sur une série bruitée ne se produit
     #    quasiment jamais : mesuré en live, 0 passage sur 12 évaluations.
-    #    On compare la moyenne récente à la moyenne de la période précédente.
     prior = series[-2 * required_candles : -required_candles]
     if prior:
         recent_avg = sum(c.volume for c in recent) / len(recent)

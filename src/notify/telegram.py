@@ -1,15 +1,9 @@
 """Module Telegram — alertes push et commandes de contrôle.
 
-Deux usages :
-  - notifications sortantes (entrée, sortie, résumé, erreurs)
-  - commandes entrantes via `getUpdates` en long polling léger : `/STOP`
-    (panic button), `/STATUS`, `/RESUME`
-
 Aucune notification ne doit pouvoir casser la boucle : toute erreur réseau est
 avalée et logguée. Le trading ne dépend jamais de la disponibilité de Telegram.
 """
 
-import time
 from typing import Any, Optional
 
 import requests
@@ -28,7 +22,9 @@ class TelegramNotifier:
         self.session = requests.Session()
         self._update_offset: Optional[int] = None
 
-    def _api(self, method: str, params: dict[str, Any], timeout: int = REQUEST_TIMEOUT) -> Optional[dict]:
+    def _api(
+        self, method: str, params: dict[str, Any], timeout: int = REQUEST_TIMEOUT
+    ) -> Optional[dict]:
         if not self.enabled:
             return None
         try:
@@ -45,8 +41,6 @@ class TelegramNotifier:
         except ValueError as exc:
             print(f"[Telegram] {method} JSON invalide : {exc}")
         return None
-
-    # ------------------------------------------------------------- sortant
 
     def send(self, text: str, silent: bool = False) -> bool:
         result = self._api(
@@ -92,8 +86,6 @@ class TelegramNotifier:
             f"Max drawdown : {stats.get('max_drawdown_pct', 0):.1f}%",
             silent=True,
         )
-
-    # ------------------------------------------------------------- entrant
 
     def poll_commands(self) -> list[str]:
         """Récupère les commandes reçues depuis le dernier appel.

@@ -13,6 +13,7 @@ Lancement : uvicorn api.server:app --reload --port 8000
 import asyncio
 import json
 import os
+import time
 from typing import Any, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -69,8 +70,6 @@ def _state() -> dict[str, Any]:
     `bot_online` distingue « le bot ne trouve rien » de « le bot est mort ».
     Sans ça, un dashboard figé est indiscernable d'un marché calme.
     """
-    import time
-
     state = _read_json(settings.STATE_PATH)
     if state is None:
         return {"bot_online": False, "reason": "aucun state.json — le bot n'a jamais tourné"}
@@ -128,11 +127,7 @@ def health() -> dict[str, Any]:
 
 @app.websocket("/ws")
 async def websocket_state(websocket: WebSocket) -> None:
-    """Pousse l'état dès qu'il change. Diff par `updated_at`, pas de spam.
-
-    Le bot réécrit state.json à chaque tick de monitoring (20s) et à chaque
-    cycle (90s) : on relaie ces changements sans imposer de rythme au bot.
-    """
+    """Pousse l'état dès qu'il change. Diff par `updated_at`, pas de spam."""
     await websocket.accept()
     last_updated = None
     try:

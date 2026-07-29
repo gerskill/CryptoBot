@@ -1,9 +1,4 @@
-"""Pipeline de scan : découverte -> enrichissement -> filtres -> scoring.
-
-Enchaîne les étapes 1 et 2 du workflow. L'enrichissement (Helius + RugCheck)
-tourne en parallèle sur les candidats, les limiteurs de débit étant partagés
-et thread-safe.
-"""
+"""Pipeline de scan : découverte -> enrichissement -> filtres -> scoring."""
 
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -46,8 +41,6 @@ class ScanPipeline:
         self.history = history or PriceHistory()
         self._audit_cache: dict[str, tuple[float, dict]] = {}
 
-    # ---------------------------------------------------------------- cycle
-
     def run_cycle(self) -> ScanResult:
         started = time.time()
         filters = self.params.get("filters", {})
@@ -78,14 +71,17 @@ class ScanPipeline:
         self._purge_audit_cache()
 
         weights = self.params.get("scoring_weights", {})
-        # Le social coûte cher en quota : on ne le mesure que sur les meilleurs,
+        # Le social coûte des requêtes : on ne le mesure que sur les meilleurs,
         # donc après un premier classement sans lui.
         scored = self._enrich_social(score_candidates(kept, weights))
 
         min_social = filters.get("min_social_mentions_1h", 0)
         social_kept = []
         for candidate in scored:
-            if candidate.social_mentions_1h is not None and candidate.social_mentions_1h < min_social:
+            if (
+                candidate.social_mentions_1h is not None
+                and candidate.social_mentions_1h < min_social
+            ):
                 reason = f"mentions sociales {candidate.social_mentions_1h} < {min_social}"
                 rejected.append(candidate.with_fields(rejected_reason=reason))
                 self.cache.unwatch(candidate.token_address)
@@ -121,8 +117,6 @@ class ScanPipeline:
                 kept.append(candidate)
         return kept
 
-    # --------------------------------------------------------- enrichissement
-
     def _enrich_all(self, candidates: list[Candidate], filters: dict) -> list[Candidate]:
         if not candidates:
             return []
@@ -130,7 +124,7 @@ class ScanPipeline:
             return list(pool.map(lambda c: self._enrich_one(c, filters), candidates))
 
     def _enrich_one(self, candidate: Candidate, filters: dict) -> Candidate:
-        """RugCheck d'abord (léger) : si risque critique, on épargne Helius.
+        """RugCheck d'abord (léger) : si risque critique, on épargne les autres.
 
         Les résultats d'audit sont mémorisés `AUDIT_TTL_SECONDS` : un token
         surveillé est re-scanné toutes les 90s pour son PRIX, pas pour son
@@ -185,7 +179,7 @@ class ScanPipeline:
         return candidate.with_fields(**updates)
 
     def _enrich_social(self, candidates: list[Candidate]) -> list[Candidate]:
-        """Social pour TOUS les candidats en une seule requête Twitter groupée."""
+        """Social pour les meilleurs candidats (quota Twitter géré en interne)."""
         if not (self.twitter and self.twitter.enabled) or not candidates:
             return candidates
 
@@ -205,10 +199,7 @@ class ScanPipeline:
                     social_sample_size=stats.sample_size,
                 )
             )
-        self.twitter.purge_cache()
         return enriched
-
-    # ------------------------------------------------------------- filtres
 
     def _apply_security_filters(
         self, candidates: list[Candidate], filters: dict
@@ -256,10 +247,6 @@ class ScanPipeline:
             return "mint authority active"
         if c.freeze_authority_revoked is False:
             return "freeze authority active"
-
-        min_social = f.get("min_social_mentions_1h", 0)
-        if c.social_mentions_1h is not None and c.social_mentions_1h < min_social:
-            return f"mentions sociales {c.social_mentions_1h} < {min_social}"
 
         min_smart = f.get("min_smart_money_buys_30min", 0)
         if c.smart_money_buys_30m is not None and c.smart_money_buys_30m < min_smart:

@@ -101,8 +101,6 @@ class AlphaLoop:
         )
         return PAPER_DEFAULT_CAPITAL
 
-    # ----------------------------------------------------------------- run
-
     def run(self) -> None:
         interval = self.params.get("scan.interval_seconds", 90)
         self._print_banner(interval)
@@ -123,8 +121,10 @@ class AlphaLoop:
 
         self.cache.save()
         stats = self.portfolio.stats()
-        print(f"[Loop] {self.cycle_count} cycles | {stats['total_trades']} trades | "
-              f"P&L {stats['total_pnl_usd']:+.2f} $")
+        print(
+            f"[Loop] {self.cycle_count} cycles | {stats['total_trades']} trades | "
+            f"P&L {stats['total_pnl_usd']:+.2f} $"
+        )
 
     def _sleep_monitoring(self, duration: float) -> None:
         """Entre deux scans, surveille les positions à cadence rapprochée.
@@ -150,8 +150,6 @@ class AlphaLoop:
                     print(f"[Monitor] ⚠️ {type(exc).__name__} — {exc}")
                 next_monitor = time.monotonic() + monitor_interval
 
-    # --------------------------------------------------------------- cycle
-
     def _cycle(self) -> None:
         timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
         print(f"\n{'=' * 78}\n⏱️  CYCLE {self.cycle_count} — {timestamp} UTC\n{'=' * 78}")
@@ -172,14 +170,12 @@ class AlphaLoop:
         self._publish_state(result)
         self._periodic_reports()
 
-    # ------------------------------------------------------------ dashboard
-
     def _publish_state(self, result: Optional[ScanResult] = None) -> None:
         """Écrit l'état courant pour le dashboard. Ne doit jamais casser la boucle."""
         try:
             if result is not None:
                 self._last_scan = result
-            scan = getattr(self, "_last_scan", None)
+            scan = self._last_scan
 
             positions = []
             for position in self.portfolio.positions.values():
@@ -198,9 +194,7 @@ class AlphaLoop:
                     "candidates": [
                         candidate_to_dict(c) for c in (scan.candidates if scan else ())
                     ],
-                    "rejected": [
-                        candidate_to_dict(c) for c in (scan.rejected if scan else ())
-                    ],
+                    "rejected": [candidate_to_dict(c) for c in (scan.rejected if scan else ())],
                     "scan": {
                         "scanned": scan.scanned_count if scan else 0,
                         "cached_skipped": scan.cached_skipped if scan else 0,
@@ -216,8 +210,6 @@ class AlphaLoop:
             )
         except Exception as exc:  # le dashboard ne doit jamais faire tomber le bot
             print(f"[State] ⚠️ écriture impossible : {type(exc).__name__} — {exc}")
-
-    # ------------------------------------------------------ suivi des rejets
 
     def _track_rejections(self, result: ScanResult) -> None:
         """Met les rejets sous observation et juge ceux arrivés à terme.
@@ -248,8 +240,6 @@ class AlphaLoop:
                 f"| {stats['judged']} jugés"
             )
 
-    # ------------------------------------------------------------ commandes
-
     def _handle_commands(self) -> None:
         for command in self.telegram.poll_commands():
             if command == "/STOP":
@@ -277,8 +267,6 @@ class AlphaLoop:
                 print(f"  💰 {position.symbol} fermé à {row['pnl_pct']:+.1f}%")
                 self._after_trade_closed()
         self.paused = True
-
-    # ------------------------------------------------------------ monitoring
 
     def _monitor_positions(self, verbose: bool = True) -> None:
         """`verbose=False` pour les ticks rapprochés : on ne loggue que les sorties."""
@@ -309,8 +297,9 @@ class AlphaLoop:
                 )
 
             for row in self.portfolio.update(position_id, price, drop):
-                print(f"  💰 {row['exit_reason']} | {row['pnl_pct']:+.1f}% | "
-                      f"{row['pnl_usd']:+.2f} $")
+                print(
+                    f"  💰 {row['exit_reason']} | {row['pnl_pct']:+.1f}% | {row['pnl_usd']:+.2f} $"
+                )
                 if row["is_final_exit"]:
                     self._after_trade_closed()
 
@@ -341,8 +330,6 @@ class AlphaLoop:
             print(f"🧠 {change}")
         if changes:
             self.telegram.send("🧠 <b>Paramètres ajustés</b>\n" + "\n".join(changes))
-
-    # -------------------------------------------------------------- entrées
 
     def _try_entries(self, result: ScanResult) -> None:
         threshold = self.params.get("scan.alpha_score_entry_threshold", 75)
@@ -408,8 +395,6 @@ class AlphaLoop:
             f"| SL {position.stop_loss_pct}% | TP1 +{position.take_profit_1}%"
         )
 
-    # ------------------------------------------------------------ affichage
-
     def _periodic_reports(self) -> None:
         now = time.time()
         if now - self._last_dashboard >= DASHBOARD_EVERY_SECONDS:
@@ -428,10 +413,19 @@ class AlphaLoop:
         print(f"\n┌{'─' * 60}┐")
         print(f"│ MEMECOIN ALPHA LOOP — DASHBOARD [{stats['mode']}]".ljust(61) + "│")
         print(f"├{'─' * 60}┤")
-        print(f"│ Capital : {stats['equity']:.2f} $ | P&L : {stats['total_pnl_usd']:+.2f} $".ljust(61) + "│")
+        print(
+            f"│ Capital : {stats['equity']:.2f} $ | P&L : {stats['total_pnl_usd']:+.2f} $".ljust(61)
+            + "│"
+        )
         print(f"│ Positions ouvertes : {stats['open_positions']}".ljust(61) + "│")
-        print(f"│ Win rate : {stats['win_rate']}% | Profit factor : {stats['profit_factor']}".ljust(61) + "│")
-        print(f"│ Max drawdown : {stats['max_drawdown_pct']}% | Trades : {stats['total_trades']}".ljust(61) + "│")
+        print(
+            f"│ Win rate : {stats['win_rate']}% | Profit factor : {stats['profit_factor']}".ljust(61)
+            + "│"
+        )
+        print(
+            f"│ Max drawdown : {stats['max_drawdown_pct']}% | Trades : {stats['total_trades']}".ljust(61)
+            + "│"
+        )
         if stats["cooldown_min"]:
             print(f"│ ⛔ COOLDOWN : {stats['cooldown_min']:.0f} min restantes".ljust(61) + "│")
         if last:
@@ -449,9 +443,12 @@ class AlphaLoop:
             f"  MEMECOIN ALPHA LOOP V2 — mode {self.mode}\n"
             f"{'=' * 78}\n"
             f"  Capital papier  : {self.portfolio.capital:.2f} $\n"
-            f"  Intervalle      : {interval}s\n"
+            f"  Intervalle      : {interval}s (monitoring "
+            f"{self.params.get('scan.monitor_interval_seconds')}s)\n"
             f"  Chaînes         : {', '.join(self.params.get('scan.chains', []))}\n"
-            f"  Seuil d'entrée  : alpha ≥ {self.params.get('scan.alpha_score_entry_threshold')}\n"
+            f"  Seuil d'entrée  : alpha absolu ≥ "
+            f"{self.params.get('scan.alpha_score_entry_threshold')}\n"
+            f"  Structure       : {self.params.get('entry_rules.structure_mode')}\n"
             f"  Positions max   : {self.params.get('max_concurrent_positions')}\n"
             f"  Cache TTL       : {self.params.get('scan.cache_ttl_minutes')} min "
             f"({self.cache.stats['seen']} en cache, "
