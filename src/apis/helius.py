@@ -1,10 +1,7 @@
 """Module Helius — données on-chain Solana (holders, concentration, autorités).
 
-DexScreener ne fournit pas le nombre de holders : c'est le rôle de ce module.
-Clé requise (HELIUS_API_KEY). Sans clé, les méthodes retournent None et le
-pipeline continue en mode dégradé (les filtres holders sont alors sautés).
-
-Quota gratuit Helius : 10 req/s. Le limiteur est calé dessus.
+Repli de Birdeye pour les holders. Sans clé, les méthodes retournent None et
+le pipeline continue en mode dégradé.
 """
 
 from dataclasses import dataclass
@@ -15,7 +12,7 @@ import requests
 from src.core.ratelimit import RateLimiter
 
 REQUEST_TIMEOUT = 15
-MAX_HOLDER_PAGES = 5  # 5 x 1000 comptes : au-delà on renvoie une borne inférieure
+MAX_HOLDER_PAGES = 5  # au-delà on renvoie une borne inférieure
 PAGE_LIMIT = 1000
 
 
@@ -65,15 +62,11 @@ class HeliusAPI:
             print(f"[Helius] {method} JSON invalide : {exc}")
         return None
 
-    # ------------------------------------------------------------------ supply
-
     def get_supply(self, mint: str) -> Optional[float]:
         result = self._rpc("getTokenSupply", [mint])
         if not result:
             return None
         return float((result.get("value") or {}).get("uiAmount") or 0)
-
-    # ----------------------------------------------------------- concentration
 
     def get_top_holders(self, mint: str, supply: Optional[float] = None) -> list[dict[str, float]]:
         """20 plus gros comptes du mint, avec leur % de supply."""
@@ -91,14 +84,12 @@ class HeliusAPI:
             )
         return holders
 
-    # ---------------------------------------------------------------- holders
-
     def count_holders(self, mint: str, stop_after: Optional[int] = None) -> tuple[int, bool]:
         """Compte les comptes détenteurs avec solde > 0.
 
-        `stop_after` : arrêt anticipé dès ce seuil atteint (économise le quota,
-        on a seulement besoin de savoir si holders >= min_holders).
-        Retourne (compte, exact).
+        `stop_after` : arrêt anticipé dès ce seuil atteint. Retourne
+        (compte, exact) — `exact=False` signifie que le compte est une borne
+        inférieure, pas une valeur.
         """
         total, cursor, exact = 0, None, True
         for page in range(MAX_HOLDER_PAGES):
@@ -125,7 +116,6 @@ class HeliusAPI:
             return None
         supply = self.get_supply(mint)
         top = self.get_top_holders(mint, supply=supply)
-        # Marge x4 sur le seuil : assez pour trancher le filtre sans tout paginer.
         stop_after = min_required * 4 if min_required else None
         count, exact = self.count_holders(mint, stop_after=stop_after)
         if count == 0 and not top:
@@ -138,8 +128,6 @@ class HeliusAPI:
             supply=supply,
         )
 
-    # ----------------------------------------------------------------- asset
-
     def get_asset(self, mint: str) -> Optional[dict[str, Any]]:
         """Métadonnées DAS : créateurs, autorités, mutabilité."""
         return self._rpc("getAsset", {"id": mint})
@@ -149,13 +137,15 @@ class HeliusAPI:
         asset = self.get_asset(mint)
         if not asset:
             return None
-        creators = (asset.get("creators") or [])
+        creators = asset.get("creators") or []
         if creators:
             return creators[0].get("address")
         authorities = asset.get("authorities") or []
         return authorities[0].get("address") if authorities else None
 
-    def get_dev_wallet_pct(self, mint: str, top_holders: Optional[list[dict[str, float]]] = None) -> Optional[float]:
+    def get_dev_wallet_pct(
+        self, mint: str, top_holders: Optional[list[dict[str, float]]] = None
+    ) -> Optional[float]:
         """% de supply détenu par le créateur.
 
         Limite connue : ne voit le dev que s'il figure dans le top 20 des

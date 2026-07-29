@@ -1,12 +1,11 @@
 """Module RugCheck.xyz — audit sécurité des tokens Solana.
 
-API publique (pas de clé pour les endpoints /report). Rate limit non documenté
-officiellement : on se cale prudemment sur 60 req/min.
+API publique (pas de clé pour les endpoints /report).
 
 ⚠️ CONVENTION DE SCORE — point important :
 RugCheck renvoie un score de RISQUE : plus il est HAUT, plus le token est
-DANGEREUX. Le params.json du bot utilise `min_rugcheck_score: 70` au sens
-inverse (plus haut = plus sûr). Ce module convertit donc en SCORE DE SÛRETÉ :
+DANGEREUX (BONK = 7). Le params.json du bot utilise `min_rugcheck_score: 70`
+au sens inverse. Conversion appliquée :
 
     safety_score = 100 - min(score_normalised, 100)
 
@@ -23,7 +22,6 @@ from src.core.ratelimit import RateLimiter
 BASE_URL = "https://api.rugcheck.xyz/v1"
 REQUEST_TIMEOUT = 12
 
-# Risques qui déclenchent un rejet immédiat quel que soit le score.
 CRITICAL_RISKS = {
     "Freeze Authority still enabled",
     "Mint Authority still enabled",
@@ -83,8 +81,7 @@ class RugCheckAPI:
 
         `full=True` (défaut) : /report — coûte le même slot de quota que le
         résumé mais fournit en plus le créateur, son solde (dev wallet %), le
-        flag `rugged`, les réseaux d'insiders et les autorités mint/freeze.
-        `full=False` : /report/summary — score + risques + lpLockedPct.
+        flag `rugged` et les autorités mint/freeze.
         """
         path = f"/tokens/{mint}/report" if full else f"/tokens/{mint}/report/summary"
         data = self._get(path)
@@ -119,8 +116,6 @@ class RugCheckAPI:
             raw=data,
         )
 
-    # ------------------------------------------------------------- parsing
-
     @staticmethod
     def _lp_locked_pct(data: dict[str, Any]) -> Optional[float]:
         """Présent au top-level dans /summary, sous markets[].lp dans /report."""
@@ -148,7 +143,6 @@ class RugCheckAPI:
         holders = data.get("topHolders") or []
         if not holders:
             return None
-        # Les comptes marqués `insider=False` incluent les pools : on les ignore.
         real = [h for h in holders if not h.get("owner", "").startswith("Pool")]
         return _f((real or holders)[0].get("pct")) or None
 

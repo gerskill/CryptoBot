@@ -3,23 +3,12 @@
 QUOTAS RÉELS, mesurés sur les en-têtes `x-rate-limit-limit` de ce compte :
     /2/tweets/counts/recent  -> 300 req / 15 min
     /2/tweets/search/recent  -> 450 req / 15 min
-Soit 750 requêtes / 15 min au total, largement au-dessus des 60 supposés au
-départ. Le budget n'est donc PAS la contrainte à ce palier : la contrainte est
-la qualité du signal.
 
 DEUX ENDPOINTS, DEUX RÔLES
---------------------------
 `counts/recent` donne le VOLUME EXACT (`meta.total_tweet_count`) sans plafond,
-plus une courbe minute par minute qui donne la vélocité réelle. C'est la source
-de vérité du volume.
-
-`search/recent` plafonne à 100 résultats par appel — inutilisable pour compter,
-mais c'est le seul à renvoyer les auteurs et l'engagement. Il sert donc
-d'ÉCHANTILLON de qualité, pas de compteur.
-
-Un token = 2 requêtes. Avec 8 tokens par cycle de 90 s : 16 req/cycle,
-160 req/15 min sur 750 disponibles -> 21% du budget. `max_lookups_per_cycle`
-plafonne la casse si le scan remonte 30 candidats d'un coup.
+plus une courbe minute par minute qui donne la vélocité réelle.
+`search/recent` plafonne à 100 résultats — inutilisable pour compter, mais
+seul à renvoyer auteurs et engagement. Il sert d'ÉCHANTILLON de qualité.
 """
 
 import time
@@ -39,8 +28,7 @@ MIN_SYMBOL_LEN = 4
 SAMPLE_SIZE = 100
 VELOCITY_WINDOW_MINUTES = 15
 
-# Mots trop courants pour servir de terme de recherche : ils ramèneraient des
-# tweets sans aucun rapport avec le token.
+# Mots trop courants pour servir de terme de recherche.
 AMBIGUOUS_SYMBOLS = {
     "MOON", "PUMP", "GOOD", "BEST", "LOVE", "HOPE", "CASH", "GOLD", "COIN",
     "TEST", "REAL", "TRUE", "FREE", "KING", "BABY", "DOGE", "TRUMP", "SOL",
@@ -78,13 +66,10 @@ class TwitterAPI:
         self.enabled = bool(bearer_token)
         self.max_lookups_per_cycle = max_lookups_per_cycle
         self.session = requests.Session()
-        # Limiteurs calés sur les quotas réels, marge de 10% incluse.
         self.counts_limiter = RateLimiter(300, 900.0, name="twitter/counts")
         self.search_limiter = RateLimiter(450, 900.0, name="twitter/search")
         self.request_count = 0
         self._cache: dict[str, tuple[float, SocialStats]] = {}
-
-    # ---------------------------------------------------------------- terme
 
     def search_term(self, symbol: str, token_address: str) -> str:
         """Symbole si discriminant, sinon adresse de contrat.
@@ -100,8 +85,6 @@ class TwitterAPI:
         ):
             return clean
         return token_address
-
-    # ------------------------------------------------------------- transport
 
     def _get(self, url: str, params: dict[str, Any], limiter: RateLimiter) -> Optional[dict]:
         limiter.acquire()
@@ -135,8 +118,6 @@ class TwitterAPI:
         return (datetime.now(timezone.utc) - timedelta(minutes=minutes)).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
-
-    # ------------------------------------------------------------- mesures
 
     def get_volume(self, term: str, minutes: int = 60) -> Optional[tuple[int, int]]:
         """(mentions sur la fenêtre, mentions des 15 dernières minutes).
@@ -215,8 +196,6 @@ class TwitterAPI:
 
         self._cache[token_address] = (time.time(), stats)
         return stats
-
-    # ------------------------------------------------------- enrichissement
 
     def enrich(self, candidates: list[Any]) -> dict[str, SocialStats]:
         """Social des `max_lookups_per_cycle` premiers candidats. Clé : adresse."""

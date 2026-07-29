@@ -3,12 +3,9 @@
 API publique gratuite, aucune clé requise.
 Quotas : 60 req/min (token-profiles, token-boosts), 300 req/min (pairs, tokens).
 
-Différences vs la version initiale :
-  - un RateLimiter par famille d'endpoints (au lieu d'un sleep global de 1.1s)
+  - un RateLimiter par famille d'endpoints (au lieu d'un sleep global)
   - requêtes groupées : /latest/dex/tokens accepte 30 adresses par appel
-    -> 30 tokens = 1 requête au lieu de 30
   - filtrage par le cache AVANT tout appel réseau
-  - retourne des objets Candidate typés (src.core.models)
 """
 
 import time
@@ -47,8 +44,6 @@ class DexScreenerAPI:
         self.rl_data = RateLimiter(300, 60.0, name="dexscreener/pairs")
         self.request_count = 0
 
-    # ------------------------------------------------------------- transport
-
     def _get(self, url: str, limiter: RateLimiter) -> Optional[Any]:
         """GET avec rate limiting, retry exponentiel et gestion du 429."""
         for attempt in range(MAX_RETRIES):
@@ -77,8 +72,6 @@ class DexScreenerAPI:
             time.sleep(2**attempt)
         return None
 
-    # ------------------------------------------------------------ découverte
-
     def get_latest_token_profiles(self) -> list[dict[str, Any]]:
         """Derniers profils de tokens ajoutés. Endpoint /token-profiles/latest/v1."""
         data = self._get(f"{BASE_URL}/token-profiles/latest/v1", self.rl_discovery)
@@ -93,8 +86,6 @@ class DexScreenerAPI:
         """Recherche libre de paires. /latest/dex/search?q="""
         data = self._get(f"{BASE_URL}/latest/dex/search?q={query}", self.rl_data)
         return (data or {}).get("pairs") or []
-
-    # ----------------------------------------------------------- données brutes
 
     def get_tokens_data(self, addresses: Iterable[str]) -> dict[str, list[dict[str, Any]]]:
         """Données de plusieurs tokens en lots de 30. Retourne {address: [pairs]}."""
@@ -127,8 +118,6 @@ class DexScreenerAPI:
         pairs = self.get_pair_data(chain, pair_address).get("pairs") or []
         return _f(pairs[0].get("priceUsd")) if pairs else None
 
-    # -------------------------------------------------------------- scan
-
     def scan_new_meme_coins(
         self,
         chain: str = "solana",
@@ -140,9 +129,6 @@ class DexScreenerAPI:
         always_include: Optional[Iterable[str]] = None,
     ) -> tuple[list[Candidate], int]:
         """SCAN PRINCIPAL. Retourne (candidats, nb_sautés_par_cache).
-
-        Ordre : découverte -> filtre cache/blacklist -> batch data -> filtres marché.
-        Le filtre cache passe AVANT les appels données pour économiser le quota.
 
         `always_include` : adresses à rafraîchir quoi qu'il arrive (watchlist).
         Indispensable car un token quitte /token-profiles/latest en quelques

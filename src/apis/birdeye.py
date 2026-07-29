@@ -2,13 +2,11 @@
 
 Remplace deux approximations du pipeline :
   - le compte de holders Helius (3 appels, borne inférieure) -> 1 appel exact
-  - les bougies reconstruites depuis les snapshots -> vraies bougies 5m
+  - les bougies reconstruites depuis les snapshots -> vraies bougies
 
 ⚠️ DÉBIT : mesuré en live, deux appels enchaînés déclenchent
 `429 {'success': False, 'message': 'Too many requests'}`. Le plan Starter est
-à ~1 req/s. Le limiteur est calé à 1 req/s, bien plus strict que DexScreener.
-`/defi/token_security` renvoie 401 : non inclus dans le plan, RugCheck reste
-la source sécurité.
+à ~1 req/s. `/defi/token_security` renvoie 401 : non inclus dans le plan.
 """
 
 import time
@@ -106,8 +104,6 @@ class BirdeyeAPI:
             time.sleep(2**attempt)
         return None
 
-    # ------------------------------------------------------------- overview
-
     def get_overview(self, token_address: str) -> Optional[OverviewStats]:
         """Holders EXACTS + marché en un appel (remplace 3 appels Helius)."""
         data = self._get("/defi/token_overview", {"address": token_address})
@@ -128,8 +124,6 @@ class BirdeyeAPI:
         data = self._get("/defi/price", {"address": token_address})
         return _f(data.get("value")) if data else None
 
-    # -------------------------------------------------------------- holders
-
     def get_top_holders(self, token_address: str, limit: int = 10) -> list[dict[str, Any]]:
         """Top holders. Le format des champs varie : on normalise en `pct`."""
         data = self._get(
@@ -144,7 +138,6 @@ class BirdeyeAPI:
                 {
                     "owner": item.get("owner") or item.get("address"),
                     "amount": amount,
-                    # pct relatif au top-N observé, faute de supply dans la réponse
                     "pct_of_top": round(100 * amount / total, 2) if total else 0.0,
                 }
             )
@@ -159,12 +152,10 @@ class BirdeyeAPI:
             return None
         return round(100 * holders[0]["amount"] / supply, 2)
 
-    # ---------------------------------------------------------------- OHLCV
-
     def get_ohlcv(
         self, token_address: str, interval: str = "5m", lookback_seconds: int = 7200
     ) -> list[OHLCVCandle]:
-        """Vraies bougies. Supprime l'attente de ~9 min de l'historique maison."""
+        """Vraies bougies. Supprime l'attente de chauffe de l'historique maison."""
         now = int(time.time())
         data = self._get(
             "/defi/ohlcv",
@@ -187,8 +178,6 @@ class BirdeyeAPI:
             )
             for item in items
         ]
-
-    # -------------------------------------------------------------- listings
 
     def get_new_listings(self, limit: int = 20) -> list[dict[str, Any]]:
         """Source de découverte plus fraîche que /token-profiles de DexScreener."""
