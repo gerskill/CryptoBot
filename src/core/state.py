@@ -1,12 +1,8 @@
 """Snapshot d'état du bot, lu par le dashboard.
 
 Le bot et le dashboard sont volontairement DÉCOUPLÉS : le bot écrit un
-fichier JSON à chaque cycle, l'API le lit. Aucun import croisé, aucune
-dépendance réseau dans la boucle de trading. Si le dashboard plante ou n'est
+fichier JSON à chaque cycle, l'API le lit. Si le dashboard plante ou n'est
 pas lancé, le bot continue sans rien savoir.
-
-Écriture atomique (tmp + rename) : le dashboard ne peut jamais lire un
-fichier à moitié écrit.
 """
 
 import json

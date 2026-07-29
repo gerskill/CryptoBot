@@ -6,9 +6,8 @@ Applique les règles de sécurité non négociables de la spec :
   - pause forcée de 2h après 3 pertes consécutives
   - un token déjà en position ne peut pas être racheté
 
-Mode PAPER uniquement : aucun ordre n'est transmis nulle part. Les prix de
-sortie sont les prix observés, sans slippage ni frais — le P&L papier est donc
-OPTIMISTE par construction (voir SLIPPAGE_NOTE).
+Mode PAPER uniquement. Les prix de sortie sont les prix observés, sans
+slippage ni frais — le P&L papier est donc OPTIMISTE par construction.
 """
 
 import time
@@ -56,8 +55,6 @@ class PaperPortfolio:
         self.peak_capital = capital
         self.max_drawdown_pct = 0.0
 
-    # -------------------------------------------------------------- garde-fous
-
     @property
     def in_cooldown(self) -> bool:
         return self.cooldown_until is not None and time.time() < self.cooldown_until
@@ -79,8 +76,6 @@ class PaperPortfolio:
             return "capital épuisé"
         return None
 
-    # ---------------------------------------------------------------- sizing
-
     def position_size(self, risk_per_trade: float, win_rate: float, total_trades: int) -> float:
         """Kelly ajusté, plafonné à 5% du capital.
 
@@ -91,8 +86,6 @@ class PaperPortfolio:
         if total_trades >= KELLY_MIN_TRADES and win_rate > KELLY_WIN_RATE_FLOOR:
             base *= 1 + (win_rate - KELLY_WIN_RATE_FLOOR)
         return round(min(base, self.capital * MAX_POSITION_PCT_OF_CAPITAL), 4)
-
-    # ------------------------------------------------------------- ouverture
 
     def open(self, candidate: Candidate, params: dict[str, Any], size_usd: float) -> Position:
         exits = params.get("exit_rules", {})
@@ -128,8 +121,6 @@ class PaperPortfolio:
             self.notifier.send_entry(position)
         return position
 
-    # -------------------------------------------------------------- suivi
-
     def update(
         self, position_id: str, price: float, liquidity_drop_pct: Optional[float] = None
     ) -> list[dict[str, Any]]:
@@ -150,7 +141,6 @@ class PaperPortfolio:
             position = apply_exit(position, action, price)
             self.positions[position_id] = position
 
-            # Le produit de la vente revient au capital
             self.capital += position.size_usd * fraction * (1 + pnl_pct / 100)
 
             rows.append(
@@ -229,8 +219,6 @@ class PaperPortfolio:
                 " + ".join(position.exit_reasons),
                 position.duration_minutes(),
             )
-
-    # ---------------------------------------------------------------- stats
 
     def equity(self) -> float:
         """Capital libre + valeur d'entrée des positions ouvertes (approximation)."""

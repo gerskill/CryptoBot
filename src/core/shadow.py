@@ -1,7 +1,5 @@
 """Suivi des candidats REJETÉS — corrige le biais du survivant.
 
-PROBLÈME RÉSOLU
----------------
 Un bot qui n'apprend que de ses trades ne peut jamais découvrir qu'un filtre
 est trop strict : les candidats rejetés ne produisent aucune donnée. Le seul
 signal disponible est "mes trades perdent" -> resserrer. Le système converge
@@ -9,13 +7,8 @@ donc mécaniquement vers des filtres de plus en plus durs jusqu'à ne plus rien
 laisser passer.
 
 Ce module enregistre chaque rejet avec son prix, puis revient voir ce que le
-token est devenu. Si les tokens rejetés pour "liquidité insuffisante" prennent
-+200% en moyenne, le filtre coûte de l'argent — et le module d'apprentissage
-dispose enfin de la preuve pour le relâcher.
-
-Ce sont des trades FICTIFS : aucun n'a été pris, aucun slippage, et un rejet
-qui monte n'aurait pas forcément été gagnant (l'entrée aurait bougé le prix).
-Ils servent à arbitrer des SEUILS, pas à mesurer une performance.
+token est devenu. Ce sont des trades FICTIFS : aucun n'a été pris, aucun
+slippage. Ils servent à arbitrer des SEUILS, pas à mesurer une performance.
 """
 
 import json
@@ -83,8 +76,6 @@ class ShadowTracker:
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         self._tracked: dict[str, dict[str, Any]] = {}
 
-    # ------------------------------------------------------------ collecte
-
     def record_rejections(self, rejected: Iterable[Any]) -> int:
         """Met sous observation les candidats rejetés de ce cycle."""
         added = 0
@@ -125,8 +116,6 @@ class ShadowTracker:
             for address, entry in self._tracked.items()
             if now - entry["rejected_at"] >= MIN_AGE_BEFORE_REVIEW_MINUTES * 60
         ]
-
-    # --------------------------------------------------------------- mise à jour
 
     def update_price(self, token_address: str, price: float) -> None:
         entry = self._tracked.get(token_address)
@@ -178,8 +167,6 @@ class ShadowTracker:
         }
         with open(self.path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
-
-    # ---------------------------------------------------------------- lecture
 
     def read_all(self) -> list[dict[str, Any]]:
         if not os.path.exists(self.path):
