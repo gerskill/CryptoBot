@@ -5,12 +5,7 @@ segments, puis ajuste les paramètres selon la cadence de la spec :
 filtres tous les 5 trades, poids et sorties tous les 10, risque tous les 20.
 
 GARDE-FOU CENTRAL : aucun ajustement sans `MIN_SEGMENT_SAMPLE` trades DANS LE
-SEGMENT concerné. Sans ça le bot sur-réagit au bruit — 2 pertes sur des tokens
-de moins d'une heure suffiraient à fermer définitivement la fenêtre d'entrée
-la plus rentable.
-
-Les cadences sont mémorisées dans `learning.last_adjustment_at` pour qu'un
-même palier ne déclenche pas l'ajustement à chaque appel.
+SEGMENT concerné. Sans ça le bot sur-réagit au bruit.
 """
 
 from typing import Any, Optional
@@ -102,8 +97,6 @@ class LearningEngine:
         self.journal = journal
         self.shadow = shadow
 
-    # -------------------------------------------------------------- écriture
-
     def _bounded_set(
         self, path: str, value: float, reason: str, sample: int
     ) -> Optional[str]:
@@ -119,8 +112,6 @@ class LearningEngine:
 
         self.params.set(path, clamped, reason, sample)
         return f"{path} -> {clamped}"
-
-    # ------------------------------------------------------------ statistiques
 
     def refresh_stats(self) -> dict[str, Any]:
         """Étapes 6.1 et 6.2 : stats globales + analyse par segment."""
@@ -147,8 +138,6 @@ class LearningEngine:
         )
         self.params.set("learning", learning, log=False)
         return learning
-
-    # ------------------------------------------------------------- ajustements
 
     def run(self, max_drawdown_pct: float = 0.0) -> list[str]:
         """Point d'entrée après chaque trade clôturé. Retourne les changements."""
@@ -188,17 +177,11 @@ class LearningEngine:
         return True
 
     def _adjust_filters(self, learning: dict) -> list[str]:
-        """Étape 6.3.A — resserre OU relâche les filtres, dans leurs bornes.
-
-        Les règles de resserrement viennent des trades pris (biais du survivant).
-        Les règles de relâchement viennent du suivi des rejets (`ShadowTracker`) :
-        c'est la seule source capable de prouver qu'un filtre est trop dur.
-        """
+        """Étape 6.3.A — resserre OU relâche les filtres, dans leurs bornes."""
         changes: list[str] = []
         by_age = learning.get("win_rate_by_age", {})
         by_liq = learning.get("win_rate_by_liquidity", {})
 
-        # --- Resserrement : segments qui perdent ---
         young = by_age.get("0-1h")
         if young and young["sample"] >= MIN_SEGMENT_SAMPLE and young["win_rate"] < 30:
             change = self._bounded_set(
@@ -238,7 +221,6 @@ class LearningEngine:
             if change:
                 changes.append(change)
 
-        # --- Relâchement : filtres qui rejettent trop de gagnants ---
         changes += self._relax_from_shadow()
         return changes
 
@@ -251,7 +233,6 @@ class LearningEngine:
         if self.shadow is None:
             return []
 
-        # Famille de rejet -> (paramètre, pas de relâchement)
         relaxations = {
             "liquidity": ("filters.min_liquidity_usd", -5000),
             "holders": ("filters.min_holders", -25),
@@ -303,7 +284,6 @@ class LearningEngine:
         if abs(target - current) < 1e-9:
             return []
 
-        # Les autres poids absorbent l'écart au prorata pour garder une somme de 1
         others = {k: v for k, v in weights.items() if k != "social_sentiment"}
         total_others = sum(others.values())
         shift = target - current
@@ -383,18 +363,15 @@ class LearningEngine:
         change = self._bounded_set("risk_per_trade", new, reason, len(rows))
         return [change] if change else []
 
-    # ------------------------------------------------------------- backtest
-
     def simulate_filters(
         self, rows: list[dict[str, Any]], filters: dict[str, Any]
     ) -> dict[str, Any]:
         """Rejoue les trades passés sous un jeu de filtres donné.
 
         Ne rejoue QUE les filtres d'entrée : le journal conserve la liquidité,
-        les holders, l'âge et le social au moment de l'entrée, donc on sait
-        quels trades auraient encore été pris. Les règles de SORTIE ne sont pas
-        rejouables ici — il faudrait la trajectoire de prix de chaque position,
-        que le journal ne stocke pas (voir README, limite connue).
+        les holders, l'âge et le social au moment de l'entrée. Les règles de
+        SORTIE ne sont pas rejouables — il faudrait la trajectoire de prix de
+        chaque position, que le journal ne stocke pas.
         """
         kept = []
         for row in rows:
@@ -426,12 +403,7 @@ class LearningEngine:
         }
 
     def validate_filter_changes(self, previous_filters: dict[str, Any]) -> Optional[str]:
-        """Étape 6.4 — annule un ajustement de filtres qui n'améliore rien.
-
-        Sans ce garde-fou, chaque ajustement s'applique sur la foi d'une
-        corrélation observée sur 10 trades. Le bot peut alors se dégrader en
-        boucle, chaque « correction » empirant la précédente.
-        """
+        """Étape 6.4 — annule un ajustement de filtres qui n'améliore rien."""
         rows = self.journal.read_final_exits()[-BACKTEST_WINDOW:]
         if len(rows) < BACKTEST_WINDOW:
             return None  # échantillon trop court pour trancher
@@ -439,8 +411,6 @@ class LearningEngine:
         before = self.simulate_filters(rows, previous_filters)
         after = self.simulate_filters(rows, self.params.get("filters", {}))
 
-        # Des filtres qui ne laissent plus assez de trades sont invalidés :
-        # un P&L flatteur sur 2 trades ne prouve rien.
         if after["trades"] < BACKTEST_MIN_KEPT:
             self.params.set(
                 "filters", previous_filters,
@@ -464,8 +434,6 @@ class LearningEngine:
         return (
             f"filtres validés (P&L/trade {before['pnl_per_trade']} → {after['pnl_per_trade']})"
         )
-
-    # --------------------------------------------------------- passage en réel
 
     def live_mode_allowed(self) -> tuple[bool, str]:
         """Règle 10 de la spec : 20 trades, WR > 40% ET profit factor > 1.5."""
