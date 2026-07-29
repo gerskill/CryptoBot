@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.pyc
+data/*.json
+data/*.jsonl
+logs/
+.venv/
+node_modules/
+dashboard/dist/
+backups/

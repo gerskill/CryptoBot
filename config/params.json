@@ -1,0 +1,89 @@
+{
+  "version": "2.0",
+  "mode": "PAPER",
+  "capital_total": 0,
+  "risk_per_trade": 0.03,
+  "max_concurrent_positions": 3,
+  "scan": {
+    "interval_seconds": 90,
+    "monitor_interval_seconds": 20,
+    "chains": [
+      "solana"
+    ],
+    "cache_ttl_minutes": 30,
+    "max_candidates_enriched": 25,
+    "alpha_score_entry_threshold": 75
+  },
+  "filters": {
+    "min_liquidity_usd": 15000,
+    "min_holders": 75,
+    "min_volume_1h": 8000,
+    "max_dev_wallet_pct": 10,
+    "min_rugcheck_score": 70,
+    "max_top_wallet_concentration": 20,
+    "min_social_mentions_1h": 0,
+    "min_smart_money_buys_30min": 3,
+    "max_tax_buy": 5,
+    "max_tax_sell": 5,
+    "max_age_hours": 6,
+    "min_age_hours": 0.5
+  },
+  "entry_rules": {
+    "slippage_max_pct": 15,
+    "entry_timing": "breakout_5m",
+    "min_liquidity_lock_days": 30,
+    "position_size_formula": "kelly_criterion_adjusted",
+    "max_initial_dump_pct": -50,
+    "candle_seconds": 180,
+    "ohlcv_interval": "1m",
+    "required_candles": 3,
+    "structure_mode": "balanced"
+  },
+  "exit_rules": {
+    "stop_loss_pct": -25,
+    "take_profit_1": 100,
+    "take_profit_2": 300,
+    "take_profit_3": 500,
+    "breakeven_trigger": 100,
+    "partial_sell_tp1_pct": 0.5,
+    "partial_sell_tp2_pct": 0.5,
+    "trailing_stop_activation": 200,
+    "trailing_stop_distance_pct": 50,
+    "max_hold_time_minutes": 240
+  },
+  "scoring_weights": {
+    "liquidity": 0.2,
+    "volume_momentum": 0.25,
+    "social_sentiment": 0.2,
+    "smart_money": 0.2,
+    "rugcheck": 0.15
+  },
+  "learning": {
+    "total_trades": 1,
+    "winning_trades": 0,
+    "losing_trades": 1,
+    "avg_win_pct": 0,
+    "avg_loss_pct": -27.2,
+    "best_performer_filter": null,
+    "worst_performer_filter": null,
+    "win_rate_by_age": {
+      "2-4h": {
+        "win_rate": 0.0,
+        "sample": 1
+      }
+    },
+    "win_rate_by_liquidity": {
+      ">50K": {
+        "win_rate": 0.0,
+        "sample": 1
+      }
+    },
+    "win_rate_by_social_score": {
+      "fort": {
+        "win_rate": 0.0,
+        "sample": 1
+      }
+    },
+    "parameter_adjustment_history": []
+  }
+}
