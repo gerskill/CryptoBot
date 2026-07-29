@@ -1,4 +1,4 @@
-"""Tests du suivi des rejets et des garde-fous de l'apprentissage."""
+"""Tests du suivi des rejets, des bornes et du backtest de validation."""
 
 import json
 import os
@@ -19,11 +19,8 @@ PARAMS = {
     "version": "2.0",
     "risk_per_trade": 0.03,
     "filters": {
-        "min_age_hours": 0.5,
-        "max_age_hours": 6,
-        "min_liquidity_usd": 15000,
-        "min_holders": 75,
-        "min_social_mentions_1h": 0,
+        "min_age_hours": 0.5, "max_age_hours": 6, "min_liquidity_usd": 15000,
+        "min_holders": 75, "min_social_mentions_1h": 0,
     },
     "exit_rules": {"stop_loss_pct": -25, "max_hold_time_minutes": 240},
     "scoring_weights": {"liquidity": 0.2, "volume_momentum": 0.25, "rugcheck": 0.15},
@@ -36,6 +33,17 @@ def rejected_candidate(symbol="REJ", reason="liquidité 12000 < 15000", price=1.
         token_address=f"addr_{symbol}", symbol=symbol, name=symbol, chain="solana",
         price_usd=price, liquidity_usd=12000, rejected_reason=reason,
     )
+
+
+def _fake_verdict(index, family, won):
+    """Objet minimal accepté par ShadowTracker._append."""
+    return type("V", (), {
+        "symbol": f"T{index}", "token_address": f"a{family}{index}",
+        "reason": family, "reason_family": family,
+        "entry_price": 1.0, "peak_price": 3.0 if won else 1.0,
+        "last_price": 1.0, "peak_gain_pct": 200.0 if won else 0.0,
+        "would_have_won": won, "minutes_tracked": 60.0,
+    })()
 
 
 class TestReasonFamily(unittest.TestCase):
@@ -53,8 +61,7 @@ class TestShadowTracker(unittest.TestCase):
         self.tracker = ShadowTracker(os.path.join(self.tmp, "shadow.jsonl"))
 
     def test_enregistre_les_rejets(self):
-        added = self.tracker.record_rejections([rejected_candidate()])
-        self.assertEqual(added, 1)
+        self.assertEqual(self.tracker.record_rejections([rejected_candidate()]), 1)
         self.assertEqual(self.tracker.stats["tracked"], 1)
 
     def test_ignore_les_rejets_securite(self):
@@ -84,13 +91,7 @@ class TestShadowTracker(unittest.TestCase):
     def test_taux_de_manque_par_famille(self):
         for index in range(20):
             self.tracker._append(
-                type("V", (), {
-                    "symbol": f"T{index}", "token_address": f"a{index}",
-                    "reason": "liquidité", "reason_family": "liquidity",
-                    "entry_price": 1.0, "peak_price": 3.0 if index < 10 else 1.1,
-                    "last_price": 1.0, "peak_gain_pct": 200.0 if index < 10 else 10.0,
-                    "would_have_won": index < 10, "minutes_tracked": 60.0,
-                })(),
+                _fake_verdict(index, "liquidity", won=index < 10),
                 {"alpha_absolute": 70, "liquidity": 12000, "age_hours": 1},
             )
         stats = self.tracker.missed_rate_by_family(min_sample=10)
@@ -112,21 +113,14 @@ class TestBornesEtRelachement(unittest.TestCase):
     def _shadow_rows(self, count, family, won):
         for index in range(count):
             self.tracker._append(
-                type("V", (), {
-                    "symbol": f"T{index}", "token_address": f"a{family}{index}",
-                    "reason": family, "reason_family": family,
-                    "entry_price": 1.0, "peak_price": 3.0 if won else 1.0,
-                    "last_price": 1.0, "peak_gain_pct": 200.0 if won else 0.0,
-                    "would_have_won": won, "minutes_tracked": 60.0,
-                })(),
+                _fake_verdict(index, family, won),
                 {"alpha_absolute": 70, "liquidity": 12000, "age_hours": 1},
             )
 
     def test_borne_empeche_le_cliquet_infini(self):
         # min_age_hours plafonné à 3.0 : au-delà, plus aucun ajustement.
         self.params.set("filters.min_age_hours", 3.0, log=False)
-        change = self.engine._bounded_set("filters.min_age_hours", 3.5, "test", 10)
-        self.assertIsNone(change)
+        self.assertIsNone(self.engine._bounded_set("filters.min_age_hours", 3.5, "test", 10))
         self.assertEqual(self.params.get("filters.min_age_hours"), 3.0)
 
     def test_valeur_clampee_a_la_borne(self):
@@ -142,18 +136,13 @@ class TestBornesEtRelachement(unittest.TestCase):
 
     def test_ne_relache_pas_si_les_rejets_etaient_justes(self):
         self._shadow_rows(20, "liquidity", won=False)
-        changes = self.engine._relax_from_shadow()
+        self.assertEqual(self.engine._relax_from_shadow(), [])
         self.assertEqual(self.params.get("filters.min_liquidity_usd"), 15000)
-        self.assertEqual(changes, [])
 
     def test_ne_relache_pas_sous_le_seuil_dechantillon(self):
         self._shadow_rows(5, "liquidity", won=True)
         self.assertEqual(self.engine._relax_from_shadow(), [])
         self.assertEqual(self.params.get("filters.min_liquidity_usd"), 15000)
-
-
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
 
 
 class TestBacktestValidation(unittest.TestCase):
@@ -189,28 +178,25 @@ class TestBacktestValidation(unittest.TestCase):
         self.assertEqual(large["win_rate"], 100.0)
 
     def test_annule_un_changement_sans_amelioration(self):
-        # 20 trades identiques : durcir la liquidité ne change rien au P&L/trade.
         for _ in range(20):
             self._trade(+10, liquidity=60000)
         avant = self.params.get("filters")
         self.params.set("filters.min_liquidity_usd", 20000, log=False)
 
-        verdict = self.engine.validate_filter_changes(avant)
-        self.assertIn("annulés", verdict)
+        self.assertIn("annulés", self.engine.validate_filter_changes(avant))
         self.assertEqual(self.params.get("filters.min_liquidity_usd"), 15000)
 
     def test_valide_un_changement_qui_ecarte_les_perdants(self):
         # Les perdants doivent être AU-DESSUS du filtre d'origine (15000),
         # sinon ils n'auraient jamais été pris et le backtest ne voit rien.
         for _ in range(10):
-            self._trade(-30, liquidity=20000)   # perdants, passaient l'ancien filtre
+            self._trade(-30, liquidity=20000)
         for _ in range(10):
-            self._trade(+40, liquidity=60000)   # gagnants en forte liquidité
+            self._trade(+40, liquidity=60000)
         avant = self.params.get("filters")
         self.params.set("filters.min_liquidity_usd", 30000, log=False)
 
-        verdict = self.engine.validate_filter_changes(avant)
-        self.assertIn("validés", verdict)
+        self.assertIn("validés", self.engine.validate_filter_changes(avant))
         self.assertEqual(self.params.get("filters.min_liquidity_usd"), 30000)
 
     def test_annule_des_filtres_trop_restrictifs(self):
@@ -219,11 +205,14 @@ class TestBacktestValidation(unittest.TestCase):
         avant = self.params.get("filters")
         self.params.set("filters.min_liquidity_usd", 90000, log=False)  # ne garde rien
 
-        verdict = self.engine.validate_filter_changes(avant)
-        self.assertIn("trop restrictifs", verdict)
+        self.assertIn("trop restrictifs", self.engine.validate_filter_changes(avant))
         self.assertEqual(self.params.get("filters.min_liquidity_usd"), 15000)
 
     def test_pas_de_verdict_sous_20_trades(self):
         for _ in range(5):
             self._trade(+10, liquidity=60000)
         self.assertIsNone(self.engine.validate_filter_changes(self.params.get("filters")))
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

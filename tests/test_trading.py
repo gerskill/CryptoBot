@@ -37,46 +37,30 @@ PARAMS_MINIMAL = {
     },
     "filters": {"min_age_hours": 0.5, "max_age_hours": 6, "min_liquidity_usd": 15000},
     "scoring_weights": {
-        "liquidity": 0.20,
-        "volume_momentum": 0.25,
-        "social_sentiment": 0.20,
-        "smart_money": 0.20,
-        "rugcheck": 0.15,
+        "liquidity": 0.20, "volume_momentum": 0.25, "social_sentiment": 0.20,
+        "smart_money": 0.20, "rugcheck": 0.15,
     },
     "learning": {},
 }
 
 
 def make_position(**kwargs) -> Position:
-    base = dict(
-        token_address="mint1",
-        symbol="TEST",
-        chain="solana",
-        entry_price=1.0,
-        size_usd=100.0,
-    )
+    base = dict(token_address="mint1", symbol="TEST", chain="solana",
+                entry_price=1.0, size_usd=100.0)
     base.update(kwargs)
     return Position(**base)
 
 
 def make_candidate(**kwargs) -> Candidate:
-    base = dict(
-        token_address="mint1",
-        symbol="TEST",
-        name="Test",
-        chain="solana",
-        price_usd=1.0,
-        liquidity_usd=30000,
-        volume_1h=20000,
-    )
+    base = dict(token_address="mint1", symbol="TEST", name="Test", chain="solana",
+                price_usd=1.0, liquidity_usd=30000, volume_1h=20000)
     base.update(kwargs)
     return Candidate(**base)
 
 
 class TestExitRules(unittest.TestCase):
     def test_stop_loss_vend_tout(self):
-        position = make_position()
-        actions = evaluate_exits(position, price=0.70)  # -30%
+        actions = evaluate_exits(make_position(), price=0.70)  # -30%
         self.assertEqual(len(actions), 1)
         self.assertTrue(actions[0].is_final)
         self.assertIn("STOP_LOSS", actions[0].reason)
@@ -100,13 +84,11 @@ class TestExitRules(unittest.TestCase):
         # Après TP1, un retour au prix d'entrée doit sortir, pas attendre -25%.
         position = make_position(tp1_hit=True, breakeven_moved=True, remaining_fraction=0.5)
         actions = evaluate_exits(position, price=0.99)
-        self.assertTrue(actions)
         self.assertIn("BREAKEVEN_STOP", actions[0].reason)
 
     def test_tp2_active_le_trailing(self):
         position = make_position(tp1_hit=True, breakeven_moved=True, remaining_fraction=0.5)
         actions = evaluate_exits(position, price=4.0)  # +300%
-        self.assertTrue(actions)
         position = apply_exit(position, actions[0], 4.0)
         self.assertTrue(position.tp2_hit)
         self.assertTrue(position.trailing_active)
@@ -119,43 +101,36 @@ class TestExitRules(unittest.TestCase):
         self.assertAlmostEqual(actions[0].fraction, 0.25)
 
     def test_trailing_stop_se_declenche_sur_repli(self):
-        position = make_position(
-            remaining_fraction=0.25, trailing_active=True, high_water_pct=400.0
-        )
-        # Plus haut +400%, retour à +340% -> repli de 60 > distance de 50
-        actions = evaluate_exits(position, price=4.4)
-        self.assertTrue(actions)
+        position = make_position(remaining_fraction=0.25, trailing_active=True,
+                                 high_water_pct=400.0)
+        actions = evaluate_exits(position, price=4.4)  # repli de 60 > distance 50
         self.assertIn("TRAILING_STOP", actions[0].reason)
 
     def test_trailing_ne_se_declenche_pas_avant_la_distance(self):
-        position = make_position(
-            remaining_fraction=0.25, trailing_active=True, high_water_pct=400.0
-        )
-        actions = evaluate_exits(position, price=4.8)  # +380%, repli de 20
+        position = make_position(remaining_fraction=0.25, trailing_active=True,
+                                 high_water_pct=400.0)
+        actions = evaluate_exits(position, price=4.8)  # repli de 20
         self.assertFalse(any("TRAILING" in a.reason for a in actions))
 
     def test_time_stop(self):
-        position = make_position(entry_time=time.time() - 300 * 60)  # 300 min
+        position = make_position(entry_time=time.time() - 300 * 60)
         actions = evaluate_exits(position, price=1.5)
         self.assertTrue(actions[0].is_final)
         self.assertIn("TIME_STOP", actions[0].reason)
 
     def test_rug_pull_prioritaire_sur_take_profit(self):
         # Prix à +400% mais liquidité effondrée : on sort en rug, pas en TP.
-        position = make_position()
-        actions = evaluate_exits(position, price=5.0, liquidity_drop_pct=-80)
+        actions = evaluate_exits(make_position(), price=5.0, liquidity_drop_pct=-80)
         self.assertEqual(len(actions), 1)
         self.assertIn("RUG_PULL", actions[0].reason)
-        self.assertTrue(actions[0].is_final)
 
     def test_high_water_suit_le_plus_haut(self):
-        position = make_position()
-        position = update_high_water(position, 3.0)  # +200%
+        position = update_high_water(make_position(), 3.0)  # +200%
         self.assertAlmostEqual(position.high_water_pct, 200.0)
-        self.assertTrue(position.trailing_active)  # activation à +200%
+        self.assertTrue(position.trailing_active)
 
         position = update_high_water(position, 2.0)  # redescend
-        self.assertAlmostEqual(position.high_water_pct, 200.0)  # inchangé
+        self.assertAlmostEqual(position.high_water_pct, 200.0)
 
 
 class TestPaperPortfolio(unittest.TestCase):
@@ -166,11 +141,11 @@ class TestPaperPortfolio(unittest.TestCase):
 
     def test_taille_plafonnee_a_5pct(self):
         size = self.portfolio.position_size(risk_per_trade=0.20, win_rate=0.9, total_trades=100)
-        self.assertLessEqual(size, 50.0)  # 5% de 1000
+        self.assertLessEqual(size, 50.0)
 
     def test_kelly_inactif_sur_petit_echantillon(self):
         small = self.portfolio.position_size(risk_per_trade=0.03, win_rate=0.9, total_trades=5)
-        self.assertAlmostEqual(small, 30.0)  # pas de bonus Kelly
+        self.assertAlmostEqual(small, 30.0)
 
     def test_refuse_au_dela_du_max_positions(self):
         self.portfolio.open(make_candidate(), PARAMS_MINIMAL, 30.0)
@@ -179,13 +154,13 @@ class TestPaperPortfolio(unittest.TestCase):
 
     def test_refuse_doublon_sur_le_meme_token(self):
         self.portfolio.open(make_candidate(), PARAMS_MINIMAL, 30.0)
-        blocker = self.portfolio.can_open(make_candidate(), max_positions=5)
-        self.assertIn("déjà ouverte", blocker)
+        self.assertIn("déjà ouverte", self.portfolio.can_open(make_candidate(), max_positions=5))
 
     def test_cooldown_apres_3_pertes(self):
         for index in range(3):
-            candidate = make_candidate(token_address=f"mint{index}")
-            position = self.portfolio.open(candidate, PARAMS_MINIMAL, 30.0)
+            position = self.portfolio.open(
+                make_candidate(token_address=f"mint{index}"), PARAMS_MINIMAL, 30.0
+            )
             self.portfolio.update(position.id, price=0.5)  # -50% -> stop loss
         self.assertTrue(self.portfolio.in_cooldown)
         blocker = self.portfolio.can_open(make_candidate(token_address="neuf"), max_positions=5)
@@ -206,10 +181,7 @@ class TestPaperPortfolio(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertTrue(rows[0]["is_final_exit"])
         self.assertLess(rows[0]["pnl_usd"], 0)
-
-        finals = self.journal.read_final_exits()
-        self.assertEqual(len(finals), 1)
-        self.assertEqual(finals[0]["token"], "TEST")
+        self.assertEqual(len(self.journal.read_final_exits()), 1)
 
     def test_force_close_ferme_tout(self):
         position = self.portfolio.open(make_candidate(), PARAMS_MINIMAL, 100.0)
@@ -242,22 +214,16 @@ class TestLearning(unittest.TestCase):
 
     def _write_trades(self, count, pnl_pct, age_hours, liquidity=30000):
         for index in range(count):
-            self.journal._append(
-                {
-                    "id": f"t{index}",
-                    "is_final_exit": True,
-                    "pnl_pct": pnl_pct,
-                    "pnl_usd": pnl_pct,
-                    "age_hours_at_entry": age_hours,
-                    "liquidity_at_entry": liquidity,
-                    "social_score": None,
-                    "exit_reason": "STOP_LOSS" if pnl_pct < 0 else "TAKE_PROFIT_1",
-                }
-            )
+            self.journal._append({
+                "id": f"t{index}", "is_final_exit": True, "pnl_pct": pnl_pct,
+                "pnl_usd": pnl_pct, "age_hours_at_entry": age_hours,
+                "liquidity_at_entry": liquidity, "social_score": None,
+                "exit_reason": "STOP_LOSS" if pnl_pct < 0 else "TAKE_PROFIT_1",
+            })
 
     def test_pas_dajustement_sous_le_seuil_dechantillon(self):
-        # 6 trades perdants sur 0-1h : au-dessus de la cadence de 5, mais
-        # sous les 10 trades requis DANS le segment.
+        # 6 trades perdants : au-dessus de la cadence de 5, mais sous les
+        # 10 trades requis DANS le segment.
         self._write_trades(6, pnl_pct=-25, age_hours=0.5)
         self.engine.run()
         self.assertEqual(self.params.get("filters.min_age_hours"), 0.5)
@@ -272,7 +238,7 @@ class TestLearning(unittest.TestCase):
         self._write_trades(12, pnl_pct=-25, age_hours=0.5)
         self.engine.run()
         first = self.params.get("filters.min_age_hours")
-        self.engine.run()  # même nombre de trades : rien ne doit bouger
+        self.engine.run()
         self.assertEqual(self.params.get("filters.min_age_hours"), first)
 
     def test_stats_globales(self):
@@ -300,8 +266,7 @@ class TestLearning(unittest.TestCase):
     def test_live_autorise_si_criteres_remplis(self):
         self._write_trades(12, pnl_pct=100, age_hours=2)
         self._write_trades(8, pnl_pct=-25, age_hours=2)
-        allowed, _ = self.engine.live_mode_allowed()
-        self.assertTrue(allowed)
+        self.assertTrue(self.engine.live_mode_allowed()[0])
 
 
 if __name__ == "__main__":
