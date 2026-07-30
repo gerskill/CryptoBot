@@ -572,6 +572,27 @@ class TestGmgnParsing(unittest.TestCase):
         ])
         self.assertEqual(self.api.activity_by_token()["AAA"].buys, 1)
 
+    def test_champ_base_address_du_flux_reel(self):
+        """`base_address` est le nom réel côté /v1/user/smartmoney.
+
+        Vérifié en live : ni `token_address` ni `mint` n'existent dans ce
+        flux. Sans ce champ, tous les trades étaient silencieusement jetés
+        et l'activité smart money ressortait vide.
+        """
+        now = time.time()
+        self._snapshot([
+            {"base_address": "AAA", "side": "buy", "maker": "w1",
+             "timestamp": now, "amount_usd": 147.77},
+            {"base_address": "AAA", "side": "sell", "maker": "w2",
+             "timestamp": now, "amount_usd": 50.0},
+        ])
+        activity = self.api.activity_by_token()
+        self.assertIn("AAA", activity)
+        self.assertEqual(activity["AAA"].buys, 1)
+        self.assertEqual(activity["AAA"].sells, 1)
+        self.assertEqual(activity["AAA"].unique_wallets, 2)
+        self.assertAlmostEqual(activity["AAA"].volume_usd, 197.77, places=2)
+
     def test_noms_de_champs_alternatifs(self):
         now = time.time()
         self._snapshot([
@@ -632,24 +653,3 @@ class TestPositionRestaurableEtFermable(unittest.TestCase):
         restored_id = next(iter(restarted.positions))
         restarted.update(restored_id, 0.9)  # repasse sous le breakeven
         self.assertEqual(len(restarted.positions), 0)
-
-    def test_champ_base_address_du_flux_reel(self):
-        """`base_address` est le nom réel côté /v1/user/smartmoney.
-
-        Vérifié en live : ni `token_address` ni `mint` n'existent dans ce
-        flux. Sans ce champ, tous les trades étaient silencieusement jetés
-        et l'activité smart money ressortait vide.
-        """
-        now = time.time()
-        self._snapshot([
-            {"base_address": "AAA", "side": "buy", "maker": "w1",
-             "timestamp": now, "amount_usd": 147.77},
-            {"base_address": "AAA", "side": "sell", "maker": "w2",
-             "timestamp": now, "amount_usd": 50.0},
-        ])
-        activity = self.api.activity_by_token()
-        self.assertIn("AAA", activity)
-        self.assertEqual(activity["AAA"].buys, 1)
-        self.assertEqual(activity["AAA"].sells, 1)
-        self.assertEqual(activity["AAA"].unique_wallets, 2)
-        self.assertAlmostEqual(activity["AAA"].volume_usd, 197.77, places=2)
