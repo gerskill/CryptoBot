@@ -83,15 +83,27 @@ class GmgnAPI:
         if enabled and not self.available:
             print("[GMGN] binaire gmgn-cli introuvable — module désactivé")
         elif enabled and not self.enabled:
+            manquantes = [
+                nom
+                for nom in ("GMGN_API_KEY", "GMGN_PRIVATE_KEY")
+                if not os.getenv(nom)
+            ]
+            detail = f" ({', '.join(manquantes)} absente(s))" if manquantes else ""
             print(
-                "[GMGN] clé absente — module désactivé. "
-                "Configure-la avec : gmgn-cli config"
+                f"[GMGN] clés incomplètes{detail} — module désactivé. "
+                "Les deux sont requises : GMGN_API_KEY et GMGN_PRIVATE_KEY."
             )
 
     def _has_key(self) -> bool:
-        """`config --check` sort en 0 si la clé est configurée."""
-        if os.getenv("GMGN_API_KEY"):
+        """Les DEUX clés sont requises : la clé API et la clé de signature.
+
+        Avec la seule clé privée, le CLI atteint l'API et se fait rejeter en
+        `AUTH_KEY_INVALID` à chaque appel — mieux vaut ne pas démarrer.
+        """
+        if os.getenv("GMGN_API_KEY") and os.getenv("GMGN_PRIVATE_KEY"):
             return True
+        if os.getenv("GMGN_API_KEY"):
+            return False
         try:
             result = subprocess.run(
                 [self.binary, "config", "--check"],
@@ -126,8 +138,16 @@ class GmgnAPI:
             self.request_count += 1
 
             if result.returncode != 0:
-                stderr = (result.stderr or "").strip()[:120]
-                print(f"[GMGN] {' '.join(args[:2])} échec : {stderr}")
+                stderr = (result.stderr or "").strip()
+                combined = f"{stderr} {result.stdout or ''}"
+                if "AUTH_KEY_INVALID" in combined or "401" in combined:
+                    print(
+                        "[GMGN] clé refusée (AUTH_KEY_INVALID) — module désactivé. "
+                        "Vérifie GMGN_API_KEY."
+                    )
+                    self.enabled = False
+                    return None
+                print(f"[GMGN] {' '.join(args[:2])} échec : {stderr[:120]}")
                 return None
 
             payload = json.loads(result.stdout)
