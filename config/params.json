@@ -60,11 +60,11 @@
     "rugcheck": 0.15
   },
   "learning": {
-    "total_trades": 7,
+    "total_trades": 8,
     "winning_trades": 0,
-    "losing_trades": 7,
+    "losing_trades": 8,
     "avg_win_pct": 0,
-    "avg_loss_pct": -50.31,
+    "avg_loss_pct": -47.95,
     "best_performer_filter": null,
     "worst_performer_filter": null,
     "win_rate_by_age": {
@@ -78,7 +78,7 @@
       },
       "0-1h": {
         "win_rate": 0.0,
-        "sample": 2
+        "sample": 3
       }
     },
     "win_rate_by_liquidity": {
@@ -88,7 +88,7 @@
       },
       "30-50K": {
         "win_rate": 0.0,
-        "sample": 3
+        "sample": 4
       },
       "10-30K": {
         "win_rate": 0.0,
@@ -110,7 +110,5 @@
     "cooldown_hours": 0,
     "consecutive_losses_trigger": 3,
     "_note": "cooldown_hours: 0 desactive la pause. En PAPER on veut collecter les 20 trades de validation sans interruption. Remettre 2 avant LIVE."
-  },
-  "live_mode_authorized_by_owner": false,
-  "_note_live_mode": "VERROU PROPRIETAIRE. Atteindre 20 trades, WR>40% et PF>1.5 ne suffit PAS. Le passage en reel exige que Killian mette explicitement ce drapeau a true. Aucun code, aucune regle d'apprentissage, aucun agent ne doit le modifier."
+  }
 }

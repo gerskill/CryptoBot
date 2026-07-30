@@ -83,36 +83,44 @@ class GmgnAPI:
         if enabled and not self.available:
             print("[GMGN] binaire gmgn-cli introuvable — module désactivé")
         elif enabled and not self.enabled:
-            manquantes = [
-                nom
-                for nom in ("GMGN_API_KEY", "GMGN_PRIVATE_KEY")
-                if not os.getenv(nom)
-            ]
-            detail = f" ({', '.join(manquantes)} absente(s))" if manquantes else ""
             print(
-                f"[GMGN] clés incomplètes{detail} — module désactivé. "
-                "Les deux sont requises : GMGN_API_KEY et GMGN_PRIVATE_KEY."
+                "[GMGN] aucune configuration exploitable — module désactivé. "
+                "Applique ta clé avec : gmgn-cli config --apply <clé>"
             )
 
     def _has_key(self) -> bool:
-        """Les DEUX clés sont requises : la clé API et la clé de signature.
+        """Le CLI fait autorité sur sa propre configuration.
 
-        Avec la seule clé privée, le CLI atteint l'API et se fait rejeter en
-        `AUTH_KEY_INVALID` à chaque appel — mieux vaut ne pas démarrer.
+        `config --check` sort en 0 si `~/.config/gmgn/.env` contient une paire
+        exploitable. Une paire COMPLÈTE dans l'environnement est acceptée en
+        remplacement ; une paire incomplète ne compte pas — voir
+        `_subprocess_env`.
         """
         if os.getenv("GMGN_API_KEY") and os.getenv("GMGN_PRIVATE_KEY"):
             return True
-        if os.getenv("GMGN_API_KEY"):
-            return False
         try:
             result = subprocess.run(
-                [self.binary, "config", "--check"],
-                capture_output=True,
-                timeout=10,
+                [self.binary, "config", "--check"], capture_output=True, timeout=10
             )
             return result.returncode == 0
         except (subprocess.SubprocessError, OSError):
             return False
+
+    @staticmethod
+    def _subprocess_env() -> dict[str, str]:
+        """Environnement du CLI, purgé des clés GMGN incomplètes.
+
+        Le `.env` du projet peut ne contenir que `GMGN_API_KEY`. Transmise
+        seule, elle ÉCRASE la config du CLI et le laisse sans clé privée
+        correspondante -> `AUTH_KEY_INVALID` alors que `~/.config/gmgn/.env`
+        est parfaitement valide. On ne transmet la paire que si elle est
+        complète, sinon on laisse le CLI lire sa propre configuration.
+        """
+        env = dict(os.environ)
+        if not (env.get("GMGN_API_KEY") and env.get("GMGN_PRIVATE_KEY")):
+            env.pop("GMGN_API_KEY", None)
+            env.pop("GMGN_PRIVATE_KEY", None)
+        return env
 
     # ------------------------------------------------------------- transport
 
@@ -133,7 +141,11 @@ class GmgnAPI:
         command = [self.binary, *args, "--chain", self.chain, "--raw"]
         try:
             result = subprocess.run(
-                command, capture_output=True, text=True, timeout=COMMAND_TIMEOUT
+                command,
+                capture_output=True,
+                text=True,
+                timeout=COMMAND_TIMEOUT,
+                env=self._subprocess_env(),
             )
             self.request_count += 1
 
@@ -290,7 +302,10 @@ def _token_address(trade: dict[str, Any]) -> Optional[str]:
     explicites — sinon les trades sont regroupés par trader au lieu du token
     et l'activité par token devient fausse sans lever d'erreur.
     """
-    for key in ("token_address", "mint", "contract_address", "token", "address"):
+    # `base_address` est le nom réel dans /v1/user/smartmoney (vérifié en live) ;
+    # les autres couvrent les variantes des endpoints token/market.
+    for key in ("base_address", "base_token", "token_address", "mint",
+                "contract_address", "token", "address"):
         value = trade.get(key)
         if isinstance(value, str) and value:
             return value
