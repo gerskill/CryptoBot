@@ -12,7 +12,9 @@
     ],
     "cache_ttl_minutes": 30,
     "max_candidates_enriched": 25,
-    "alpha_score_entry_threshold": 75
+    "alpha_score_entry_threshold": 75,
+    "social_lookup_min_alpha": 70,
+    "social_max_lookups_per_cycle": 2
   },
   "filters": {
     "min_liquidity_usd": 15000,
@@ -60,11 +62,11 @@
     "rugcheck": 0.15
   },
   "learning": {
-    "total_trades": 8,
+    "total_trades": 9,
     "winning_trades": 0,
-    "losing_trades": 8,
+    "losing_trades": 9,
     "avg_win_pct": 0,
-    "avg_loss_pct": -47.95,
+    "avg_loss_pct": -45.41,
     "best_performer_filter": null,
     "worst_performer_filter": null,
     "win_rate_by_age": {
@@ -78,7 +80,7 @@
       },
       "0-1h": {
         "win_rate": 0.0,
-        "sample": 3
+        "sample": 4
       }
     },
     "win_rate_by_liquidity": {
@@ -92,7 +94,7 @@
       },
       "10-30K": {
         "win_rate": 0.0,
-        "sample": 3
+        "sample": 4
       }
     },
     "win_rate_by_social_score": {
@@ -110,5 +112,12 @@
     "cooldown_hours": 0,
     "consecutive_losses_trigger": 3,
     "_note": "cooldown_hours: 0 desactive la pause. En PAPER on veut collecter les 20 trades de validation sans interruption. Remettre 2 avant LIVE."
+  },
+  "api_budgets": {
+    "_note": "Plafonds MENSUELS d'appels. 0 = illimité. Le limiteur de debit protege du 'trop vite', ces budgets protegent du 'trop au total'. Twitter Free = 100 posts/mois, Basic = 15000.",
+    "twitter": 15000,
+    "birdeye": 0,
+    "helius": 0,
+    "gmgn": 0
   }
 }

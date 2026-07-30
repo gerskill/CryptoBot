@@ -24,6 +24,7 @@ from src.apis.gmgn import GmgnAPI
 from src.apis.helius import HeliusAPI
 from src.apis.rugcheck import RugCheckAPI
 from src.apis.twitter import TwitterAPI
+from src.core.budget import load_budgets
 from src.core.cache import TokenCache
 from src.core.journal import TradeJournal
 from src.core.learning import LearningEngine
@@ -60,6 +61,11 @@ class AlphaLoop:
         self.dex = DexScreenerAPI(cache=self.cache)
         self.birdeye = BirdeyeAPI(settings.BIRDEYE_API_KEY)
         self.gmgn = GmgnAPI(chain="sol")
+        self.budgets = load_budgets(
+            settings.BUDGET_PATH,
+            {k: v for k, v in (self.params.get("api_budgets", {}) or {}).items()
+             if isinstance(v, int)},
+        )
         self.pipeline = ScanPipeline(
             params=self.params,
             cache=self.cache,
@@ -67,7 +73,11 @@ class AlphaLoop:
             helius=HeliusAPI(settings.HELIUS_API_KEY),
             rugcheck=RugCheckAPI(),
             birdeye=self.birdeye,
-            twitter=TwitterAPI(settings.TWITTER_BEARER_TOKEN),
+            twitter=TwitterAPI(
+                settings.TWITTER_BEARER_TOKEN,
+                max_lookups_per_cycle=self.params.get("scan.social_max_lookups_per_cycle", 2),
+                budget=self.budgets.get("twitter"),
+            ),
             gmgn=self.gmgn,
             history=self.history,
         )
@@ -218,6 +228,7 @@ class AlphaLoop:
                     },
                     "params": self.params.data,
                     "shadow": self.shadow.stats,
+                    "budgets": {n: b.stats for n, b in self.budgets.items()},
                     "shadow_by_family": self.shadow.missed_rate_by_family(min_sample=1),
                     "entry_threshold": self.params.get("scan.alpha_score_entry_threshold", 75),
                     "live_allowed": self.learning.live_mode_allowed(),

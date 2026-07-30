@@ -221,7 +221,14 @@ class ScanPipeline:
         if not (self.twitter and self.twitter.enabled) or not candidates:
             return candidates
 
-        stats_by_token = self.twitter.enrich(candidates)
+        # Le quota Twitter est MENSUEL : on ne le dépense que sur les
+        # candidats susceptibles d'être achetés, pas sur tout le lot.
+        min_alpha = self.params.get("scan.social_lookup_min_alpha", 70)
+        worth_it = [c for c in candidates if c.alpha_score_absolute >= min_alpha]
+        if not worth_it:
+            return candidates
+
+        stats_by_token = self.twitter.enrich(worth_it)
         enriched = []
         for candidate in candidates:
             stats = stats_by_token.get(candidate.token_address)

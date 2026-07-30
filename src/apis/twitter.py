@@ -23,7 +23,7 @@ from src.core.ratelimit import RateLimiter
 SEARCH_URL = "https://api.twitter.com/2/tweets/search/recent"
 COUNTS_URL = "https://api.twitter.com/2/tweets/counts/recent"
 REQUEST_TIMEOUT = 15
-CACHE_TTL_SECONDS = 600
+CACHE_TTL_SECONDS = 21600  # 6 h : le profil social d'un memecoin bouge lentement
 MIN_SYMBOL_LEN = 4
 SAMPLE_SIZE = 100
 VELOCITY_WINDOW_MINUTES = 15
@@ -61,10 +61,25 @@ class SocialStats:
 
 
 class TwitterAPI:
-    def __init__(self, bearer_token: Optional[str], max_lookups_per_cycle: int = 8):
+    def __init__(
+        self,
+        bearer_token: Optional[str],
+        max_lookups_per_cycle: int = 2,
+        budget: Optional[Any] = None,
+        sample_quality: bool = False,
+    ):
+        """`budget` : `MonthlyBudget`, refuse l'appel si le mois est épuisé.
+
+        `sample_quality` : si True, dépense une 2e requête par token pour les
+        auteurs et l'engagement. DÉSACTIVÉ par défaut — `search/recent` renvoie
+        de vrais posts et compte double contre le plafond mensuel.
+        """
         self.bearer_token = bearer_token
         self.enabled = bool(bearer_token)
         self.max_lookups_per_cycle = max_lookups_per_cycle
+        self.budget = budget
+        self.sample_quality = sample_quality
+        self.skipped_no_budget = 0
         self.session = requests.Session()
         self.counts_limiter = RateLimiter(300, 900.0, name="twitter/counts")
         self.search_limiter = RateLimiter(450, 900.0, name="twitter/search")
@@ -87,6 +102,11 @@ class TwitterAPI:
         return token_address
 
     def _get(self, url: str, params: dict[str, Any], limiter: RateLimiter) -> Optional[dict]:
+        # Le budget se consulte AVANT l'appel : un 402 est irréversible pour
+        # le reste du mois.
+        if self.budget is not None and not self.budget.spend(1):
+            self.skipped_no_budget += 1
+            return None
         limiter.acquire()
         try:
             response = self.session.get(
@@ -197,9 +217,11 @@ class TwitterAPI:
             return None
         mentions, velocity = volume
 
-        # Pas une seule mention : inutile de dépenser la requête de qualité.
-        if mentions == 0:
-            stats = SocialStats(0, 0, 0, 0, term, 0)
+        # Une seule requête par token par défaut. `counts/recent` suffit au
+        # volume et à la vélocité ; la qualité coûte une requête de plus et
+        # `search/recent` pèse plus lourd sur le plafond mensuel.
+        if mentions == 0 or not self.sample_quality:
+            stats = SocialStats(mentions, velocity, 0, 0, term, 0)
         else:
             authors, engagement, sample = self.get_quality(term, minutes)
             stats = SocialStats(mentions, velocity, authors, engagement, term, sample)
@@ -218,12 +240,14 @@ class TwitterAPI:
             if stats is not None:
                 results[candidate.token_address] = stats
 
-        if results:
-            print(
-                f"[Twitter] {len(results)} tokens mesurés | {self.request_count} req cumulées "
-                f"| quota restant counts {self.counts_limiter.available}/15min, "
-                f"search {self.search_limiter.available}/15min"
+        if results or self.skipped_no_budget:
+            budget = f" | budget mois : {self.budget.remaining} restantes" if self.budget else ""
+            skipped = (
+                f" | {self.skipped_no_budget} sautés faute de budget"
+                if self.skipped_no_budget
+                else ""
             )
+            print(f"[Twitter] {len(results)} tokens mesurés{budget}{skipped}")
         self.purge_cache()
         return results
 
