@@ -66,6 +66,8 @@ export type Position = {
 
 export type Stats = {
   mode: string
+  /** Mise de départ configurée : référence du P&L cumulé. */
+  baseline: number
   capital: number
   equity: number
   total_pnl_usd: number

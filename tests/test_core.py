@@ -348,3 +348,54 @@ class TestInstanceLock(unittest.TestCase):
         lock.acquire()
         lock.release()
         self.assertFalse(os.path.exists(self.path))
+
+
+class TestPortfolioReprise(unittest.TestCase):
+    """Le capital doit survivre à un redémarrage : sinon le P&L repart à zéro."""
+
+    def setUp(self):
+        from src.core.journal import TradeJournal
+        from src.core.portfolio import PaperPortfolio
+        self.Journal, self.Portfolio = TradeJournal, PaperPortfolio
+        self.tmp = tempfile.mkdtemp()
+        self.path = os.path.join(self.tmp, "trades.jsonl")
+
+    def _log(self, pnl_usd):
+        import json as _json
+        with open(self.path, "a") as fh:
+            fh.write(_json.dumps({
+                "is_final_exit": True, "pnl_usd": pnl_usd, "pnl_pct": pnl_usd,
+                "exit_reason": "STOP_LOSS" if pnl_usd < 0 else "TAKE_PROFIT_1",
+            }) + "\n")
+
+    def test_capital_vierge_sans_journal(self):
+        portfolio = self.Portfolio(1000.0, self.Journal(self.path))
+        self.assertEqual(portfolio.capital, 1000.0)
+        self.assertEqual(portfolio.stats()["total_pnl_usd"], 0.0)
+
+    def test_capital_reconstruit_depuis_le_journal(self):
+        self._log(-8.16)
+        self._log(-29.73)
+        portfolio = self.Portfolio(1000.0, self.Journal(self.path))
+        self.assertAlmostEqual(portfolio.capital, 962.11, places=2)
+        self.assertAlmostEqual(portfolio.stats()["total_pnl_usd"], -37.89, places=2)
+        self.assertEqual(portfolio.stats()["baseline"], 1000.0)
+
+    def test_pertes_consecutives_reprises(self):
+        # Le cooldown doit tenir compte des pertes d'avant le redémarrage.
+        self._log(+50)
+        self._log(-10)
+        self._log(-12)
+        portfolio = self.Portfolio(1000.0, self.Journal(self.path))
+        self.assertEqual(portfolio.consecutive_losses, 2)
+
+    def test_serie_de_pertes_coupee_par_un_gain(self):
+        self._log(-10)
+        self._log(+30)
+        portfolio = self.Portfolio(1000.0, self.Journal(self.path))
+        self.assertEqual(portfolio.consecutive_losses, 0)
+
+    def test_gain_augmente_le_capital(self):
+        self._log(+120)
+        portfolio = self.Portfolio(1000.0, self.Journal(self.path))
+        self.assertAlmostEqual(portfolio.capital, 1120.0, places=2)

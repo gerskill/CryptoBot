@@ -43,8 +43,6 @@ class PaperPortfolio:
         notifier: Any = None,
         mode: str = "PAPER",
     ):
-        self.initial_capital = capital
-        self.capital = capital
         self.journal = journal
         self.notifier = notifier
         self.mode = mode
@@ -52,8 +50,44 @@ class PaperPortfolio:
         self.closed_count = 0
         self.consecutive_losses = 0
         self.cooldown_until: Optional[float] = None
-        self.peak_capital = capital
         self.max_drawdown_pct = 0.0
+
+        # `baseline` = la mise de départ configurée, jamais recalculée. Elle
+        # sert de référence au P&L cumulé.
+        self.baseline = capital
+
+        # Le capital est RECONSTRUIT depuis le journal : sans ça, chaque
+        # redémarrage repart de la mise initiale et efface l'historique —
+        # le dashboard affichait 1000 $ et un P&L de 0 après deux pertes.
+        realized = self._realized_pnl_from_journal()
+        self.capital = capital + realized
+        self.peak_capital = max(capital, self.capital)
+        if realized:
+            print(
+                f"[Portfolio] {self.closed_count} trades repris du journal — "
+                f"capital reconstruit à {self.capital:.2f} $ ({realized:+.2f} $)"
+            )
+
+    def _realized_pnl_from_journal(self) -> float:
+        """P&L cumulé des trades déjà clôturés, et pertes consécutives en cours.
+
+        Les positions ouvertes ne sont PAS persistées : une boucle tuée avec une
+        position en cours la perd. Le capital est alors reconstruit sans elle,
+        ce qui rembourse implicitement la mise. Approximation conservatrice,
+        assumée tant qu'il n'y a pas de reprise de position.
+        """
+        rows = self.journal.read_final_exits()
+        self.closed_count = len(rows)
+
+        streak = 0
+        for row in reversed(rows):
+            if row.get("pnl_usd", 0) < 0:
+                streak += 1
+            else:
+                break
+        self.consecutive_losses = streak
+
+        return round(sum(row.get("pnl_usd", 0) for row in rows), 4)
 
     @property
     def in_cooldown(self) -> bool:
@@ -234,9 +268,10 @@ class PaperPortfolio:
 
         return {
             "mode": self.mode,
+            "baseline": round(self.baseline, 2),
             "capital": round(self.capital, 2),
             "equity": round(self.equity(), 2),
-            "total_pnl_usd": round(self.equity() - self.initial_capital, 2),
+            "total_pnl_usd": round(self.equity() - self.baseline, 2),
             "open_positions": len(self.positions),
             "total_trades": len(rows),
             "win_rate": round(100 * len(wins) / len(rows), 1) if rows else 0.0,

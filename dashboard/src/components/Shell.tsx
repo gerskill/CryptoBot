@@ -56,7 +56,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   const equity = stats?.equity ?? 0
   const pnl = stats?.total_pnl_usd ?? 0
-  const pnlPct = equity - pnl !== 0 ? (100 * pnl) / (equity - pnl) : 0
+  // Rendement rapporté à la mise de départ, pas à une valeur dérivée.
+  const baseline = stats?.baseline ?? 0
+  const pnlPct = baseline > 0 ? (100 * pnl) / baseline : 0
 
   // Night watch : entre 00h et 06h, le marché est creux.
   const hour = new Date().getHours()
