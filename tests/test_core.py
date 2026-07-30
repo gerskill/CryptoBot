@@ -304,3 +304,47 @@ class TestParamsStore(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestInstanceLock(unittest.TestCase):
+    """Deux boucles en parallèle corrompent state.json, le journal et le cache."""
+
+    def setUp(self):
+        from src.core.lock import InstanceLock
+        self.LockClass = InstanceLock
+        self.tmp = tempfile.mkdtemp()
+        self.path = os.path.join(self.tmp, "loop.pid")
+
+    def test_premiere_acquisition_reussit(self):
+        lock = self.LockClass(self.path)
+        self.assertIsNone(lock.acquire())
+        self.assertTrue(lock.acquired)
+        self.assertTrue(os.path.exists(self.path))
+
+    def test_deuxieme_instance_est_refusee(self):
+        first = self.LockClass(self.path)
+        first.acquire()
+
+        second = self.LockClass(self.path)
+        holder = second.acquire()
+        self.assertEqual(holder, os.getpid())
+        self.assertFalse(second.acquired)
+
+    def test_verrou_perime_est_repris(self):
+        # PID inexistant : cas du kill -9 ou du crash.
+        with open(self.path, "w") as fh:
+            fh.write("999999")
+        lock = self.LockClass(self.path)
+        self.assertIsNone(lock.acquire())
+        self.assertTrue(lock.acquired)
+
+    def test_fichier_corrompu_est_repris(self):
+        with open(self.path, "w") as fh:
+            fh.write("pas un pid")
+        self.assertIsNone(self.LockClass(self.path).acquire())
+
+    def test_release_supprime_le_verrou(self):
+        lock = self.LockClass(self.path)
+        lock.acquire()
+        lock.release()
+        self.assertFalse(os.path.exists(self.path))

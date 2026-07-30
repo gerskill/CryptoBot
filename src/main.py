@@ -26,6 +26,7 @@ from src.apis.twitter import TwitterAPI
 from src.core.cache import TokenCache
 from src.core.journal import TradeJournal
 from src.core.learning import LearningEngine
+from src.core.lock import InstanceLock
 from src.core.models import Candidate, ScanResult
 from src.core.params import ParamsStore
 from src.core.portfolio import PaperPortfolio
@@ -473,9 +474,22 @@ class AlphaLoop:
 
 
 def main() -> None:
+    # Une seule boucle à la fois : deux instances corrompent l'état partagé.
+    lock = InstanceLock(settings.LOCK_PATH)
+    holder = lock.acquire()
+    if holder is not None:
+        print(
+            f"⛔ Une boucle tourne déjà (PID {holder}). "
+            f"Arrête-la d'abord, ou supprime {settings.LOCK_PATH} si elle est morte."
+        )
+        raise SystemExit(1)
+
     signal.signal(signal.SIGINT, _handle_sigint)
     signal.signal(signal.SIGTERM, _handle_sigint)
-    AlphaLoop().run()
+    try:
+        AlphaLoop().run()
+    finally:
+        lock.release()
 
 
 if __name__ == "__main__":

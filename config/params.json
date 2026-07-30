@@ -59,15 +59,19 @@
     "rugcheck": 0.15
   },
   "learning": {
-    "total_trades": 1,
+    "total_trades": 2,
     "winning_trades": 0,
-    "losing_trades": 1,
+    "losing_trades": 2,
     "avg_win_pct": 0,
-    "avg_loss_pct": -27.2,
+    "avg_loss_pct": -63.15,
     "best_performer_filter": null,
     "worst_performer_filter": null,
     "win_rate_by_age": {
       "2-4h": {
+        "win_rate": 0.0,
+        "sample": 1
+      },
+      "1-2h": {
         "win_rate": 0.0,
         "sample": 1
       }
@@ -76,12 +80,16 @@
       ">50K": {
         "win_rate": 0.0,
         "sample": 1
+      },
+      "30-50K": {
+        "win_rate": 0.0,
+        "sample": 1
       }
     },
     "win_rate_by_social_score": {
       "fort": {
         "win_rate": 0.0,
-        "sample": 1
+        "sample": 2
       }
     },
     "parameter_adjustment_history": []

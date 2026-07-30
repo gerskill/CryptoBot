@@ -9,3 +9,5 @@ node_modules/
 dashboard/dist/
 backups/
 .scratch/
+alpha_loop.pid
+data/*.pid
