@@ -83,7 +83,15 @@ class AlphaLoop:
             notifier=self.telegram,
             mode=self.mode,
             positions_path=settings.POSITIONS_PATH,
+            cooldown_hours=self.params.get("risk_rules.cooldown_hours", 2),
+            losses_trigger=self.params.get("risk_rules.consecutive_losses_trigger", 3),
         )
+        if self.mode == "LIVE" and self.portfolio.cooldown_hours <= 0:
+            print(
+                "⚠️ Mode LIVE avec cooldown désactivé — après 3 pertes consécutives "
+                "le bot continuera d'ouvrir des positions. Remets "
+                "risk_rules.cooldown_hours à 2 dans params.json."
+            )
 
         self.cycle_count = 0
         self.paused = False

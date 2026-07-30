@@ -101,5 +101,10 @@
       }
     },
     "parameter_adjustment_history": []
+  },
+  "risk_rules": {
+    "cooldown_hours": 0,
+    "consecutive_losses_trigger": 3,
+    "_note": "cooldown_hours: 0 desactive la pause. En PAPER on veut collecter les 20 trades de validation sans interruption. Remettre 2 avant LIVE."
   }
 }

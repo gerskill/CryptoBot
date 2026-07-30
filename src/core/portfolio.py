@@ -58,7 +58,13 @@ class PaperPortfolio:
         notifier: Any = None,
         mode: str = "PAPER",
         positions_path: Optional[str] = None,
+        cooldown_hours: float = COOLDOWN_HOURS,
+        losses_trigger: int = CONSECUTIVE_LOSSES_TRIGGER,
     ):
+        # `cooldown_hours = 0` désactive la pause. Voulu en PAPER : une pause
+        # de 2h après 3 pertes bloque la collecte des 20 trades de validation.
+        self.cooldown_hours = cooldown_hours
+        self.losses_trigger = losses_trigger
         self.journal = journal
         self.notifier = notifier
         self.mode = mode
@@ -112,10 +118,10 @@ class PaperPortfolio:
 
         # Le cooldown doit survivre au redémarrage, sinon relancer le bot
         # devient un moyen trivial de contourner la pause après 3 pertes.
-        if streak >= CONSECUTIVE_LOSSES_TRIGGER and rows:
+        if self.cooldown_hours > 0 and streak >= self.losses_trigger and rows:
             last_exit = _parse_iso(rows[-1].get("timestamp_exit"))
             if last_exit is not None:
-                until = last_exit + COOLDOWN_HOURS * 3600
+                until = last_exit + self.cooldown_hours * 3600
                 if until > time.time():
                     self.cooldown_until = until
                     print(
@@ -317,15 +323,15 @@ class PaperPortfolio:
         total_pnl_pct = 100 * position.realized_pnl_usd / position.size_usd
         if position.realized_pnl_usd < 0:
             self.consecutive_losses += 1
-            if self.consecutive_losses >= CONSECUTIVE_LOSSES_TRIGGER:
-                self.cooldown_until = time.time() + COOLDOWN_HOURS * 3600
+            if self.cooldown_hours > 0 and self.consecutive_losses >= self.losses_trigger:
+                self.cooldown_until = time.time() + self.cooldown_hours * 3600
                 print(
-                    f"⛔ COOLDOWN {COOLDOWN_HOURS}h — "
+                    f"⛔ COOLDOWN {self.cooldown_hours}h — "
                     f"{self.consecutive_losses} pertes consécutives"
                 )
                 if self.notifier:
                     self.notifier.send(
-                        f"⛔ <b>COOLDOWN {COOLDOWN_HOURS}h</b>\n"
+                        f"⛔ <b>COOLDOWN {self.cooldown_hours}h</b>\n"
                         f"{self.consecutive_losses} pertes consécutives — "
                         f"aucune nouvelle entrée."
                     )

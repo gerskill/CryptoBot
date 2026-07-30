@@ -415,7 +415,7 @@ class TestPortfolioPersistance(unittest.TestCase):
 
     def _portfolio(self):
         return self.Portfolio(1000.0, self.Journal(self.trades),
-                              positions_path=self.open_path)
+                              positions_path=self.open_path, cooldown_hours=2)
 
     def _log(self, pnl_usd, iso=None):
         import json as _json
@@ -477,6 +477,15 @@ class TestPortfolioPersistance(unittest.TestCase):
         portfolio = self._portfolio()
         self.assertTrue(portfolio.in_cooldown)
         self.assertGreater(portfolio.cooldown_remaining_min(), 100)
+
+    def test_cooldown_desactivable(self):
+        # En PAPER on veut collecter les 20 trades sans pause forcée.
+        for _ in range(3):
+            self._log(-10)
+        sans = self.Portfolio(1000.0, self.Journal(self.trades),
+                              positions_path=self.open_path, cooldown_hours=0)
+        self.assertFalse(sans.in_cooldown)
+        self.assertEqual(sans.consecutive_losses, 3)  # la série reste comptée
 
     def test_cooldown_expire_apres_deux_heures(self):
         from datetime import datetime, timedelta, timezone
