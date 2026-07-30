@@ -42,6 +42,10 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID") or None
 
 # DexScreener et RugCheck : API publiques, aucune clé requise.
 
+GMGN_ENABLED = bool(os.getenv("GMGN_API_KEY")) or os.path.exists(
+    os.path.expanduser("~/.config/gmgn/.env")
+)
+
 TRADING_MODE = os.getenv("TRADING_MODE", "PAPER").upper()
 
 
@@ -54,4 +58,5 @@ def key_status() -> dict[str, bool]:
         "birdeye": BIRDEYE_API_KEY is not None,
         "twitter": TWITTER_BEARER_TOKEN is not None,
         "telegram": TELEGRAM_BOT_TOKEN is not None and TELEGRAM_CHAT_ID is not None,
+        "gmgn": GMGN_ENABLED,
     }

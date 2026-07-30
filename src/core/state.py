@@ -69,9 +69,10 @@ def candidate_to_dict(candidate: Any) -> dict[str, Any]:
         "social_unique_authors": candidate.social_unique_authors,
         "social_engagement": candidate.social_engagement,
         "social_velocity_15m": candidate.social_velocity_15m,
-        # Aucune source publique : le dashboard affiche « aucune source »
-        # plutôt qu'un zéro trompeur.
         "smart_money_buys_30m": candidate.smart_money_buys_30m,
+        "smart_money_sells_30m": candidate.smart_money_sells_30m,
+        "smart_money_wallets_30m": candidate.smart_money_wallets_30m,
+        "smart_money_volume_usd": candidate.smart_money_volume_usd,
         "alpha_score": candidate.alpha_score,
         "alpha_score_absolute": candidate.alpha_score_absolute,
         "sub_scores": candidate.sub_scores,

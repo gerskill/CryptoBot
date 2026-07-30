@@ -20,6 +20,7 @@ from src import settings
 from src.analysis.technical import PriceHistory, TechnicalVerdict, analyze, from_ohlcv
 from src.apis.birdeye import BirdeyeAPI
 from src.apis.dexscreener import DexScreenerAPI
+from src.apis.gmgn import GmgnAPI
 from src.apis.helius import HeliusAPI
 from src.apis.rugcheck import RugCheckAPI
 from src.apis.twitter import TwitterAPI
@@ -58,6 +59,7 @@ class AlphaLoop:
         self.history = PriceHistory()
         self.dex = DexScreenerAPI(cache=self.cache)
         self.birdeye = BirdeyeAPI(settings.BIRDEYE_API_KEY)
+        self.gmgn = GmgnAPI(chain="sol")
         self.pipeline = ScanPipeline(
             params=self.params,
             cache=self.cache,
@@ -66,6 +68,7 @@ class AlphaLoop:
             rugcheck=RugCheckAPI(),
             birdeye=self.birdeye,
             twitter=TwitterAPI(settings.TWITTER_BEARER_TOKEN),
+            gmgn=self.gmgn,
             history=self.history,
         )
 
@@ -218,7 +221,17 @@ class AlphaLoop:
                     "shadow_by_family": self.shadow.missed_rate_by_family(min_sample=1),
                     "entry_threshold": self.params.get("scan.alpha_score_entry_threshold", 75),
                     "live_allowed": self.learning.live_mode_allowed(),
-                    "api_status": settings.key_status(),
+                    # État RÉEL au moment du cycle, pas juste « la clé
+                    # existe » : Twitter se coupe tout seul sur un 402, le
+                    # dashboard doit le refléter au lieu d'afficher « actif ».
+                    "api_status": {
+                        **settings.key_status(),
+                        "twitter": self.pipeline.twitter.enabled
+                        if self.pipeline.twitter
+                        else False,
+                        "birdeye": self.birdeye.enabled,
+                        "gmgn": self.gmgn.enabled,
+                    },
                 }
             )
         except Exception as exc:  # le dashboard ne doit jamais faire tomber le bot

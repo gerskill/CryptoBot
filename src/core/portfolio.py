@@ -34,6 +34,10 @@ COOLDOWN_HOURS = 2
 KELLY_MIN_TRADES = 20
 KELLY_WIN_RATE_FLOOR = 0.40
 
+# Champs de Position typés `tuple` : JSON les rend en liste, il faut les
+# reconvertir à la restauration (voir `_load_positions`).
+TUPLE_FIELDS = ("exit_reasons",)
+
 def _parse_iso(value: Any) -> Optional[float]:
     """Horodatage ISO -> epoch. None si absent ou illisible."""
     if not value:
@@ -161,7 +165,15 @@ class PaperPortfolio:
             try:
                 # Ignorer les champs inconnus : le format peut évoluer sans
                 # rendre un fichier existant incompatible.
-                position = Position(**{k: v for k, v in row.items() if k in known})
+                clean = {k: v for k, v in row.items() if k in known}
+                # JSON n'a pas de tuple : il sérialise en liste. Sans cette
+                # reconversion, `exit_reasons + (raison,)` lève un TypeError à
+                # la première sortie — la position restaurée devenait
+                # IMPOSSIBLE à fermer et saignait indéfiniment.
+                for name in TUPLE_FIELDS:
+                    if isinstance(clean.get(name), list):
+                        clean[name] = tuple(clean[name])
+                position = Position(**clean)
                 restored[position.id] = position
             except (TypeError, ValueError) as exc:
                 print(f"[Portfolio] position ignorée ({exc})")

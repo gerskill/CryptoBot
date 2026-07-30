@@ -493,3 +493,142 @@ class TestPortfolioPersistance(unittest.TestCase):
         for _ in range(3):
             self._log(-10, iso=vieux)
         self.assertFalse(self._portfolio().in_cooldown)
+
+
+class TestGmgnLectureSeule(unittest.TestCase):
+    """Le module GMGN ne doit JAMAIS pouvoir exécuter une transaction."""
+
+    def setUp(self):
+        from src.apis.gmgn import ForbiddenCommand, GmgnAPI
+        self.GmgnAPI, self.Forbidden = GmgnAPI, ForbiddenCommand
+        self.api = GmgnAPI(enabled=False)
+
+    def test_commandes_de_trading_refusees(self):
+        # gmgn-cli sait acheter, vendre et créer des tokens : la liste
+        # blanche doit rejeter avant même d'atteindre le sous-processus.
+        for interdite in [
+            ("swap", "--token"), ("multi-swap", "--token"),
+            ("order", "create"), ("cooking", "create"), ("config", "--apply"),
+        ]:
+            with self.assertRaises(self.Forbidden, msg=f"{interdite} non bloquée"):
+                self.api._run(*interdite)
+
+    def test_commandes_de_lecture_autorisees(self):
+        # Autorisées par la liste blanche : retournent None car désactivé,
+        # mais ne lèvent pas.
+        for permise in [
+            ("track", "smartmoney"), ("token", "security"),
+            ("token", "holders"), ("market", "trending"),
+        ]:
+            self.assertIsNone(self.api._run(*permise))
+
+    def test_desactive_sans_cle(self):
+        self.assertFalse(self.api.enabled)
+        self.assertEqual(self.api.fetch_smart_money_trades(), [])
+        self.assertEqual(self.api.activity_by_token(), {})
+
+
+class TestGmgnParsing(unittest.TestCase):
+    """Le format du CLI varie entre versions : le parsing doit être tolérant."""
+
+    def setUp(self):
+        from src.apis.gmgn import GmgnAPI
+        self.api = GmgnAPI(enabled=False)
+
+    def _snapshot(self, trades):
+        self.api._smart_money_snapshot = (time.time(), trades)
+        self.api.enabled = True
+
+    def test_agrege_achats_et_ventes_par_token(self):
+        now = time.time()
+        self._snapshot([
+            {"token_address": "AAA", "side": "buy", "wallet_address": "w1",
+             "timestamp": now, "volume_usd": 500},
+            {"token_address": "AAA", "side": "buy", "wallet_address": "w2",
+             "timestamp": now, "volume_usd": 300},
+            {"token_address": "AAA", "side": "sell", "wallet_address": "w1",
+             "timestamp": now, "volume_usd": 100},
+            {"token_address": "BBB", "side": "buy", "wallet_address": "w3",
+             "timestamp": now, "volume_usd": 50},
+        ])
+        activity = self.api.activity_by_token()
+        self.assertEqual(activity["AAA"].buys, 2)
+        self.assertEqual(activity["AAA"].sells, 1)
+        self.assertEqual(activity["AAA"].unique_wallets, 2)
+        self.assertEqual(activity["AAA"].volume_usd, 900.0)
+        self.assertAlmostEqual(activity["AAA"].net_pressure, 2 / 3)
+
+    def test_ignore_les_trades_hors_fenetre(self):
+        now = time.time()
+        self._snapshot([
+            {"token_address": "AAA", "side": "buy", "timestamp": now},
+            {"token_address": "AAA", "side": "buy", "timestamp": now - 3600},
+        ])
+        self.assertEqual(self.api.activity_by_token(window_minutes=30)["AAA"].buys, 1)
+
+    def test_timestamp_en_millisecondes(self):
+        self._snapshot([
+            {"token_address": "AAA", "side": "buy", "timestamp": time.time() * 1000},
+        ])
+        self.assertEqual(self.api.activity_by_token()["AAA"].buys, 1)
+
+    def test_noms_de_champs_alternatifs(self):
+        now = time.time()
+        self._snapshot([
+            {"token": "AAA", "event": "sell", "maker": "w1", "block_time": now},
+            {"mint": "AAA", "direction": "buy", "address": "w2", "trade_time": now},
+        ])
+        activity = self.api.activity_by_token()
+        self.assertEqual(activity["AAA"].buys, 1)
+        self.assertEqual(activity["AAA"].sells, 1)
+
+
+class TestPositionRestaurableEtFermable(unittest.TestCase):
+    """Une position restaurée doit pouvoir se fermer.
+
+    JSON n'a pas de tuple : `exit_reasons` revenait en liste et la première
+    sortie levait `TypeError: can only concatenate list (not "tuple") to list`.
+    L'exception étant avalée par la boucle, la position ne se fermait JAMAIS.
+    """
+
+    def setUp(self):
+        from src.core.journal import TradeJournal
+        from src.core.portfolio import PaperPortfolio
+        self.Journal, self.Portfolio = TradeJournal, PaperPortfolio
+        self.tmp = tempfile.mkdtemp()
+        self.trades = os.path.join(self.tmp, "trades.jsonl")
+        self.open_path = os.path.join(self.tmp, "open.json")
+        self.params = {"version": "2.0", "exit_rules": {"stop_loss_pct": -25}}
+
+    def _portfolio(self):
+        return self.Portfolio(1000.0, self.Journal(self.trades),
+                              positions_path=self.open_path, cooldown_hours=0)
+
+    def test_exit_reasons_revient_en_tuple(self):
+        first = self._portfolio()
+        first.open(make_candidate("REST", price_usd=1.0), self.params, 30.0)
+        restored = next(iter(self._portfolio().positions.values()))
+        self.assertIsInstance(restored.exit_reasons, tuple)
+
+    def test_position_restauree_peut_etre_fermee(self):
+        first = self._portfolio()
+        first.open(make_candidate("SL", price_usd=1.0), self.params, 30.0)
+
+        restarted = self._portfolio()
+        position_id = next(iter(restarted.positions))
+        rows = restarted.update(position_id, 0.5)  # -50% -> stop loss
+
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(rows[0]["is_final_exit"])
+        self.assertEqual(len(restarted.positions), 0)
+
+    def test_sortie_partielle_puis_restauration_puis_cloture(self):
+        first = self._portfolio()
+        position = first.open(make_candidate("TP", price_usd=1.0), self.params, 30.0)
+        first.update(position.id, 2.5)  # TP1
+        self.assertEqual(len(first.positions[position.id].exit_reasons), 1)
+
+        restarted = self._portfolio()
+        restored_id = next(iter(restarted.positions))
+        restarted.update(restored_id, 0.9)  # repasse sous le breakeven
+        self.assertEqual(len(restarted.positions), 0)

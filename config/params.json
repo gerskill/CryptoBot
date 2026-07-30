@@ -22,11 +22,12 @@
     "min_rugcheck_score": 70,
     "max_top_wallet_concentration": 20,
     "min_social_mentions_1h": 0,
-    "min_smart_money_buys_30min": 3,
+    "min_smart_money_buys_30min": 0,
     "max_tax_buy": 5,
     "max_tax_sell": 5,
     "max_age_hours": 6,
-    "min_age_hours": 0.5
+    "min_age_hours": 0.5,
+    "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose."
   },
   "entry_rules": {
     "slippage_max_pct": 15,
@@ -59,11 +60,11 @@
     "rugcheck": 0.15
   },
   "learning": {
-    "total_trades": 3,
+    "total_trades": 4,
     "winning_trades": 0,
-    "losing_trades": 3,
+    "losing_trades": 4,
     "avg_win_pct": 0,
-    "avg_loss_pct": -51.67,
+    "avg_loss_pct": -48.88,
     "best_performer_filter": null,
     "worst_performer_filter": null,
     "win_rate_by_age": {
@@ -73,7 +74,7 @@
       },
       "1-2h": {
         "win_rate": 0.0,
-        "sample": 1
+        "sample": 2
       },
       "0-1h": {
         "win_rate": 0.0,
@@ -87,7 +88,7 @@
       },
       "30-50K": {
         "win_rate": 0.0,
-        "sample": 1
+        "sample": 2
       },
       "10-30K": {
         "win_rate": 0.0,

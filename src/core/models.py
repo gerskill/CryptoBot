@@ -53,8 +53,11 @@ class Candidate:
     social_velocity_15m: Optional[int] = None
     social_sample_size: Optional[int] = None  # tweets échantillonnés (plafond 100)
 
-    # --- Smart money (pas de source publique, voir README) ---
+    # --- Smart money (GMGN, lecture seule) ---
     smart_money_buys_30m: Optional[int] = None
+    smart_money_sells_30m: Optional[int] = None
+    smart_money_wallets_30m: Optional[int] = None
+    smart_money_volume_usd: Optional[float] = None
 
     # --- Scoring ---
     alpha_score: float = 0.0  # 60% absolu + 40% rang dans le batch -> CLASSEMENT

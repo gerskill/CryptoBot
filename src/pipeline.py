@@ -7,6 +7,7 @@ from typing import Optional
 from src.analysis.technical import PriceHistory
 from src.apis.birdeye import BirdeyeAPI
 from src.apis.dexscreener import DexScreenerAPI
+from src.apis.gmgn import GmgnAPI
 from src.apis.helius import HeliusAPI
 from src.apis.rugcheck import RugCheckAPI
 from src.apis.twitter import TwitterAPI
@@ -29,6 +30,7 @@ class ScanPipeline:
         rugcheck: RugCheckAPI,
         birdeye: Optional[BirdeyeAPI] = None,
         twitter: Optional[TwitterAPI] = None,
+        gmgn: Optional[GmgnAPI] = None,
         history: Optional[PriceHistory] = None,
     ):
         self.params = params
@@ -38,6 +40,7 @@ class ScanPipeline:
         self.rugcheck = rugcheck
         self.birdeye = birdeye
         self.twitter = twitter
+        self.gmgn = gmgn
         self.history = history or PriceHistory()
         self._audit_cache: dict[str, tuple[float, dict]] = {}
 
@@ -64,7 +67,7 @@ class ScanPipeline:
         scanned_count = len(raw)
         raw = self._trim(raw, watched, scan_cfg.get("max_candidates_enriched", 25))
 
-        enriched = self._enrich_all(raw, filters)
+        enriched = self._enrich_smart_money(self._enrich_all(raw, filters))
         kept, rejected = self._apply_security_filters(enriched, filters)
 
         self.history.record_all(kept)
@@ -177,6 +180,41 @@ class ScanPipeline:
 
         self._audit_cache[candidate.token_address] = (time.time(), updates)
         return candidate.with_fields(**updates)
+
+    def _enrich_smart_money(self, candidates: list[Candidate]) -> list[Candidate]:
+        """Achats smart money par token — UN seul appel couvre tout le lot.
+
+        Le flux GMGN est global à la chaîne : on le récupère une fois et on
+        l'indexe. Interroger token par token gaspillerait le quota.
+        """
+        if not (self.gmgn and self.gmgn.enabled) or not candidates:
+            return candidates
+
+        activity = self.gmgn.activity_by_token()
+        if not activity:
+            return candidates
+
+        enriched = []
+        touched = 0
+        for candidate in candidates:
+            stats = activity.get(candidate.token_address)
+            if stats is None:
+                # Absent du flux = zéro achat smart money observé, pas
+                # « donnée manquante » : le filtre doit pouvoir s'appliquer.
+                enriched.append(candidate.with_fields(smart_money_buys_30m=0))
+                continue
+            touched += 1
+            enriched.append(
+                candidate.with_fields(
+                    smart_money_buys_30m=stats.buys,
+                    smart_money_sells_30m=stats.sells,
+                    smart_money_wallets_30m=stats.unique_wallets,
+                    smart_money_volume_usd=stats.volume_usd,
+                )
+            )
+        if touched:
+            print(f"[GMGN] {touched}/{len(candidates)} candidats avec activité smart money")
+        return enriched
 
     def _enrich_social(self, candidates: list[Candidate]) -> list[Candidate]:
         """Social pour les meilleurs candidats (quota Twitter géré en interne)."""

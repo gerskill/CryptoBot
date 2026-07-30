@@ -65,11 +65,32 @@ function StatGrid() {
   const live = useStore((s) => s.state.live_allowed)
   if (!stats) return null
 
+  // Un profit factor à 0.00 ressemble à un bug alors qu'il signifie
+  // « aucun trade gagnant ». On l'affiche comme tel, avec le détail du
+  // win rate pour que 0% se lise « 0 sur 3 » et non « métrique cassée ».
+  const wins = Math.round((stats.win_rate / 100) * stats.total_trades)
+  const noTrades = stats.total_trades === 0
   const cells = [
-    { label: 'win rate', value: `${stats.win_rate}%` },
-    { label: 'profit factor', value: stats.profit_factor.toFixed(2) },
-    { label: 'trades', value: String(stats.total_trades) },
-    { label: 'drawdown max', value: `${stats.max_drawdown_pct}%` },
+    {
+      label: 'win rate',
+      value: noTrades ? '—' : `${stats.win_rate}%`,
+      hint: noTrades ? 'aucun trade' : `${wins} gagnant${wins > 1 ? 's' : ''} sur ${stats.total_trades}`,
+    },
+    {
+      label: 'profit factor',
+      value: noTrades ? '—' : stats.profit_factor > 0 ? stats.profit_factor.toFixed(2) : '0',
+      hint: noTrades
+        ? 'aucun trade'
+        : stats.profit_factor > 0
+          ? 'gains / pertes'
+          : 'aucun gain à ce jour',
+    },
+    { label: 'trades', value: String(stats.total_trades), hint: 'clôturés' },
+    {
+      label: 'drawdown max',
+      value: `${stats.max_drawdown_pct}%`,
+      hint: 'plus fort recul depuis un sommet',
+    },
   ]
 
   return (
@@ -78,7 +99,8 @@ function StatGrid() {
         {cells.map((cell) => (
           <div key={cell.label} className="rounded-lg border border-edge/60 px-3 py-2">
             <dt className="text-[9px] uppercase tracking-wide text-dim">{cell.label}</dt>
-            <dd className="font-mono text-lg tabular-nums">{cell.value}</dd>
+            <dd className="font-mono text-lg leading-tight tabular-nums">{cell.value}</dd>
+            <dd className="mt-0.5 text-[9px] leading-snug text-dim/70">{cell.hint}</dd>
           </div>
         ))}
       </dl>

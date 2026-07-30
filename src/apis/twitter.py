@@ -101,6 +101,16 @@ class TwitterAPI:
                 reset = response.headers.get("x-rate-limit-reset")
                 print(f"[Twitter] 429 sur {url.rsplit('/', 1)[-1]} (reset {reset})")
                 return None
+            if response.status_code == 402:
+                # Quota mensuel du plan épuisé. Réessayer à chaque cycle ne
+                # ferait que perdre du temps : on coupe le module jusqu'au
+                # prochain démarrage.
+                print(
+                    "[Twitter] 402 quota mensuel épuisé — module désactivé. "
+                    "Le composant social sort du score, ses poids sont redistribués."
+                )
+                self.enabled = False
+                return None
             if response.status_code in (401, 403):
                 print(f"[Twitter] {response.status_code} : bearer refusé ou plan insuffisant")
                 self.enabled = False
