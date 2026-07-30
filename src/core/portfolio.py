@@ -25,7 +25,7 @@ from src.core.positions import (
     Position,
     apply_exit,
     evaluate_exits,
-    update_high_water,
+    update_water_marks,
 )
 
 MAX_POSITION_PCT_OF_CAPITAL = 0.05
@@ -255,6 +255,8 @@ class PaperPortfolio:
             trailing_stop_activation=exits.get("trailing_stop_activation", 200),
             trailing_stop_distance_pct=exits.get("trailing_stop_distance_pct", 50),
             max_hold_time_minutes=exits.get("max_hold_time_minutes", 240),
+            stop_loss_slippage_buffer_pct=exits.get("stop_loss_slippage_buffer_pct", 0.0),
+            price_change_5m_at_entry=candidate.price_change_5m,
         )
         self.positions[position.id] = position
         self.capital -= size_usd
@@ -271,7 +273,7 @@ class PaperPortfolio:
         if position is None or price <= 0:
             return []
 
-        position = update_high_water(position, price)
+        position = update_water_marks(position, price)
         self.positions[position_id] = position
 
         rows = []

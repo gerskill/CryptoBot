@@ -54,6 +54,19 @@ class TradeJournal:
             "rugcheck_score": position.rugcheck_score,
             "age_hours_at_entry": position.age_hours_at_entry,
             "params_version": position.params_version,
+            # --- Instrumentation : calibrer TP et SL sur le réel ---
+            # `peak_pct` répond à « le TP1 à +100% était-il seulement
+            # atteignable ? ». `minutes_to_peak` dit quand sécuriser.
+            "peak_pct": round(position.high_water_pct, 2),
+            "minutes_to_peak": round(position.minutes_to_peak, 2)
+            if position.minutes_to_peak is not None
+            else None,
+            "trough_pct": round(position.low_water_pct, 2),
+            # Le prix montait-il déjà fort à l'achat ? Teste l'hypothèse
+            # « le score achète le haut de la bougie ».
+            "price_change_5m_at_entry": position.price_change_5m_at_entry,
+            "stop_loss_target_pct": position.stop_loss_pct,
+            "stop_loss_trigger_pct": position.effective_stop_loss_pct,
         }
         self._append(row)
         return row

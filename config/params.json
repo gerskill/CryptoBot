@@ -6,7 +6,7 @@
   "max_concurrent_positions": 3,
   "scan": {
     "interval_seconds": 90,
-    "monitor_interval_seconds": 20,
+    "monitor_interval_seconds": 5,
     "chains": [
       "solana"
     ],
@@ -14,7 +14,8 @@
     "max_candidates_enriched": 25,
     "alpha_score_entry_threshold": 75,
     "social_lookup_min_alpha": 70,
-    "social_max_lookups_per_cycle": 2
+    "social_max_lookups_per_cycle": 2,
+    "_note_monitor": "5s au lieu de 20s : mesure sur 10 trades, 8 sorties SL sur 8 depassaient leur seuil de 4.6 points en moyenne (pire -40.5% pour un SL a -25%). Cout : 1 requete par position et par tick, quota DexScreener 300/min."
   },
   "filters": {
     "min_liquidity_usd": 15000,
@@ -43,7 +44,7 @@
     "structure_mode": "balanced"
   },
   "exit_rules": {
-    "stop_loss_pct": -25,
+    "stop_loss_pct": -20,
     "take_profit_1": 100,
     "take_profit_2": 300,
     "take_profit_3": 500,
@@ -52,7 +53,9 @@
     "partial_sell_tp2_pct": 0.5,
     "trailing_stop_activation": 200,
     "trailing_stop_distance_pct": 50,
-    "max_hold_time_minutes": 240
+    "max_hold_time_minutes": 240,
+    "stop_loss_slippage_buffer_pct": 4.6,
+    "_note_sl_buffer": "Declenche le SL AVANT son seuil pour compenser le glissement mesure. SL -25% + tampon 4.6 => sortie declenchee a -20.4%, atterrissage vise -25%. Valeur = depassement moyen constate sur les 8 premieres sorties SL. A recalibrer quand l'echantillon grandit."
   },
   "scoring_weights": {
     "liquidity": 0.2,
@@ -62,17 +65,17 @@
     "rugcheck": 0.15
   },
   "learning": {
-    "total_trades": 9,
+    "total_trades": 10,
     "winning_trades": 0,
-    "losing_trades": 9,
+    "losing_trades": 10,
     "avg_win_pct": 0,
-    "avg_loss_pct": -45.41,
+    "avg_loss_pct": -43.48,
     "best_performer_filter": null,
     "worst_performer_filter": null,
     "win_rate_by_age": {
       "2-4h": {
         "win_rate": 0.0,
-        "sample": 1
+        "sample": 2
       },
       "1-2h": {
         "win_rate": 0.0,
@@ -94,7 +97,7 @@
       },
       "10-30K": {
         "win_rate": 0.0,
-        "sample": 4
+        "sample": 5
       }
     },
     "win_rate_by_social_score": {
@@ -103,9 +106,20 @@
         "sample": 2
       }
     },
-    "parameter_adjustment_history": [],
+    "parameter_adjustment_history": [
+      {
+        "timestamp": "2026-07-30T18:34:08.721676+00:00",
+        "param_name": "exit_rules.stop_loss_pct",
+        "old_value": -25,
+        "new_value": -20,
+        "reason": "perte moyenne -43.48% bien au-delà du SL -25%",
+        "trades_sample_size": 10
+      }
+    ],
     "last_adjustment_at": {
-      "filters": 5
+      "filters": 10,
+      "weights": 10,
+      "exits": 10
     }
   },
   "risk_rules": {

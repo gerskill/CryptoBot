@@ -228,7 +228,10 @@ function RecentTrades() {
 
 export function TheBrain() {
   const apis = useStore((s) => s.state.api_status ?? EMPTY_OBJECT)
-  const offline = Object.entries(apis).filter(([, ok]) => !ok).map(([name]) => name)
+  // gmgn et twitter ont leur propre encart détaillé ci-dessous.
+  const offline = Object.entries(apis)
+    .filter(([name, ok]) => !ok && name !== 'gmgn' && name !== 'twitter')
+    .map(([name]) => name)
 
   return (
     <Panel title="The Brain">
@@ -246,20 +249,30 @@ export function TheBrain() {
 
       <h3 className="mb-1.5 mt-4 text-[10px] uppercase tracking-wide text-dim">Sources absentes</h3>
       <div className="space-y-2">
-        <NoSource
-          label="Smart money"
-          why="GMGN n'expose aucune API publique. Le filtre est inactif et le composant exclu du score."
-        />
+        {/* Piloté par l'état réel : un panneau codé en dur devient un mensonge
+            dès qu'une source est branchée. */}
+        {!apis.gmgn && (
+          <NoSource
+            label="Smart money"
+            why="GMGN inactif — clé absente ou refusée. Le composant est exclu du score."
+          />
+        )}
+        {!apis.twitter && (
+          <NoSource
+            label="Social"
+            why="Twitter inactif — quota mensuel épuisé ou clé refusée. Poids redistribués."
+          />
+        )}
         <NoSource
           label="BubbleMap"
-          why="Non intégré. La concentration est approchée par le top holder et le top 10."
+          why="Écarté (trop cher). La concentration est approchée par le top holder et le top 10."
         />
         <NoSource
           label="Test honeypot"
           why="Demande un wallet et un swap réel. Impossible en mode papier."
         />
         {offline.length > 0 && (
-          <NoSource label="API sans clé" why={offline.join(', ')} />
+          <NoSource label="Autres sources inactives" why={offline.join(', ')} />
         )}
       </div>
     </Panel>

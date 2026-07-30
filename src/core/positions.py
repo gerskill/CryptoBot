@@ -56,8 +56,16 @@ class Position:
     trailing_stop_distance_pct: float = 50.0
     max_hold_time_minutes: float = 240.0
 
+    # Tampon anticipant le glissement du stop loss (voir `effective_stop_loss_pct`)
+    stop_loss_slippage_buffer_pct: float = 0.0
+    # Contexte de prix à l'entrée — sert à comprendre ce que le score achète
+    price_change_5m_at_entry: float = 0.0
+
     remaining_fraction: float = 1.0
     high_water_pct: float = 0.0
+    # Instrumentation : quand le pic a été atteint, et le point bas traversé.
+    high_water_at: Optional[float] = None
+    low_water_pct: float = 0.0
     tp1_hit: bool = False
     tp2_hit: bool = False
     breakeven_moved: bool = False
@@ -71,8 +79,22 @@ class Position:
 
     @property
     def effective_stop_loss_pct(self) -> float:
-        """Après TP1, le stop remonte au prix d'entrée (breakeven)."""
-        return 0.0 if self.breakeven_moved else self.stop_loss_pct
+        """Seuil de sortie réel, tampon de glissement inclus.
+
+        Mesuré sur les 8 premières sorties SL : 8/8 sortaient SOUS leur seuil,
+        de 4.6 points en moyenne, le prix traversant le niveau entre deux
+        mesures. Déclencher plus tôt d'autant vise un atterrissage au seuil
+        voulu plutôt qu'en dessous.
+        """
+        base = 0.0 if self.breakeven_moved else self.stop_loss_pct
+        return base + self.stop_loss_slippage_buffer_pct
+
+    @property
+    def minutes_to_peak(self) -> Optional[float]:
+        """Délai entre l'entrée et le plus haut — calibre les take profits."""
+        if self.high_water_at is None:
+            return None
+        return (self.high_water_at - self.entry_time) / 60
 
     def pnl_pct(self, price: float) -> float:
         if self.entry_price <= 0:
@@ -171,12 +193,26 @@ def apply_exit(position: Position, action: ExitAction, price: float) -> Position
     return replace(position, **updates)
 
 
-def update_high_water(position: Position, price: float) -> Position:
-    """Suit le plus haut P&L atteint : référence du trailing stop."""
+def update_water_marks(position: Position, price: float) -> Position:
+    """Suit le plus haut ET le plus bas P&L atteints.
+
+    Le plus haut sert de référence au trailing stop ; les deux servent à
+    calibrer les take profits et le stop loss sur ce qui se produit
+    réellement, au lieu de valeurs devinées.
+    """
     pnl = position.pnl_pct(price)
-    if pnl <= position.high_water_pct:
-        return position
-    updates = {"high_water_pct": pnl}
-    if not position.trailing_active and pnl >= position.trailing_stop_activation:
-        updates["trailing_active"] = True
-    return replace(position, **updates)
+    updates: dict = {}
+
+    if pnl > position.high_water_pct:
+        updates["high_water_pct"] = pnl
+        updates["high_water_at"] = time.time()
+        if not position.trailing_active and pnl >= position.trailing_stop_activation:
+            updates["trailing_active"] = True
+    if pnl < position.low_water_pct:
+        updates["low_water_pct"] = pnl
+
+    return replace(position, **updates) if updates else position
+
+
+# Ancien nom conservé : le trailing stop n'est qu'un des usages désormais.
+update_high_water = update_water_marks
