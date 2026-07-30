@@ -399,3 +399,88 @@ class TestPortfolioReprise(unittest.TestCase):
         self._log(+120)
         portfolio = self.Portfolio(1000.0, self.Journal(self.path))
         self.assertAlmostEqual(portfolio.capital, 1120.0, places=2)
+
+
+class TestPortfolioPersistance(unittest.TestCase):
+    """Un redémarrage ne doit rien perdre : positions, drawdown, cooldown."""
+
+    def setUp(self):
+        from src.core.journal import TradeJournal
+        from src.core.portfolio import PaperPortfolio
+        self.Journal, self.Portfolio = TradeJournal, PaperPortfolio
+        self.tmp = tempfile.mkdtemp()
+        self.trades = os.path.join(self.tmp, "trades.jsonl")
+        self.open_path = os.path.join(self.tmp, "open.json")
+        self.params = {"version": "2.0", "exit_rules": {"stop_loss_pct": -25}}
+
+    def _portfolio(self):
+        return self.Portfolio(1000.0, self.Journal(self.trades),
+                              positions_path=self.open_path)
+
+    def _log(self, pnl_usd, iso=None):
+        import json as _json
+        from datetime import datetime, timezone
+        with open(self.trades, "a") as fh:
+            fh.write(_json.dumps({
+                "is_final_exit": True, "pnl_usd": pnl_usd, "pnl_pct": pnl_usd,
+                "exit_reason": "STOP_LOSS" if pnl_usd < 0 else "TAKE_PROFIT_1",
+                "timestamp_exit": iso or datetime.now(timezone.utc).isoformat(),
+            }) + "\n")
+
+    def test_position_survit_au_redemarrage(self):
+        first = self._portfolio()
+        first.open(make_candidate("YETI", price_usd=0.0002), self.params, 30.0)
+        self.assertAlmostEqual(first.capital, 970.0)
+
+        restarted = self._portfolio()
+        self.assertEqual(len(restarted.positions), 1)
+        restored = next(iter(restarted.positions.values()))
+        self.assertEqual(restored.symbol, "YETI")
+        # La mise reste engagée : elle ne doit pas être remboursée en douce
+        self.assertAlmostEqual(restarted.capital, 970.0)
+
+    def test_etat_de_sortie_partielle_conserve(self):
+        first = self._portfolio()
+        position = first.open(make_candidate("PART", price_usd=1.0), self.params, 30.0)
+        first.update(position.id, 2.5)  # +150% -> TP1 franchi
+        self.assertTrue(first.positions[position.id].tp1_hit)
+
+        restored = next(iter(self._portfolio().positions.values()))
+        self.assertTrue(restored.tp1_hit)
+        self.assertTrue(restored.breakeven_moved)
+        self.assertLess(restored.remaining_fraction, 1.0)
+
+    def test_cloture_vide_le_fichier_de_positions(self):
+        first = self._portfolio()
+        position = first.open(make_candidate("SL", price_usd=1.0), self.params, 30.0)
+        first.update(position.id, 0.5)  # -50% -> stop loss
+        self.assertEqual(len(first.positions), 0)
+        self.assertEqual(len(self._portfolio().positions), 0)
+
+    def test_fichier_de_positions_corrompu(self):
+        with open(self.open_path, "w") as fh:
+            fh.write("{{{ pas du json")
+        portfolio = self._portfolio()
+        self.assertEqual(len(portfolio.positions), 0)
+        self.assertEqual(portfolio.capital, 1000.0)
+
+    def test_drawdown_reconstruit(self):
+        # +100 puis -200 : sommet à 1100, creux à 900 -> 18.18%
+        self._log(+100)
+        self._log(-200)
+        self.assertAlmostEqual(self._portfolio().max_drawdown_pct, 18.18, places=1)
+
+    def test_cooldown_survit_au_redemarrage(self):
+        # Relancer le bot ne doit pas contourner la pause après 3 pertes.
+        for _ in range(3):
+            self._log(-10)
+        portfolio = self._portfolio()
+        self.assertTrue(portfolio.in_cooldown)
+        self.assertGreater(portfolio.cooldown_remaining_min(), 100)
+
+    def test_cooldown_expire_apres_deux_heures(self):
+        from datetime import datetime, timedelta, timezone
+        vieux = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat()
+        for _ in range(3):
+            self._log(-10, iso=vieux)
+        self.assertFalse(self._portfolio().in_cooldown)

@@ -82,6 +82,7 @@ class AlphaLoop:
             journal=self.journal,
             notifier=self.telegram,
             mode=self.mode,
+            positions_path=settings.POSITIONS_PATH,
         )
 
         self.cycle_count = 0
@@ -138,7 +139,6 @@ class AlphaLoop:
         """
         monitor_interval = self.params.get("scan.monitor_interval_seconds", 20)
         deadline = time.monotonic() + duration
-        self._next_scan_at = time.time() + duration
         next_monitor = time.monotonic() + monitor_interval
 
         while _running and time.monotonic() < deadline:
@@ -152,6 +152,10 @@ class AlphaLoop:
                 next_monitor = time.monotonic() + monitor_interval
 
     def _cycle(self) -> None:
+        # Horodater la prochaine passe dès maintenant : `_publish_state` est
+        # appelé en fin de cycle, avant `_sleep_monitoring`, et publierait
+        # sinon l'échéance périmée du cycle précédent (compte à rebours figé).
+        self._next_scan_at = time.time() + self.params.get("scan.interval_seconds", 90)
         timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
         print(f"\n{'=' * 78}\n⏱️  CYCLE {self.cycle_count} — {timestamp} UTC\n{'=' * 78}")
 

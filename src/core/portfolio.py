@@ -10,7 +10,12 @@ Mode PAPER uniquement. Les prix de sortie sont les prix observés, sans
 slippage ni frais — le P&L papier est donc OPTIMISTE par construction.
 """
 
+import json
+import os
+import tempfile
 import time
+from dataclasses import asdict, fields
+from datetime import datetime
 from typing import Any, Optional
 
 from src.core.journal import TradeJournal
@@ -29,6 +34,16 @@ COOLDOWN_HOURS = 2
 KELLY_MIN_TRADES = 20
 KELLY_WIN_RATE_FLOOR = 0.40
 
+def _parse_iso(value: Any) -> Optional[float]:
+    """Horodatage ISO -> epoch. None si absent ou illisible."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value)).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
 SLIPPAGE_NOTE = (
     "P&L papier sans slippage ni frais. En réel, un memecoin à 20K de liquidité "
     "coûte plusieurs % à l'aller comme au retour."
@@ -42,39 +57,47 @@ class PaperPortfolio:
         journal: TradeJournal,
         notifier: Any = None,
         mode: str = "PAPER",
+        positions_path: Optional[str] = None,
     ):
         self.journal = journal
         self.notifier = notifier
         self.mode = mode
+        self.positions_path = positions_path
         self.positions: dict[str, Position] = {}
         self.closed_count = 0
         self.consecutive_losses = 0
         self.cooldown_until: Optional[float] = None
-        self.max_drawdown_pct = 0.0
+        self.max_drawdown_pct = 0.0  # recalculé depuis le journal ci-dessous
 
         # `baseline` = la mise de départ configurée, jamais recalculée. Elle
         # sert de référence au P&L cumulé.
         self.baseline = capital
 
         # Le capital est RECONSTRUIT depuis le journal : sans ça, chaque
-        # redémarrage repart de la mise initiale et efface l'historique —
-        # le dashboard affichait 1000 $ et un P&L de 0 après deux pertes.
+        # redémarrage repart de la mise initiale et efface l'historique.
         realized = self._realized_pnl_from_journal()
-        self.capital = capital + realized
-        self.peak_capital = max(capital, self.capital)
-        if realized:
+        # Les positions ouvertes sont RESTAURÉES : sans ça, un redémarrage les
+        # perd définitivement — elles ne sont jamais clôturées, jamais
+        # journalisées, et le trade disparaît sans laisser de trace.
+        self.positions = self._load_positions()
+        engaged = sum(p.size_usd * p.remaining_fraction for p in self.positions.values())
+
+        self.capital = capital + realized - engaged
+        self.peak_capital = max(capital, self.capital + engaged)
+
+        if realized or self.positions:
             print(
-                f"[Portfolio] {self.closed_count} trades repris du journal — "
-                f"capital reconstruit à {self.capital:.2f} $ ({realized:+.2f} $)"
+                f"[Portfolio] repris : {self.closed_count} trades clôturés "
+                f"({realized:+.2f} $), {len(self.positions)} position(s) ouverte(s) "
+                f"({engaged:.2f} $ engagés) — capital {self.capital:.2f} $"
             )
 
     def _realized_pnl_from_journal(self) -> float:
-        """P&L cumulé des trades déjà clôturés, et pertes consécutives en cours.
+        """P&L cumulé, pertes consécutives et drawdown max, reconstruits.
 
-        Les positions ouvertes ne sont PAS persistées : une boucle tuée avec une
-        position en cours la perd. Le capital est alors reconstruit sans elle,
-        ce qui rembourse implicitement la mise. Approximation conservatrice,
-        assumée tant qu'il n'y a pas de reprise de position.
+        Le drawdown doit lui aussi être rejoué : calculé uniquement à la
+        clôture d'un trade, il repartait à 0% après chaque redémarrage et le
+        dashboard affichait « drawdown max 0% » sur un compte en perte.
         """
         rows = self.journal.read_final_exits()
         self.closed_count = len(rows)
@@ -87,7 +110,73 @@ class PaperPortfolio:
                 break
         self.consecutive_losses = streak
 
-        return round(sum(row.get("pnl_usd", 0) for row in rows), 4)
+        # Le cooldown doit survivre au redémarrage, sinon relancer le bot
+        # devient un moyen trivial de contourner la pause après 3 pertes.
+        if streak >= CONSECUTIVE_LOSSES_TRIGGER and rows:
+            last_exit = _parse_iso(rows[-1].get("timestamp_exit"))
+            if last_exit is not None:
+                until = last_exit + COOLDOWN_HOURS * 3600
+                if until > time.time():
+                    self.cooldown_until = until
+                    print(
+                        f"[Portfolio] cooldown repris — {streak} pertes consécutives, "
+                        f"{(until - time.time()) / 60:.0f} min restantes"
+                    )
+
+        # Courbe d'equity chronologique -> plus fort recul depuis un sommet.
+        equity = self.baseline
+        peak = self.baseline
+        worst = 0.0
+        for row in rows:
+            equity += row.get("pnl_usd", 0)
+            peak = max(peak, equity)
+            if peak > 0:
+                worst = max(worst, 100 * (peak - equity) / peak)
+        self.max_drawdown_pct = round(worst, 2)
+
+        return round(equity - self.baseline, 4)
+
+    # ------------------------------------------------- persistance positions
+
+    def _load_positions(self) -> dict[str, Position]:
+        """Restaure les positions ouvertes. Un fichier illisible n'est pas fatal."""
+        if not self.positions_path or not os.path.exists(self.positions_path):
+            return {}
+        try:
+            with open(self.positions_path, encoding="utf-8") as fh:
+                rows = json.load(fh)
+        except (json.JSONDecodeError, OSError) as exc:
+            print(f"[Portfolio] positions illisibles ({exc}) — repart sans position")
+            return {}
+
+        restored = {}
+        known = {f.name for f in fields(Position)}
+        for row in rows:
+            try:
+                # Ignorer les champs inconnus : le format peut évoluer sans
+                # rendre un fichier existant incompatible.
+                position = Position(**{k: v for k, v in row.items() if k in known})
+                restored[position.id] = position
+            except (TypeError, ValueError) as exc:
+                print(f"[Portfolio] position ignorée ({exc})")
+        return restored
+
+    def save_positions(self) -> None:
+        """Écriture atomique après chaque ouverture ou sortie."""
+        if not self.positions_path:
+            return
+        directory = os.path.dirname(os.path.abspath(self.positions_path))
+        os.makedirs(directory, exist_ok=True)
+        payload = [asdict(p) for p in self.positions.values()]
+        fd, tmp_path = tempfile.mkstemp(dir=directory, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, ensure_ascii=False)
+            os.replace(tmp_path, self.positions_path)
+        except Exception as exc:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            print(f"[Portfolio] sauvegarde des positions impossible : {exc}")
 
     @property
     def in_cooldown(self) -> bool:
@@ -151,6 +240,7 @@ class PaperPortfolio:
         )
         self.positions[position.id] = position
         self.capital -= size_usd
+        self.save_positions()
         if self.notifier:
             self.notifier.send_entry(position)
         return position
@@ -190,6 +280,7 @@ class PaperPortfolio:
             if not position.is_open:
                 self._finalize(position, price)
                 break
+        self.save_positions()
         return rows
 
     def force_close(
@@ -220,6 +311,7 @@ class PaperPortfolio:
     def _finalize(self, position: Position, exit_price: float) -> None:
         """Clôture définitive : stats, cooldown, notification."""
         del self.positions[position.id]
+        self.save_positions()
         self.closed_count += 1
 
         total_pnl_pct = 100 * position.realized_pnl_usd / position.size_usd

@@ -14,6 +14,7 @@ TRADES_LOG_PATH = os.path.join(BASE_DIR, "data", "trades_log.jsonl")
 SHADOW_LOG_PATH = os.path.join(BASE_DIR, "data", "shadow_log.jsonl")
 STATE_PATH = os.path.join(BASE_DIR, "data", "state.json")
 LOCK_PATH = os.path.join(BASE_DIR, "data", "alpha_loop.pid")
+POSITIONS_PATH = os.path.join(BASE_DIR, "data", "open_positions.json")
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 
 
