@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+@theme {
+  --color-void: #0a0a0f;
+  --color-surface: #12121a;
+  --color-edge: #23233a;
+  --color-toxic: #39ff14;
+  --color-blood: #ff2a6d;
+  --color-warn: #ff9f1c;
+  --color-gem: #b026ff;
+  --color-dim: #6b7280;
+  --color-ink: #e8e8f0;
+
+  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+html, body, #root { height: 100%; }
+
+body {
+  background: var(--color-void);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  /* Halos discrets : évite l'aplat noir mort sur grand écran */
+  background-image:
+    radial-gradient(ellipse 80% 50% at 15% 0%, rgba(176, 38, 255, 0.07), transparent 60%),
+    radial-gradient(ellipse 60% 40% at 85% 5%, rgba(57, 255, 20, 0.05), transparent 55%);
+  background-attachment: fixed;
+}
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-edge); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3a3a55; }
+
+/* Le pouls du prix : déclenché à chaque changement de valeur */
+@keyframes pulse-up   { 0% { color: var(--color-toxic); } 100% { color: inherit; } }
+@keyframes pulse-down { 0% { color: var(--color-blood); } 100% { color: inherit; } }
+.pulse-up   { animation: pulse-up 700ms ease-out; }
+.pulse-down { animation: pulse-down 700ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
