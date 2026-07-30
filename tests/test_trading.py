@@ -250,20 +250,35 @@ class TestLearning(unittest.TestCase):
         self.assertEqual(learning["avg_win_pct"], 100)
         self.assertEqual(learning["avg_loss_pct"], -25)
 
+    def _authorize_owner(self):
+        """Lève le verrou propriétaire — sans lui, LIVE est refusé quoi qu'il arrive."""
+        self.params.set("live_mode_authorized_by_owner", True, log=False)
+
+    def test_live_refuse_sans_autorisation_du_proprietaire(self):
+        # Statistiques excellentes, mais le verrou n'est pas levé.
+        self._write_trades(12, pnl_pct=100, age_hours=2)
+        self._write_trades(8, pnl_pct=-25, age_hours=2)
+        allowed, why = self.engine.live_mode_allowed()
+        self.assertFalse(allowed)
+        self.assertIn("verrou propriétaire", why)
+
     def test_live_bloque_sous_20_trades(self):
+        self._authorize_owner()
         self._write_trades(10, pnl_pct=100, age_hours=2)
         allowed, why = self.engine.live_mode_allowed()
         self.assertFalse(allowed)
         self.assertIn("10/20", why)
 
     def test_live_bloque_si_win_rate_insuffisant(self):
+        self._authorize_owner()
         self._write_trades(5, pnl_pct=100, age_hours=2)
         self._write_trades(15, pnl_pct=-25, age_hours=2)
         allowed, why = self.engine.live_mode_allowed()
         self.assertFalse(allowed)
         self.assertIn("win rate", why)
 
-    def test_live_autorise_si_criteres_remplis(self):
+    def test_live_autorise_seulement_si_verrou_leve_ET_criteres_remplis(self):
+        self._authorize_owner()
         self._write_trades(12, pnl_pct=100, age_hours=2)
         self._write_trades(8, pnl_pct=-25, age_hours=2)
         self.assertTrue(self.engine.live_mode_allowed()[0])

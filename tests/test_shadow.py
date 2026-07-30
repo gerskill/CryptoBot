@@ -216,3 +216,53 @@ class TestBacktestValidation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestVerrouModeReel(unittest.TestCase):
+    """Le passage en LIVE exige une autorisation explicite du propriétaire."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.params_path = os.path.join(self.tmp, "params.json")
+        self.journal_path = os.path.join(self.tmp, "trades.jsonl")
+        self.journal = TradeJournal(self.journal_path)
+        self._write_params(authorized=False)
+
+    def _write_params(self, authorized):
+        data = dict(PARAMS)
+        data["live_mode_authorized_by_owner"] = authorized
+        with open(self.params_path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+        self.params = ParamsStore(self.params_path)
+        self.engine = LearningEngine(self.params, self.journal)
+
+    def _excellent_track_record(self):
+        # 25 trades, 80% de réussite, profit factor très supérieur à 1.5
+        for index in range(25):
+            self.journal._append({
+                "is_final_exit": True,
+                "pnl_usd": 100 if index % 5 else -20,
+                "pnl_pct": 100 if index % 5 else -20,
+                "exit_reason": "TAKE_PROFIT_1",
+            })
+
+    def test_refuse_meme_avec_des_statistiques_excellentes(self):
+        self._excellent_track_record()
+        allowed, why = self.engine.live_mode_allowed()
+        self.assertFalse(allowed)
+        self.assertIn("verrou propriétaire", why)
+
+    def test_autorise_seulement_si_le_drapeau_est_leve_ET_les_stats_bonnes(self):
+        self._excellent_track_record()
+        self._write_params(authorized=True)
+        allowed, why = self.engine.live_mode_allowed()
+        self.assertTrue(allowed, why)
+
+    def test_drapeau_leve_mais_stats_insuffisantes_reste_bloque(self):
+        for _ in range(5):
+            self.journal._append({"is_final_exit": True, "pnl_usd": -10,
+                                  "pnl_pct": -10, "exit_reason": "STOP_LOSS"})
+        self._write_params(authorized=True)
+        allowed, why = self.engine.live_mode_allowed()
+        self.assertFalse(allowed)
+        self.assertIn("20 trades", why)

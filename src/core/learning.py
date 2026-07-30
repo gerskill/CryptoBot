@@ -436,7 +436,17 @@ class LearningEngine:
         )
 
     def live_mode_allowed(self) -> tuple[bool, str]:
-        """Règle 10 de la spec : 20 trades, WR > 40% ET profit factor > 1.5."""
+        """Règle 10 de la spec, PLUS un verrou propriétaire explicite.
+
+        Les critères statistiques (20 trades, WR > 40%, PF > 1.5) sont une
+        condition NÉCESSAIRE, jamais suffisante. Le propriétaire a demandé que
+        le passage en réel ne se fasse que sur sa décision explicite : tant que
+        `live_mode_authorized_by_owner` est false, cette méthode retourne
+        toujours False, quels que soient les chiffres.
+        """
+        if not self.params.get("live_mode_authorized_by_owner", False):
+            return False, "verrou propriétaire — passage en réel non autorisé"
+
         rows = self.journal.read_final_exits()
         if len(rows) < 20:
             return False, f"{len(rows)}/20 trades papier"
