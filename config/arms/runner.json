@@ -114,10 +114,10 @@
         "trades_sample_size": 0
       }
     ],
-    "total_trades": 5,
-    "winning_trades": 2,
+    "total_trades": 6,
+    "winning_trades": 3,
     "losing_trades": 3,
-    "avg_win_pct": 121.55,
+    "avg_win_pct": 95.24,
     "avg_loss_pct": -36.24,
     "win_rate_by_age": {
       "2-4h": {
@@ -125,8 +125,8 @@
         "sample": 2
       },
       "4h+": {
-        "win_rate": 0.0,
-        "sample": 1
+        "win_rate": 50.0,
+        "sample": 2
       },
       "1-2h": {
         "win_rate": 50.0,
@@ -139,8 +139,8 @@
         "sample": 2
       },
       ">50K": {
-        "win_rate": 0.0,
-        "sample": 1
+        "win_rate": 50.0,
+        "sample": 2
       },
       "10-30K": {
         "win_rate": 50.0,

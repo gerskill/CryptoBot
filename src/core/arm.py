@@ -200,6 +200,53 @@ def _flow_reader(arm_name: str):
     return read
 
 
+# Lignes d'entonnoir à remonter pour juger l'inactivité. Mesuré au 2026-08-02 :
+# 68 lignes par cycle tous bras confondus, et `INACTIVITY_CYCLES` vaut 300 —
+# il faut donc voir bien au-delà de 300 cycles pour situer la dernière entrée.
+# 60 000 lignes ≈ 880 cycles, soit près de trois fois le seuil, et ça reste
+# borné par la rotation du journal.
+INACTIVITY_TAIL_LINES = 60_000
+
+
+def _pool_reader(arm_name: str, manifest_names: list[str]):
+    """Trajectoires instrumentées des AUTRES bras, pour le rejeu des sorties.
+
+    Lecture paresseuse et à chaque appel : les journaux grossissent pendant
+    que la boucle tourne, et un instantané pris au démarrage vieillirait sans
+    jamais se rafraîchir.
+    """
+
+    def read() -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for autre in manifest_names:
+            if autre == arm_name:
+                continue
+            chemin = settings.arm_paths(autre)["trades"]
+            if not os.path.exists(chemin):
+                continue
+            rows += TradeJournal(chemin).read_positions()
+        return rows
+
+    return read
+
+
+def _inactivity_reader(arm_name: str):
+    """(cycles depuis la dernière entrée, motif de rejet dominant).
+
+    Le chemin est résolu à l'APPEL, pas à la construction : les tests
+    redirigent `settings.FUNNEL_LOG_PATH` après `bootstrap_arms`.
+    """
+
+    def read() -> tuple[Optional[int], Optional[str]]:
+        from src.core.funnel import inactivity_snapshot
+
+        return inactivity_snapshot(
+            settings.FUNNEL_LOG_PATH, arm_name, tail=INACTIVITY_TAIL_LINES
+        )
+
+    return read
+
+
 def load_manifest(path: Optional[str] = None) -> list[dict[str, Any]]:
     """Lit `config/strategies.json`. Absent = un seul bras, le témoin."""
     path = path or settings.STRATEGIES_PATH
@@ -320,6 +367,17 @@ def bootstrap_arms(
                         # un filtre paraît toujours prudent — même quand il ne
                         # reste plus rien à filtrer.
                         flow=_flow_reader(name),
+                        # Un bras qui n'entre plus depuis 300 cycles est bloqué
+                        # par ses propres seuils, et n'a aucun trade neuf pour
+                        # s'en apercevoir.
+                        inactivity=_inactivity_reader(name),
+                        # Le témoin est gelé : seule référence comparable aux
+                        # trades historiques, aucun relâchement automatique.
+                        frozen=(name == settings.BASELINE_ARM),
+                        # Rejeu des SORTIES seulement : une trajectoire ne
+                        # dépend pas du bras qui l'a achetée. 6 positions
+                        # instrumentées par bras contre 75 mises en commun.
+                        pool=_pool_reader(name, names),
                     )
                     if journal is not None
                     else None

@@ -358,6 +358,44 @@ def recent_flow(path: str, arm: str, cycles: int = 20) -> Optional[float]:
     return float(kept[len(kept) // 2])
 
 
+def inactivity_snapshot(
+    path: str, arm: str, tail: Optional[int] = None
+) -> tuple[Optional[int], Optional[str]]:
+    """(cycles depuis la dernière entrée, motif de rejet dominant).
+
+    COMPTÉ EN CYCLES, PAS EN HEURES, et c'est la seule mesure honnête ici : le
+    bot est arrêté et relancé. « 12 h sans entrée » confond une stratégie qui
+    ne trouve rien avec un processus qui ne tournait pas. Un cycle évalué est
+    une occasion réellement offerte au bras, et refusée par lui.
+
+    `(None, None)` = ce bras n'a jamais été évalué. Un bras qui n'est JAMAIS
+    entré rend son nombre de cycles vus : c'est une borne inférieure, et c'est
+    exactement le cas qui doit déclencher un relâchement.
+
+    LES DEUX SORTENT D'UNE SEULE LECTURE. Appeler deux fonctions relirait le
+    fichier deux fois — et surtout les jugerait sur deux fenêtres différentes
+    si le journal bouge entre les deux, donc desserrerait un seuil qui n'était
+    pas celui qui bloquait.
+    """
+    rows = read_funnel(path, tail=tail)
+    cycles = [r for r in rows if r.get("gate") == "filtres_total" and r.get("arm") == arm]
+    if not cycles:
+        return None, None
+
+    entrees = [
+        r for r in rows
+        if r.get("gate") == "entree" and r.get("arm") == arm and r.get("passed")
+    ]
+    if entrees:
+        dernier = max(r.get("ts") or 0 for r in entrees)
+        depuis = sum(1 for r in cycles if (r.get("ts") or 0) > dernier)
+    else:
+        depuis = len(cycles)
+
+    motifs = top_reasons(rows, arm=arm, limit=1)
+    return depuis, (motifs[0][0] if motifs else None)
+
+
 def blocking_gate(counts: dict[str, dict[str, int]]) -> Optional[tuple[str, int, int]]:
     """La porte qui coûte le plus de candidats à ce bras.
 

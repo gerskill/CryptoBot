@@ -81,6 +81,12 @@ def reason_family(reason: str) -> str:
         return "age_max" if ">" in text else "age_min"
     if "volume" in text:
         return "volume"
+    if text.startswith("alpha"):
+        # Pas un filtre : la porte du SCORE. Mesuré au 2026-08-02, c'est le
+        # blocage dominant de `narrative` (869 cycles sans entrée) et de
+        # `consensus` (383). Desserrer un filtre ne les débloquerait jamais —
+        # leurs candidats passent les filtres et meurent au seuil.
+        return "alpha"
     return "autre"
 
 

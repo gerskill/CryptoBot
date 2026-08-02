@@ -31,6 +31,47 @@ RISK_CADENCE = 20
 MISSED_RATE_RELAX_THRESHOLD = 25.0
 SHADOW_MIN_SAMPLE = 15
 
+# Ce qu'on desserre, et de combien, par famille de motif de rejet. Partagé par
+# `_relax_from_shadow` (preuve : les rejets montaient) et
+# `_relax_from_inactivity` (preuve : le bras n'entre plus du tout).
+#
+# `rugcheck` et `authority` sont ABSENTES et doivent le rester : aucun manque à
+# gagner ne justifie de relâcher un garde-fou de sécurité.
+RELAXATIONS = {
+    "liquidity": ("filters.min_liquidity_usd", -5000),
+    "holders": ("filters.min_holders", -25),
+    "social": ("filters.min_social_mentions_1h", -5),
+    "smart_money": ("filters.min_smart_money_buys_30min", -1),
+    "concentration": ("filters.max_top_wallet_concentration", +5),
+    # Deux entrées pour l'âge : trop vieux et trop jeune appellent des
+    # corrections opposées.
+    "age_max": ("filters.max_age_hours", +2),
+    "age_min": ("filters.min_age_hours", -0.5),
+    "volume": ("filters.min_volume_1h", -2000),
+    # PAS UN FILTRE : la porte du score. Un bras dont les candidats passent
+    # les filtres et meurent au seuil alpha ne sera JAMAIS débloqué en
+    # desserrant un filtre. Mesuré au 2026-08-02 : c'est le cas de `narrative`
+    # (869 cycles sans entrée) et de `consensus` (383).
+    #
+    # Le pas est petit et la borne basse haute (voir PARAM_BOUNDS) : baisser
+    # ce seuil, c'est accepter d'entrer sur un signal plus faible. C'est le
+    # relâchement le plus coûteux de la table, il doit descendre lentement.
+    "alpha": ("scan.alpha_score_entry_threshold", -2.5),
+}
+
+# INACTIVITÉ : à partir de combien de cycles évalués sans entrée un bras est
+# considéré comme bloqué par ses propres seuils.
+#
+# CALÉ SUR LA MESURE, pas sur une intuition d'horloge. Entonnoir du 2026-08-02,
+# 927 cycles : les bras qui entrent le font tous les 36 cycles (`sniper`, 26
+# entrées) à 155 cycles (`consensus`, 6 entrées). 300 est deux fois le plus
+# lent observé — au-delà, « ce bras n'entre plus » n'est plus du hasard.
+#
+# À 90 s par cycle, 300 cycles valent environ 7 h 30 de marché observé. Le
+# compteur est en CYCLES et pas en heures pour ne pas confondre un bras qui ne
+# trouve rien avec un processus qui ne tournait pas.
+INACTIVITY_CYCLES = 300
+
 # Étape 6.4 : un ajustement de filtres doit prouver son gain sur l'historique.
 BACKTEST_WINDOW = 20
 BACKTEST_MIN_IMPROVEMENT = 0.10
@@ -67,6 +108,15 @@ PARAM_BOUNDS: dict[str, tuple[float, float]] = {
     "exit_rules.take_profit_1": (30, 300),
     "exit_rules.trailing_stop_distance_pct": (20, 80),
     "exit_rules.max_hold_time_minutes": (30, 1440),
+    # Le seuil d'entrée est relâchable (famille `alpha` de RELAXATIONS), donc
+    # il LUI FAUT une borne. Sans elle, un bras durablement inactif descendrait
+    # vers zéro et finirait par acheter n'importe quoi — le relâchement
+    # automatique se transformerait en désarmement.
+    #
+    # Plancher à 55 : les bras sont configurés entre 65 et 75, ce qui laisse
+    # 4 à 8 paliers de -2,5. Assez pour débloquer un bras trop exigeant, pas
+    # assez pour supprimer la sélection.
+    "scan.alpha_score_entry_threshold": (55, 90),
 }
 
 # --- ANTI-BOUCLE DE RÉTROACTION NÉGATIVE ---
@@ -114,6 +164,9 @@ TIGHTENS_WHEN_RAISED = frozenset({
     "filters.min_rugcheck_score",
     "filters.min_social_mentions_1h",
     "filters.min_smart_money_buys_30min",
+    # Monter le seuil d'entrée restreint : `_starving` doit l'empêcher quand
+    # le flux est déjà famélique, au même titre qu'un filtre.
+    "scan.alpha_score_entry_threshold",
 })
 TIGHTENS_WHEN_LOWERED = frozenset({
     "filters.max_age_hours",
@@ -173,6 +226,9 @@ class LearningEngine:
         shadow: Optional[ShadowTracker] = None,
         bounds: Optional[dict[str, tuple[float, float]]] = None,
         flow: Optional[Callable[[], Optional[float]]] = None,
+        inactivity: Optional[Callable[[], tuple[Optional[int], Optional[str]]]] = None,
+        frozen: bool = False,
+        pool: Optional[Callable[[], list[dict[str, Any]]]] = None,
     ):
         self.params = params
         self.journal = journal
@@ -180,6 +236,20 @@ class LearningEngine:
         # Mesure du flux de candidats. Sans elle, resserrer paraît toujours
         # prudent ; avec elle, on voit qu'on s'étrangle.
         self.flow = flow
+        # (cycles depuis la dernière entrée, motif de rejet dominant). Un bras
+        # qui n'entre plus est bloqué par ses propres seuils, et il n'a aucun
+        # trade neuf pour s'en apercevoir.
+        self.inactivity = inactivity
+        # Le bras témoin est GELÉ : c'est la seule référence comparable aux
+        # trades historiques. Un relâchement automatique la détruirait, et la
+        # comparaison entre bras avec elle.
+        self.frozen = frozen
+        # Trajectoires des AUTRES bras, pour le rejeu des sorties uniquement.
+        # `simulate_exits` ne lit que pic et creux : une trajectoire ne dépend
+        # pas du bras qui l'a achetée. Filtrées sur la fenêtre du bras par
+        # `_in_window`. N'entre JAMAIS dans le rejeu des filtres d'entrée —
+        # là, chaque bras a ses seuils et c'est toute sa raison d'être.
+        self.pool = pool
         # Bornes par stratégie : un bras expérimental doit pouvoir explorer un
         # stop loss à -35% pendant que le bras témoin reste dans (-50, -10).
         self.bounds = {**PARAM_BOUNDS, **(bounds or {})}
@@ -204,6 +274,48 @@ class LearningEngine:
 
         self.params.set(path, clamped, reason, sample)
         return f"{path} -> {clamped}"
+
+    def _tightens(self, path: str, value: float, current: float) -> Optional[bool]:
+        """Ce changement restreint-il ? `None` = le sens n'est pas connu."""
+        if path in TIGHTENS_WHEN_RAISED:
+            return value > current
+        if path in TIGHTENS_WHEN_LOWERED:
+            return value < current
+        return None
+
+    def _relax_set(
+        self, path: str, step: float, reason: str, sample: int
+    ) -> Optional[str]:
+        """Desserre un paramètre — ou refuse, si le clamp inverserait le sens.
+
+        LE PIÈGE QUE ÇA FERME. Les bornes sont GLOBALES, la configuration d'un
+        bras ne l'est pas. `quality` porte `max_age_hours = 48`, très au-dessus
+        de sa borne `(2, 24)`. Un relâchement de +2 h donne 50, que
+        `_bounded_set` clampe à 24 : la fenêtre du bras passerait de 48 h à
+        24 h. **Un relâchement qui divise la fenêtre par deux est un
+        resserrage**, et c'est exactement ce que ce chemin existe pour ne
+        jamais faire.
+
+        Refuser est le bon comportement, pas élargir la borne en douce : la
+        borne est là pour dire jusqu'où l'apprentissage a le droit d'aller. Un
+        écart entre elle et la config est une décision de propriétaire, à
+        prendre dans le manifeste (`bounds`), pas au détour d'un ajustement.
+        """
+        current = self.params.get(path)
+        if current is None:
+            return None
+
+        low, high = self.bounds.get(path, (float("-inf"), float("inf")))
+        clamped = max(low, min(high, current + step))
+        if self._tightens(path, clamped, current):
+            print(
+                f"🧠 {path} : relâchement REFUSÉ — {current} + {step} clampé à "
+                f"{clamped} par la borne ({low}, {high}), ce qui RESSERRE. "
+                f"La config du bras est hors de sa borne : à corriger dans "
+                f"`bounds` du manifeste, pas ici."
+            )
+            return None
+        return self._bounded_set(path, current + step, reason, sample)
 
     def _starving(self, path: str, value: float) -> Optional[str]:
         """Ce changement resserre-t-il un filtre alors que le flux est déjà nul ?
@@ -271,7 +383,12 @@ class LearningEngine:
         """Point d'entrée après chaque trade clôturé. Retourne les changements."""
         learning = self.refresh_stats()
         total = learning["total_trades"]
-        applied: list[str] = []
+        # LES DEUX RELÂCHEMENTS PASSENT AVANT LA PORTE DES 15 TRADES, et ils
+        # sont indépendants : le shadow prouve que les rejets montaient,
+        # l'inactivité prouve que le bras ne joue plus. Un bras peut être dans
+        # le second cas sans jamais atteindre le premier — c'est justement
+        # `narrative`, zéro entrée sur 927 cycles.
+        applied: list[str] = self._relax_from_inactivity()
 
         if total < MIN_TRADES_PER_ARM:
             # LE RELÂCHEMENT PAR LE SHADOW N'EST PAS SOUMIS À CE SEUIL, et
@@ -285,13 +402,13 @@ class LearningEngine:
             #
             # Sans risque : `_relax_from_shadow` ne fait que RELÂCHER, et
             # `_starving` n'interdit que le resserrage.
-            relaxations = self._relax_from_shadow()
+            applied += self._relax_from_shadow()
             # Se taire sur le reste, mais le DIRE : « rien ajusté » et « pas
             # assez de données pour ajuster » sont deux états différents, et
             # les confondre fait croire que l'apprentissage tourne.
-            return relaxations + [
+            return applied + [
                 f"(en attente) {total}/{MIN_TRADES_PER_ARM} trades avant "
-                f"tout ajustement sauf relâchement par le shadow"
+                f"tout ajustement sauf relâchements shadow et inactivité"
             ]
 
         if self._due("filters", total, FILTER_CADENCE):
@@ -393,36 +510,15 @@ class LearningEngine:
         if self.shadow is None:
             return []
 
-        relaxations = {
-            "liquidity": ("filters.min_liquidity_usd", -5000),
-            "holders": ("filters.min_holders", -25),
-            "social": ("filters.min_social_mentions_1h", -5),
-            "smart_money": ("filters.min_smart_money_buys_30min", -1),
-            "concentration": ("filters.max_top_wallet_concentration", +5),
-            # L'ÂGE ET LE VOLUME MANQUAIENT. Ils tombaient dans la famille
-            # « autre », que rien ne dessert — alors que l'âge est le motif de
-            # rejet DOMINANT : 175 des 399 rejets jugés du témoin au
-            # 2026-08-02, contre 176 pour la liquidité.
-            #
-            # Deux entrées pour l'âge, pas une : trop vieux et trop jeune
-            # appellent des corrections opposées.
-            "age_max": ("filters.max_age_hours", +2),
-            "age_min": ("filters.min_age_hours", -0.5),
-            "volume": ("filters.min_volume_1h", -2000),
-        }
-
         changes = []
         for family, stats in self.shadow.missed_rate_by_family(SHADOW_MIN_SAMPLE).items():
-            target = relaxations.get(family)
+            target = RELAXATIONS.get(family)
             if target is None or stats["missed_rate"] < MISSED_RATE_RELAX_THRESHOLD:
                 continue
             path, step = target
-            current = self.params.get(path)
-            if current is None:
-                continue
-            change = self._bounded_set(
+            change = self._relax_set(
                 path,
-                current + step,
+                step,
                 f"{stats['missed_rate']}% des rejets '{family}' auraient fait +100% "
                 f"(pic moyen {stats['avg_peak_gain_pct']}%)",
                 stats["sample"],
@@ -430,6 +526,65 @@ class LearningEngine:
             if change:
                 changes.append(change)
         return changes
+
+    def _relax_from_inactivity(self) -> list[str]:
+        """Desserre le seuil qui bloque un bras qui n'entre plus du tout.
+
+        LE TROU QUE ÇA BOUCHE. `_relax_from_shadow` demande des PREUVES : des
+        rejets suivis 4 h, jugés, et dont plus de 25 % seraient montés. Un bras
+        qui n'entre jamais produit bien des rejets — mais tant qu'ils n'ont pas
+        atteint `SHADOW_MIN_SAMPLE` dans une famille, rien ne bouge. Et tous
+        les autres ajustements attendent 15 trades qu'il n'aura jamais.
+
+        Ici la preuve est d'une autre nature : **le bras a vu passer 300 cycles
+        et n'a rien pris.** Ce n'est pas « ses rejets auraient gagné », c'est
+        « il ne joue pas ». Les deux méritent un relâchement, pour des raisons
+        différentes.
+
+        CE QUI EST DESSERRÉ : le motif de rejet DOMINANT de ce bras, lu dans
+        l'entonnoir. Pas un seuil au hasard — celui qui tue le plus de
+        candidats. Un seul par passage : desserrer cinq seuils d'un coup rend
+        l'effet du changement illisible.
+
+        NE S'APPLIQUE PAS AU BRAS TÉMOIN, gelé par construction, ni aux
+        familles de sécurité, absentes de `RELAXATIONS`.
+        """
+        if self.frozen or self.inactivity is None:
+            return []
+
+        cycles, motif = self.inactivity()
+        if cycles is None or cycles < INACTIVITY_CYCLES:
+            return []
+        if not motif:
+            # Aucun rejet enregistré : le bras ne voit rien passer du tout.
+            # Ce n'est pas un seuil trop strict, c'est la fenêtre de
+            # découverte — desserrer un filtre au hasard n'y changerait rien.
+            print(
+                f"🧠 inactif depuis {cycles} cycles mais aucun motif de rejet — "
+                f"le problème est en amont des filtres, rien à desserrer"
+            )
+            return []
+
+        from src.core.shadow import reason_family
+
+        famille = reason_family(motif)
+        target = RELAXATIONS.get(famille)
+        if target is None:
+            print(
+                f"🧠 inactif depuis {cycles} cycles, motif dominant « {motif} » "
+                f"(famille {famille}) — aucun paramètre associé, rien à desserrer"
+            )
+            return []
+
+        path, step = target
+        change = self._relax_set(
+            path,
+            step,
+            f"inactif depuis {cycles} cycles sans entrée (seuil {INACTIVITY_CYCLES}) — "
+            f"motif dominant « {motif} »",
+            cycles,
+        )
+        return [change] if change else []
 
     def _adjust_weights(self, learning: dict) -> list[str]:
         """Étape 6.3.B — renforce le critère du meilleur segment social."""
@@ -813,13 +968,72 @@ class LearningEngine:
                 grid.append({"stop_loss_pct": stop_loss, "take_profit_1": tp1, **outcome})
         return sorted(grid, key=lambda row: row["pnl_per_trade"], reverse=True)
 
+    def _in_window(self, row: dict[str, Any]) -> bool:
+        """Ce trade serait-il entré dans la FENÊTRE de ce bras ?
+
+        Ne rejoue PAS tous les filtres — seulement l'âge et la liquidité à
+        l'entrée, les deux axes sur lesquels les bras sont réellement séparés
+        (cf. la table du manifeste). Rejouer holders, concentration ou
+        rugcheck écarterait des trajectoires pour des raisons qui ne changent
+        pas la FORME de la trajectoire.
+
+        Une donnée absente ne rejette pas : même invariant que le pipeline.
+        """
+        filtres = self.params.get("filters", {})
+        age = row.get("age_hours_at_entry")
+        liq = row.get("liquidity_at_entry")
+
+        if age is not None:
+            low, high = filtres.get("min_age_hours"), filtres.get("max_age_hours")
+            if low is not None and age < low:
+                return False
+            if high is not None and age > high:
+                return False
+        if liq is not None:
+            low = filtres.get("min_liquidity_usd")
+            if low is not None and liq < low:
+                return False
+        return True
+
     def _instrumented(self, window: int = BACKTEST_WINDOW) -> list[dict[str, Any]]:
-        """Positions récentes portant pic ET creux."""
-        return [
+        """Positions récentes portant pic ET creux, du bras PUIS du pool.
+
+        POURQUOI METTRE EN COMMUN. `simulate_exits` ne lit que `peak_pct` et
+        `trough_pct` : **une trajectoire est une trajectoire**, elle ne dépend
+        pas du bras dont les filtres l'ont admise. Mesuré au 2026-08-02 : 6
+        positions instrumentées pour `scalp`, `runner` et `consensus`, 2 pour
+        `quality`, 0 pour `narrative` — tous sous `EXIT_BACKTEST_MIN_COVERAGE`
+        = 15, donc aucun verdict possible. Mises en commun : 75.
+
+        POURQUOI FILTRER SUR LA FENÊTRE. Les trajectoires ne sont PAS
+        interchangeables. Un token de `sniper` (âge 0-1 h, liquidité 4 K) n'a
+        pas la même forme qu'un token de `quality` (âge 4-48 h, liquidité
+        20 K). Mettre en commun sans filtre ferait juger les sorties d'un bras
+        sur des trajectoires qu'il n'aurait jamais achetées — on remplacerait
+        un manque de données par un biais, ce qui est pire : le manque se voit.
+
+        Les positions du bras lui-même passent toujours : elles ont déjà
+        franchi ses filtres, les rejuger sur des seuils qui ont bougé depuis
+        les écarterait à tort.
+        """
+        propres = [
             row
             for row in self.journal.read_positions()[-window:]
             if row.get("peak_pct") is not None and row.get("trough_pct") is not None
         ]
+        if self.pool is None:
+            return propres
+
+        connus = {row.get("position_id") or id(row) for row in propres}
+        empruntes = [
+            row
+            for row in self.pool()
+            if row.get("peak_pct") is not None
+            and row.get("trough_pct") is not None
+            and (row.get("position_id") or id(row)) not in connus
+            and self._in_window(row)
+        ]
+        return propres + empruntes[-window:]
 
     def _search_exits(self) -> list[str]:
         """Cherche le meilleur couple (stop loss, TP1) sur l'historique rejoué.

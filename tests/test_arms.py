@@ -38,8 +38,12 @@ class ArmsTestCase(unittest.TestCase):
             key: getattr(settings, key)
             for key in ("PARAMS_PATH", "TRADES_LOG_PATH", "SHADOW_LOG_PATH",
                         "POSITIONS_PATH", "STRATEGIES_PATH", "ARMS_CONFIG_DIR",
-                        "ARMS_DATA_DIR")
+                        "ARMS_DATA_DIR", "FUNNEL_LOG_PATH")
         }
+        # Sans cette redirection, `_flow_reader` et `_inactivity_reader` lisent
+        # le VRAI journal d'entonnoir de production : 11 Mo par appel, et des
+        # tests dont le résultat dépend de ce que le bot a fait cette nuit.
+        settings.FUNNEL_LOG_PATH = os.path.join(self.tmp, "funnel_log.jsonl")
         settings.PARAMS_PATH = os.path.join(self.tmp, "params.json")
         settings.TRADES_LOG_PATH = os.path.join(self.tmp, "trades_log.jsonl")
         settings.SHADOW_LOG_PATH = os.path.join(self.tmp, "shadow_log.jsonl")

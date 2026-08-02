@@ -29,6 +29,7 @@ from src.core.arm import load_manifest  # noqa: E402
 from src.core.journal import TradeJournal  # noqa: E402
 from src.core.learning import LearningEngine  # noqa: E402
 from src.core.params import ParamsStore  # noqa: E402
+from src.core.stats import verdict_vs_reference  # noqa: E402
 
 PIC_PALIERS = (10, 20, 25, 30, 40, 50, 75, 100, 150, 200)
 CREUX_PALIERS = (-10, -15, -20, -25, -30, -40, -50)
@@ -303,9 +304,11 @@ def section_comparatif(bras: list[str]) -> None:
             continue
         lignes.append((nom, TradeJournal(chemin).read_positions()))
 
+    reference = dict(lignes).get(settings.BASELINE_ARM) or []
+
     print(
         f"  {'bras':>10} {'trades':>7} {'WR':>7} {'$/trade':>9} {'PF':>6} "
-        f"{'pic méd':>9} {'creux méd':>10}"
+        f"{'pic méd':>9} {'creux méd':>10}   {'vs témoin':<22}"
     )
     for nom, positions in lignes:
         if not positions:
@@ -317,13 +320,29 @@ def section_comparatif(bras: list[str]) -> None:
         pics = [p["peak_pct"] for p in positions if p.get("peak_pct") is not None]
         creux = [p["trough_pct"] for p in positions if p.get("trough_pct") is not None]
         total = sum(p["pnl_usd"] for p in positions)
+
+        if nom == settings.BASELINE_ARM:
+            verdict = "— (c'est le témoin)"
+        else:
+            v = verdict_vs_reference(positions, reference)
+            ic = v["interval"]
+            verdict = v["verdict"]
+            if ic:
+                verdict += f" [{ic['low']:+.2f}..{ic['high']:+.2f}]"
+
         print(
             f"  {nom:>10} {len(positions):>7} "
             f"{100 * len(gagnants) / len(positions):>6.1f}% "
             f"{total / len(positions):>+9.3f} "
             f"{(gains / pertes if pertes else 0):>6.2f} "
-            f"{_mediane(pics):>+8.1f}% {_mediane(creux):>+9.1f}%"
+            f"{_mediane(pics):>+8.1f}% {_mediane(creux):>+9.1f}%   {verdict:<22}"
         )
+
+    print(
+        "\n  « indistinguable » = les IC95 se recouvrent. Regarder sept stratégies\n"
+        "  et garder la meilleure produit un gagnant PAR HASARD : cette colonne\n"
+        "  est ce qui autorise à croire le classement, pas le $/trade."
+    )
 
     actifs = [n for n, p in lignes if p]
     if len(actifs) < 2:

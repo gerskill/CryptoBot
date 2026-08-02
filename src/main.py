@@ -506,7 +506,18 @@ class AlphaLoop:
         }
 
     def _arms_payload(self) -> list[dict]:
-        """Résumé par bras pour le dashboard. Compteurs, jamais les candidats."""
+        """Résumé par bras pour le dashboard. Compteurs, jamais les candidats.
+
+        Chaque bras porte son VERDICT contre le témoin. Sans lui, le tableau
+        classe sept stratégies par P&L et le lecteur retient la première —
+        alors qu'à 2 ou 5 trades ce classement est du bruit.
+        """
+        from src.core.stats import verdict_vs_reference
+
+        reference = (
+            self.baseline.journal.read_positions()
+            if self.baseline.journal is not None else []
+        )
         payload = []
         for arm in self.arms:
             row = arm.summary()
@@ -528,6 +539,10 @@ class AlphaLoop:
                 # En observation : le bras n'a pas de portefeuille, mais son
                 # journal peut déjà exister (redémarrage après la phase 4).
                 row["trades"] = len(arm.journal.read_positions())
+            if arm.journal is not None and not arm.is_baseline:
+                row["vs_baseline"] = verdict_vs_reference(
+                    arm.journal.read_positions(), reference
+                )
             payload.append(row)
         return payload
 

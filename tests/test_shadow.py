@@ -10,7 +10,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.core.journal import TradeJournal  # noqa: E402
-from src.core.learning import LearningEngine  # noqa: E402
+from src.core.learning import INACTIVITY_CYCLES, LearningEngine  # noqa: E402
 from src.core.models import Candidate  # noqa: E402
 from src.core.params import ParamsStore  # noqa: E402
 from src.core.shadow import ShadowTracker, reason_family  # noqa: E402
@@ -260,6 +260,133 @@ class TestBornesEtRelachement(unittest.TestCase):
         self.engine.run()
 
         self.assertEqual(self.params.get("exit_rules", {}), avant)
+
+
+class TestRelachementSurInactivite(unittest.TestCase):
+    """Un bras qui n'entre plus est bloqué par ses propres seuils.
+
+    LE TROU QUE ÇA BOUCHE. `_relax_from_shadow` exige des rejets suivis 4 h,
+    jugés, et `SHADOW_MIN_SAMPLE` par famille. Les autres ajustements exigent
+    15 trades. Un bras qui n'entre JAMAIS n'a ni les uns ni les autres :
+    mesuré au 2026-08-02, `narrative` était à 0 entrée sur 927 cycles.
+
+    Ici la preuve n'est pas « ses rejets auraient gagné » mais « il ne joue
+    pas ». Les deux méritent un relâchement, pour des raisons différentes.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.params_path = os.path.join(self.tmp, "params.json")
+        with open(self.params_path, "w", encoding="utf-8") as fh:
+            json.dump(PARAMS, fh)
+        self.params = ParamsStore(self.params_path)
+        self.journal = TradeJournal(os.path.join(self.tmp, "trades.jsonl"))
+
+    def _engine(self, cycles, motif, frozen=False):
+        return LearningEngine(
+            self.params, self.journal,
+            inactivity=lambda: (cycles, motif),
+            frozen=frozen,
+        )
+
+    def test_relache_le_seuil_du_motif_dominant(self):
+        engine = self._engine(INACTIVITY_CYCLES, "liquidité 12000$ < 15000$")
+        self.assertTrue(engine._relax_from_inactivity())
+        self.assertEqual(self.params.get("filters.min_liquidity_usd"), 10000)
+
+    def test_ne_relache_pas_sous_le_seuil(self):
+        engine = self._engine(INACTIVITY_CYCLES - 1, "liquidité 12000$ < 15000$")
+        self.assertEqual(engine._relax_from_inactivity(), [])
+        self.assertEqual(self.params.get("filters.min_liquidity_usd"), 15000)
+
+    def test_le_temoin_gele_nest_jamais_relache(self):
+        """Le témoin est la seule référence comparable aux trades historiques.
+        Un relâchement automatique la détruirait, et la comparaison avec."""
+        engine = self._engine(INACTIVITY_CYCLES * 3, "liquidité 12000$ < 15000$",
+                              frozen=True)
+        self.assertEqual(engine._relax_from_inactivity(), [])
+        self.assertEqual(self.params.get("filters.min_liquidity_usd"), 15000)
+
+    def test_un_motif_de_securite_nest_pas_relache(self):
+        """Aucun manque à gagner ne justifie de desserrer un garde-fou."""
+        engine = self._engine(INACTIVITY_CYCLES * 3, "rugcheck 40 < 70")
+        self.assertEqual(engine._relax_from_inactivity(), [])
+        self.assertEqual(self.params.get("filters.min_rugcheck_score"), None)
+
+    def test_aucun_motif_ne_desserre_rien(self):
+        """Un bras qui ne voit RIEN passer n'a pas un seuil trop strict : son
+        problème est en amont, dans la fenêtre de découverte."""
+        avant = dict(self.params.get("filters", {}))
+        engine = self._engine(INACTIVITY_CYCLES * 3, None)
+        self.assertEqual(engine._relax_from_inactivity(), [])
+        self.assertEqual(self.params.get("filters", {}), avant)
+
+    def test_le_seuil_alpha_est_relachable(self):
+        """Un bras dont les candidats passent les filtres et meurent au seuil
+        alpha ne sera JAMAIS débloqué en desserrant un filtre. C'était le cas
+        de `narrative` (869 cycles) et `consensus` (383) au 2026-08-02."""
+        self.params.set("scan.alpha_score_entry_threshold", 70, log=False)
+        engine = self._engine(INACTIVITY_CYCLES, "alpha N< N")
+        self.assertTrue(engine._relax_from_inactivity())
+        self.assertEqual(self.params.get("scan.alpha_score_entry_threshold"), 67.5)
+
+    def test_le_seuil_alpha_ne_descend_pas_sous_sa_borne(self):
+        """Sans borne, le relâchement automatique deviendrait un désarmement :
+        un bras durablement inactif finirait par acheter n'importe quoi."""
+        self.params.set("scan.alpha_score_entry_threshold", 70, log=False)
+        engine = self._engine(INACTIVITY_CYCLES, "alpha N< N")
+        for _ in range(30):
+            engine._relax_from_inactivity()
+        self.assertEqual(self.params.get("scan.alpha_score_entry_threshold"), 55)
+
+    def test_un_seul_parametre_par_passage(self):
+        """Desserrer cinq seuils d'un coup rend l'effet illisible."""
+        engine = self._engine(INACTIVITY_CYCLES, "âge 8.0h > 6h")
+        changes = engine._relax_from_inactivity()
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(self.params.get("filters.max_age_hours"), 8)
+
+    def test_un_relachement_qui_resserrerait_est_refuse(self):
+        """LE PIÈGE : les bornes sont GLOBALES, la config d'un bras ne l'est
+        pas. `quality` porte `max_age_hours = 48`, borne `(2, 24)`. Relâcher
+        de +2 h donne 50, clampé à 24 : la fenêtre passerait de 48 h à 24 h.
+        Un relâchement qui divise la fenêtre par deux est un resserrage."""
+        self.params.set("filters.max_age_hours", 48.0, log=False)
+        engine = self._engine(INACTIVITY_CYCLES, "âge 60.0h > 48.0h")
+
+        self.assertEqual(engine._relax_from_inactivity(), [])
+        self.assertEqual(self.params.get("filters.max_age_hours"), 48.0)
+
+    def test_le_meme_refus_protege_le_relachement_par_le_shadow(self):
+        self.params.set("filters.max_age_hours", 48.0, log=False)
+        engine = LearningEngine(self.params, self.journal)
+        self.assertIsNone(engine._relax_set("filters.max_age_hours", 2, "test", 20))
+        self.assertEqual(self.params.get("filters.max_age_hours"), 48.0)
+
+    def test_un_relachement_dans_les_bornes_passe_normalement(self):
+        self.params.set("filters.max_age_hours", 6.0, log=False)
+        engine = LearningEngine(self.params, self.journal)
+        self.assertIsNotNone(engine._relax_set("filters.max_age_hours", 2, "test", 20))
+        self.assertEqual(self.params.get("filters.max_age_hours"), 8.0)
+
+    def test_sans_lecteur_dinactivite_rien_ne_bouge(self):
+        engine = LearningEngine(self.params, self.journal)
+        self.assertEqual(engine._relax_from_inactivity(), [])
+
+    def test_run_relache_meme_a_zero_trade(self):
+        """La porte des 15 trades ne doit pas bloquer ce chemin non plus."""
+        engine = self._engine(INACTIVITY_CYCLES, "liquidité 12000$ < 15000$")
+        changes = engine.run()
+        self.assertTrue(any("min_liquidity_usd" in c for c in changes), changes)
+        self.assertTrue(any("en attente" in c for c in changes), changes)
+
+    def test_la_borne_arrete_le_relachement_infini(self):
+        """`min_liquidity_usd` est borné à 5000 : un bras durablement inactif
+        ne peut pas descendre à zéro et acheter n'importe quoi."""
+        engine = self._engine(INACTIVITY_CYCLES, "liquidité 1$ < 15000$")
+        for _ in range(20):
+            engine._relax_from_inactivity()
+        self.assertEqual(self.params.get("filters.min_liquidity_usd"), 5000)
 
 
 class TestBacktestValidation(unittest.TestCase):

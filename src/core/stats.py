@@ -135,6 +135,42 @@ def pnl_per_trade_interval(positions: Sequence[dict[str, Any]]) -> Optional[Inte
     return bootstrap_mean([p.get("pnl_usd") or 0.0 for p in positions])
 
 
+def verdict_vs_reference(
+    positions: Sequence[dict[str, Any]],
+    reference: Sequence[dict[str, Any]],
+) -> dict[str, Any]:
+    """Ce bras bat-il le témoin, et peut-on le DIRE ?
+
+    LE PIÈGE QUE ÇA FERME. Regarder sept stratégies et garder la meilleure
+    produit un gagnant par hasard. Mesuré au 2026-08-02 : `runner` affichait
+    +6,72 $/trade — sur cinq trades. Rien dans le code n'empêchait de le
+    prendre au sérieux.
+
+    SUR LA COMPARAISON MULTIPLE. `compare` n'exige rien de moins que des IC95
+    DISJOINTS, ce qui correspond à un seuil d'environ 0,005 par comparaison.
+    Sur six bras comparés au témoin, le risque d'au moins un faux positif
+    reste sous 3 % — la sévérité du critère absorbe la multiplicité, sans
+    machinerie de correction supplémentaire.
+
+    Retourne toujours les deux intervalles : « indistinguable » et « pas assez
+    de trades » sont deux états différents, et les confondre ferait croire
+    qu'on a mesuré une égalité.
+    """
+    mien = pnl_per_trade_interval(positions)
+    sien = pnl_per_trade_interval(reference)
+    if mien is None or sien is None:
+        return {
+            "verdict": "échantillon trop court",
+            "interval": mien.as_dict() if mien else None,
+            "reference": sien.as_dict() if sien else None,
+        }
+    return {
+        "verdict": compare(mien, sien),
+        "interval": mien.as_dict(),
+        "reference": sien.as_dict(),
+    }
+
+
 def walk_forward(
     positions: Sequence[dict[str, Any]],
     evaluate: Any,
