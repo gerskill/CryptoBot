@@ -19,9 +19,9 @@ qu'il journalise a déjà été calculé par la boucle.
 import json
 import os
 import time
-from collections import Counter
+from collections import Counter, deque
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Iterator, Optional
 
 # Portes dans l'ordre où la boucle les applique. L'ordre est la donnée : un
 # token rejeté en « filtres » n'a jamais été soumis à la garde économique, et
@@ -52,6 +52,25 @@ EXIT_GATES = ("surveille", "alerte_liquidite", "sortie")
 # mais un motif de rejet précis peut manquer plusieurs cycles d'affilée pour
 # un bras donné.
 FILTER_SAMPLE_EVERY = 10
+
+# ROTATION. Mesuré le 2026-08-02 : 61 922 lignes pour 905 cycles, soit ~68
+# lignes par cycle, ~12 Mo par jour à 960 cycles/jour. Sans borne le fichier
+# grandit indéfiniment — et `recent_flow` le relisait EN ENTIER pour n'en
+# garder que les 20 dernières lignes utiles.
+#
+# Une seule génération conservée : `recent_flow` ne remonte que quelques
+# milliers de lignes, et l'analyse historique se fait sur le journal de
+# trades, pas ici. 8 Mo ≈ 45 000 lignes, très au-dessus de ce que la lecture
+# par la fin réclame.
+FUNNEL_MAX_BYTES = 8 * 1024 * 1024
+ROTATED_SUFFIX = ".1"
+
+# Lignes à remonter pour UN cycle d'UN bras. Mesuré : 61 922 lignes totales
+# pour 905 lignes `filtres_total` par bras, soit 68 lignes par cycle et par
+# bras. 250 laisse une marge de 3,7× — assez pour absorber un cycle chargé
+# (beaucoup de candidats retenus = beaucoup de lignes `seuil_alpha`) sans
+# jamais relire 11 Mo.
+TAIL_LINES_PER_CYCLE = 250
 
 
 @dataclass
@@ -178,6 +197,7 @@ class FunnelRecorder:
             for row in self.rows:
                 fh.write(json.dumps(row, ensure_ascii=False) + "\n")
         self.rows.clear()
+        rotate(self.path)
         return written
 
     @property
@@ -189,22 +209,70 @@ class FunnelRecorder:
         )
 
 
-def read_funnel(path: str, since: Optional[float] = None) -> list[dict[str, Any]]:
-    """Lignes du journal d'entonnoir. Ligne corrompue ignorée."""
-    if not os.path.exists(path):
-        return []
+def rotated_path(path: str) -> str:
+    """`data/funnel_log.jsonl` -> `data/funnel_log.1.jsonl`."""
+    base, ext = os.path.splitext(path)
+    return f"{base}{ROTATED_SUFFIX}{ext}"
+
+
+def rotate(path: str, max_bytes: Optional[int] = None) -> bool:
+    """Bascule le journal s'il dépasse la taille. True si une bascule a eu lieu.
+
+    `os.path.getsize` est en O(1) : le contrôle peut se faire à chaque flush
+    sans relire quoi que ce soit. `os.replace` est atomique — un lecteur voit
+    l'ancien fichier ou le nouveau, jamais un état intermédiaire.
+
+    Le seuil est résolu à l'APPEL, pas à la définition : une valeur par défaut
+    figée dans la signature rendrait `FUNNEL_MAX_BYTES` impossible à ajuster,
+    y compris depuis un test.
+    """
+    limite = FUNNEL_MAX_BYTES if max_bytes is None else max_bytes
+    try:
+        if os.path.getsize(path) <= limite:
+            return False
+    except OSError:
+        return False
+    os.replace(path, rotated_path(path))
+    return True
+
+
+def _iter_lines(path: str) -> Iterator[str]:
+    """Lignes de la génération précédente PUIS de la courante, dans l'ordre.
+
+    Sans la génération précédente, `recent_flow` deviendrait aveugle juste
+    après une rotation — et un flux inconnu autorise à resserrer un filtre,
+    exactement ce que le garde-fou cherche à empêcher.
+    """
+    for candidate in (rotated_path(path), path):
+        if not os.path.exists(candidate):
+            continue
+        with open(candidate, encoding="utf-8") as fh:
+            yield from fh
+
+
+def read_funnel(
+    path: str, since: Optional[float] = None, tail: Optional[int] = None
+) -> list[dict[str, Any]]:
+    """Lignes du journal d'entonnoir. Ligne corrompue ignorée.
+
+    `tail` borne la lecture aux N dernières lignes brutes. Sans lui, un appelant
+    qui ne veut que la fin du fichier paie le parsing JSON de tout l'historique
+    — 11 Mo mesurés au 2026-08-02, et ça ne fait que croître.
+    """
+    lines: Iterable[str] = _iter_lines(path)
+    if tail is not None:
+        lines = deque(lines, maxlen=tail)
     rows = []
-    with open(path, encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if since is None or (row.get("ts") or 0) >= since:
-                rows.append(row)
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if since is None or (row.get("ts") or 0) >= since:
+            rows.append(row)
     return rows
 
 
@@ -274,9 +342,13 @@ def recent_flow(path: str, arm: str, cycles: int = 20) -> Optional[float]:
 
     `None` = aucune mesure disponible. Ne doit pas bloquer : même invariant
     que le reste du pipeline.
+
+    Appelée depuis `LearningEngine._starving`, donc à CHAQUE `_bounded_set`, et
+    pour chacun des 7 bras. Lire tout le fichier pour n'en garder que 20 lignes
+    coûtait un parsing complet à chaque ajustement : d'où le `tail`.
     """
     rows = [
-        r for r in read_funnel(path)
+        r for r in read_funnel(path, tail=cycles * TAIL_LINES_PER_CYCLE)
         if r.get("gate") == "filtres_total" and r.get("arm") == arm
     ]
     if not rows:
