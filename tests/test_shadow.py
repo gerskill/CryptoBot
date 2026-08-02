@@ -144,6 +144,42 @@ class TestBornesEtRelachement(unittest.TestCase):
         self.assertEqual(self.engine._relax_from_shadow(), [])
         self.assertEqual(self.params.get("filters.min_liquidity_usd"), 15000)
 
+    def test_relachement_atteignable_avec_zero_trade(self):
+        """LA POULE ET L'ŒUF VERROUILLÉE ICI.
+
+        `run()` retournait « (en attente) 0/15 trades » AVANT d'atteindre
+        `_relax_from_shadow`. Or un bras dont les filtres coupent tout ne
+        trade pas, donc n'atteint jamais 15 trades, donc ne peut jamais
+        découvrir que ses filtres coupent trop. Le seul contrepoids au
+        resserrage était inaccessible exactement dans la situation qui le
+        réclame — même famille de bug que celui corrigé dans `economics`.
+
+        `_relax_from_shadow` ne lit aucun trade : il lit les rejets suivis.
+        Rien ne justifiait de le mettre derrière cette porte.
+        """
+        self._shadow_rows(15, "liquidity", won=True)
+        self.assertEqual(len(self.journal.read_positions()), 0)
+
+        changes = self.engine.run()
+
+        self.assertEqual(self.params.get("filters.min_liquidity_usd"), 10000)
+        self.assertTrue(any("min_liquidity_usd" in c for c in changes), changes)
+
+    def test_zero_trade_dit_toujours_que_le_reste_attend(self):
+        """« rien ajusté » et « pas assez de données » restent distincts."""
+        changes = self.engine.run()
+        self.assertTrue(any("en attente" in c for c in changes), changes)
+        self.assertTrue(any("0/15" in c for c in changes), changes)
+
+    def test_zero_trade_najuste_rien_dautre_que_le_relachement(self):
+        """Le garde-fou d'échantillon reste entier : seul le shadow passe."""
+        self._shadow_rows(15, "liquidity", won=True)
+        avant = dict(self.params.get("exit_rules", {}))
+
+        self.engine.run()
+
+        self.assertEqual(self.params.get("exit_rules", {}), avant)
+
 
 class TestBacktestValidation(unittest.TestCase):
     """Étape 6.4 : un ajustement de filtres doit prouver son gain."""

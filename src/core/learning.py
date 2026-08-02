@@ -274,12 +274,24 @@ class LearningEngine:
         applied: list[str] = []
 
         if total < MIN_TRADES_PER_ARM:
-            # Se taire, mais le DIRE : « rien ajusté » et « pas assez de
-            # données pour ajuster » sont deux états différents, et les
-            # confondre fait croire que l'apprentissage tourne.
-            return [
+            # LE RELÂCHEMENT PAR LE SHADOW N'EST PAS SOUMIS À CE SEUIL, et
+            # c'est le seul ajustement dans ce cas. Il ne lit AUCUN trade : il
+            # lit les rejets suivis. Le garder derrière la porte des 15 trades
+            # créait une poule-et-œuf de la même famille que celle corrigée
+            # dans `economics` — un bras dont les filtres coupent tout ne
+            # trade pas, donc n'atteint jamais 15, donc ne peut jamais
+            # découvrir que ses filtres coupent trop. Le contrepoids était
+            # inaccessible exactement dans la situation qui le réclame.
+            #
+            # Sans risque : `_relax_from_shadow` ne fait que RELÂCHER, et
+            # `_starving` n'interdit que le resserrage.
+            relaxations = self._relax_from_shadow()
+            # Se taire sur le reste, mais le DIRE : « rien ajusté » et « pas
+            # assez de données pour ajuster » sont deux états différents, et
+            # les confondre fait croire que l'apprentissage tourne.
+            return relaxations + [
                 f"(en attente) {total}/{MIN_TRADES_PER_ARM} trades avant "
-                f"tout ajustement"
+                f"tout ajustement sauf relâchement par le shadow"
             ]
 
         if self._due("filters", total, FILTER_CADENCE):

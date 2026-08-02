@@ -125,7 +125,11 @@ class AlphaLoop:
         )
 
         self.journal = TradeJournal(settings.TRADES_LOG_PATH)
-        self.shadow = ShadowTracker(settings.SHADOW_LOG_PATH)
+        # Remplacé plus bas par celui du bras témoin, comme `learning` : les
+        # deux instances viseraient le MÊME fichier (`arm_paths("baseline")`
+        # rend `SHADOW_LOG_PATH`) avec deux `_tracked` séparés, donc deux
+        # verdicts écrits pour un seul rejet.
+        self.shadow: Optional[ShadowTracker] = None
         # Étape 1 du suivi de wallets : OBSERVER, sans jamais décider. Coût
         # nul — le flux smart money est déjà récupéré pour le scoring.
         self.wallets = WalletRegistry(settings.WALLETS_LOG_PATH)
@@ -171,6 +175,7 @@ class AlphaLoop:
         # 36 trades historiques continuent de le lire sans migration.
         self.portfolio = self.baseline.portfolio
         self.learning = self.baseline.learning
+        self.shadow = self.baseline.shadow
         self.market = CycleMarketCache()
 
         self.cycle_count = 0
@@ -531,28 +536,56 @@ class AlphaLoop:
 
         Sans ça, le bot n'apprend que de ses propres trades et ne peut jamais
         découvrir qu'un filtre est trop strict.
+
+        CHAQUE BRAS SUIT SES PROPRES REJETS. `bootstrap_arms` donne un
+        `ShadowTracker` à chacun et le passe à son `LearningEngine`, mais seul
+        le témoin était alimenté : les six autres logs restaient vides, donc
+        `_relax_from_shadow` — le seul contrepoids au resserrage — ne rendait
+        jamais rien pour eux. Un bras rejette sur SES seuils ; le shadow du
+        témoin ne dit rien de ce que `quality` ou `narrative` ont écarté.
+
+        LE PRIX EST RAFRAÎCHI UNE FOIS, sur l'UNION des adresses en attente.
+        Les bras jugent le même lot, donc leurs listes se recouvrent largement.
+        Interroger DexScreener par bras multiplierait par sept un coût que la
+        collecte partagée existe justement pour éviter.
         """
-        added = self.shadow.record_rejections(result.rejected)
-
-        pending = self.shadow.pending_review()
-        if pending:
-            for address, pairs in self.dex.get_tokens_data(pending).items():
-                if pairs:
-                    price = float(pairs[0].get("priceUsd") or 0)
-                    self.shadow.update_price(address, price)
-
-        for verdict in self.shadow.expire():
-            icon = "💸" if verdict.would_have_won else "  "
-            print(
-                f"{icon} SHADOW {verdict.symbol} rejeté ({verdict.reason_family}) "
-                f"→ pic {verdict.peak_gain_pct:+.0f}% en {verdict.minutes_tracked:.0f} min"
+        ajouts: dict[str, int] = {}
+        for arm in self.arms:
+            evaluation = self._last_evaluations.get(arm.name)
+            rejected = (
+                evaluation.result.rejected if evaluation is not None
+                else (result.rejected if arm.is_baseline else [])
             )
+            ajouts[arm.name] = arm.shadow.record_rejections(rejected)
 
-        if added or pending:
+        attente = {a for arm in self.arms for a in arm.shadow.pending_review()}
+        if attente:
+            for address, pairs in self.dex.get_tokens_data(sorted(attente)).items():
+                if not pairs:
+                    continue
+                price = float(pairs[0].get("priceUsd") or 0)
+                for arm in self.arms:
+                    arm.shadow.update_price(address, price)
+
+        for arm in self.arms:
+            for verdict in arm.shadow.expire():
+                icon = "💸" if verdict.would_have_won else "  "
+                print(
+                    f"{icon} SHADOW{arm.label} {verdict.symbol} rejeté "
+                    f"({verdict.reason_family}) → pic {verdict.peak_gain_pct:+.0f}% "
+                    f"en {verdict.minutes_tracked:.0f} min"
+                )
+
+        if any(ajouts.values()) or attente:
             stats = self.shadow.stats
+            detail = " ".join(
+                f"{arm.name}+{ajouts[arm.name]}"
+                for arm in self.arms
+                if ajouts[arm.name]
+            )
             print(
-                f"[Shadow] +{added} sous observation | {stats['tracked']} suivis "
-                f"| {stats['judged']} jugés"
+                f"[Shadow] {stats['tracked']} suivis | {stats['judged']} jugés "
+                f"(témoin) | {detail or 'aucun nouveau rejet'}"
             )
 
     def _handle_commands(self) -> None:

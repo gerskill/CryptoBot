@@ -222,6 +222,114 @@ class TestIsolation(ArmsTestCase):
         self.assertEqual(runner.label, " [runner]")
 
 
+class _FauxDex:
+    """Compte les appels : la collecte est partagée, le shadow doit l'être aussi."""
+
+    def __init__(self, prix: float = 3.0):
+        self.prix = prix
+        self.appels: list[list[str]] = []
+
+    def get_tokens_data(self, addresses):
+        self.appels.append(list(addresses))
+        return {a: [{"priceUsd": self.prix}] for a in addresses}
+
+
+def _rejet(symbol: str, reason: str, price: float = 1.0):
+    from src.core.models import Candidate
+
+    return Candidate(
+        token_address=f"addr_{symbol}", symbol=symbol, name=symbol, chain="solana",
+        price_usd=price, liquidity_usd=12000, rejected_reason=reason,
+    )
+
+
+class _FausseEvaluation:
+    def __init__(self, rejected):
+        self.result = type("R", (), {"rejected": rejected})()
+
+
+class TestShadowParBras(ArmsTestCase):
+    """Chaque bras suit SES rejets.
+
+    LE BUG VERROUILLÉ ICI. `bootstrap_arms` donnait un `ShadowTracker` à
+    chaque bras et le passait à son `LearningEngine`, mais `_track_rejections`
+    n'alimentait que `self.shadow`. Mesuré au 2026-08-02 : 399 rejets jugés
+    pour le témoin, ZÉRO pour les six autres — leur fichier n'existait même
+    pas. `_relax_from_shadow`, seul contrepoids au resserrage des filtres, ne
+    pouvait donc rien rendre pour eux.
+
+    Un bras rejette sur SES seuils : le shadow du témoin ne dit rien de ce que
+    `quality` ou `narrative` ont écarté.
+    """
+
+    def _loop(self, arms, evaluations, dex):
+        """Stand-in : `_track_rejections` n'a besoin que de ces quatre champs.
+
+        Construire un `AlphaLoop` complet ouvrirait des sockets et lirait le
+        vrai `.env` — on teste la méthode, pas le constructeur.
+        """
+        from src.main import AlphaLoop
+
+        faux = type("L", (), {})()
+        faux.arms = arms
+        faux._last_evaluations = evaluations
+        faux.dex = dex
+        faux.shadow = next(a.shadow for a in arms if a.is_baseline)
+        AlphaLoop._track_rejections(faux, evaluations["baseline"].result)
+        return faux
+
+    def test_chaque_bras_enregistre_ses_propres_rejets(self):
+        baseline, runner = self._deux_bras()
+        evaluations = {
+            "baseline": _FausseEvaluation([_rejet("A", "liquidité 12000 < 15000")]),
+            "runner": _FausseEvaluation([
+                _rejet("A", "liquidité 12000 < 15000"),
+                _rejet("B", "liquidité 12000 < 40000"),
+            ]),
+        }
+
+        self._loop([baseline, runner], evaluations, _FauxDex())
+
+        self.assertEqual(len(baseline.shadow.tracked_addresses), 1)
+        self.assertEqual(len(runner.shadow.tracked_addresses), 2)
+
+    def test_les_logs_des_bras_sont_separes(self):
+        baseline, runner = self._deux_bras()
+        self.assertNotEqual(baseline.shadow.path, runner.shadow.path)
+
+    def test_le_prix_est_interroge_une_seule_fois_pour_tous_les_bras(self):
+        """La collecte est partagée ; interroger DexScreener par bras
+        multiplierait par sept le coût que ce partage existe pour éviter."""
+        import time
+
+        baseline, runner = self._deux_bras()
+        evaluations = {
+            "baseline": _FausseEvaluation([_rejet("A", "liquidité 12000 < 15000")]),
+            "runner": _FausseEvaluation([_rejet("A", "liquidité 12000 < 15000")]),
+        }
+        self._loop([baseline, runner], evaluations, _FauxDex())
+
+        # Vieillir les suivis pour qu'ils passent en revue au cycle suivant.
+        for arm in (baseline, runner):
+            for entry in arm.shadow._tracked.values():
+                entry["rejected_at"] = time.time() - 3600
+
+        dex = _FauxDex(prix=3.0)
+        self._loop([baseline, runner], evaluations, dex)
+
+        self.assertEqual(len(dex.appels), 1)
+        self.assertEqual(dex.appels[0], ["addr_A"])
+        # Et le prix a bien été distribué aux DEUX bras.
+        for arm in (baseline, runner):
+            self.assertEqual(arm.shadow._tracked["addr_A"]["peak_price"], 3.0)
+
+    def test_pas_de_double_ecriture_sur_le_journal_du_temoin(self):
+        """`arm_paths('baseline')['shadow']` EST `SHADOW_LOG_PATH`. Deux
+        `ShadowTracker` sur ce fichier écriraient deux verdicts par rejet."""
+        baseline, _ = self._deux_bras()
+        self.assertEqual(baseline.shadow.path, settings.SHADOW_LOG_PATH)
+
+
 class TestManifesteLivre(unittest.TestCase):
     """Le manifeste réellement livré doit être cohérent."""
 
