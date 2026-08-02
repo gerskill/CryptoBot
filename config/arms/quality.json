@@ -29,9 +29,9 @@
     "_note_gmgn": "Decouverte GMGN filtree cote serveur. Mesure 2026-08-01 : le flux DexScreener /token-profiles est de la promo payante, liquidite mediane 1634$. GMGN rend liquidite + holders + top10 + smart money en UN appel deja filtre, donc on n enrichit plus du dechet. 3 intervalles = 3 appels par cycle."
   },
   "filters": {
-    "min_liquidity_usd": 20000,
+    "min_liquidity_usd": 15000,
     "min_holders": 200,
-    "min_volume_1h": 20000,
+    "min_volume_1h": 18000,
     "max_dev_wallet_pct": 10,
     "min_rugcheck_score": 85,
     "max_top_wallet_concentration": 20,
@@ -152,6 +152,22 @@
         "new_value": 24.0,
         "reason": "revocation proprietaire de l elargissement du 2026-08-01 (24 -> 48, motif « 59 rejets age, la liquidite serieuse demande du temps »). La borne globale (2.0, 24.0) fait foi : une config au-dela la rendait inapplicable, et tout relachement etait refuse par _relax_set parce que le clamp a 24 aurait RESSERRE la fenetre de moitie. Ramene a la valeur declaree par le manifeste, document vivant et manifeste de nouveau d accord.",
         "trades_sample_size": 0
+      },
+      {
+        "timestamp": "2026-08-02T14:28:51.510623+00:00",
+        "param_name": "filters.min_volume_1h",
+        "old_value": 20000,
+        "new_value": 18000,
+        "reason": "inactif depuis 443 cycles sans entrée (seuil 300) — motif « volume Nh N < N »",
+        "trades_sample_size": 443
+      },
+      {
+        "timestamp": "2026-08-02T15:44:05.681147+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 20000,
+        "new_value": 15000,
+        "reason": "inactif depuis 440 cycles sans entrée (seuil 300) — motif « liquidité N < N »",
+        "trades_sample_size": 440
       }
     ],
     "total_trades": 2,

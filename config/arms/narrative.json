@@ -12,7 +12,7 @@
     ],
     "cache_ttl_minutes": 30,
     "max_candidates_enriched": 25,
-    "alpha_score_entry_threshold": 70,
+    "alpha_score_entry_threshold": 65.0,
     "social_lookup_min_alpha": 70,
     "social_max_lookups_per_cycle": 2,
     "_note_monitor": "5s au lieu de 20s : mesure sur 10 trades, 8 sorties SL sur 8 depassaient leur seuil de 4.6 points en moyenne (pire -40.5% pour un SL a -25%). Cout : 1 requete par position et par tick, quota DexScreener 300/min.",
@@ -110,6 +110,22 @@
         "new_value": 100,
         "reason": "elargissement mesure : 12 rejets swaps",
         "trades_sample_size": 0
+      },
+      {
+        "timestamp": "2026-08-02T14:28:51.618016+00:00",
+        "param_name": "scan.alpha_score_entry_threshold",
+        "old_value": 70,
+        "new_value": 67.5,
+        "reason": "inactif depuis 443 cycles sans entrée (seuil 300) — motif « alpha N< N »",
+        "trades_sample_size": 443
+      },
+      {
+        "timestamp": "2026-08-02T15:44:05.780007+00:00",
+        "param_name": "scan.alpha_score_entry_threshold",
+        "old_value": 67.5,
+        "new_value": 65.0,
+        "reason": "inactif depuis 441 cycles sans entrée (seuil 300) — motif « alpha N< N »",
+        "trades_sample_size": 441
       }
     ]
   },

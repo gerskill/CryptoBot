@@ -530,6 +530,30 @@ class AlphaLoop:
             for arm in self.arms
             for p in arm.portfolio.positions.values()
         ]
+
+        # WIN RATE ET PROFIT FACTOR DE LA FLOTTE, recalculés sur les journaux
+        # et non moyennés depuis les bras : une moyenne de taux pondère chaque
+        # stratégie à égalité quel que soit son nombre de trades, ce qui
+        # donnerait le même poids aux 2 trades de `quality` qu'aux 39 du
+        # témoin.
+        #
+        # POURQUOI CE BLOC EXISTE. Le panneau n'affichait que `stats`, c'est-à-
+        # dire le TÉMOIN — gelé, sans trade depuis 16 h. Il montrait « 4
+        # gagnants sur 39 » pendant que la flotte en comptait 27 sur 93. Les
+        # gains étaient bien enregistrés ; c'est la lecture qui regardait le
+        # mauvais portefeuille.
+        positions = [
+            row
+            for arm in self.arms
+            if arm.journal is not None
+            for row in arm.journal.read_positions()
+        ]
+        gagnants = [r for r in positions if (r.get("pnl_usd") or 0) > 0]
+        gains = sum(r.get("pnl_usd") or 0 for r in gagnants)
+        pertes = abs(
+            sum(r.get("pnl_usd") or 0 for r in positions if (r.get("pnl_usd") or 0) <= 0)
+        )
+
         return {
             "arms": len(self.arms),
             "open_positions": sum(s["open_positions"] for s in stats),
@@ -538,6 +562,17 @@ class AlphaLoop:
             "total_pnl_usd": round(sum(s["total_pnl_usd"] for s in stats), 2),
             "equity": round(sum(s["equity"] for s in stats), 2),
             "arms_trading": sum(1 for s in stats if s["open_positions"]),
+            "wins": len(gagnants),
+            "closed_trades": len(positions),
+            "win_rate": (
+                round(100 * len(gagnants) / len(positions), 1) if positions else 0.0
+            ),
+            "profit_factor": round(gains / pertes, 2) if pertes else 0.0,
+            # Le drawdown ne s'additionne pas : on rend le PIRE des bras, et on
+            # le dit dans le libellé plutôt que d'inventer une somme.
+            "worst_arm_drawdown_pct": (
+                max((s["max_drawdown_pct"] for s in stats), default=0.0)
+            ),
         }
 
     def _arms_payload(self) -> list[dict]:
@@ -1029,7 +1064,19 @@ class AlphaLoop:
             self.telegram.send("🧬 <b>Stratégies</b>\n" + "\n".join(lignes))
 
     def _print_dashboard(self) -> None:
+        """Deux blocs, et l'ordre compte.
+
+        LA FLOTTE D'ABORD. Ce panneau n'affichait que le témoin, gelé et sans
+        trade depuis des heures : il montrait « 4 gagnants sur 39 » pendant que
+        les six autres bras en accumulaient 27 sur 93. Les gains étaient
+        enregistrés — c'est la lecture qui regardait le mauvais portefeuille.
+
+        LE TÉMOIN QUAND MÊME, en dessous et étiqueté. C'est la seule référence
+        comparable aux trades historiques : le sortir du panneau ferait perdre
+        le point de comparaison qui donne un sens aux chiffres de la flotte.
+        """
         stats = self.portfolio.stats()
+        agg = self._aggregate_stats()
         history = self.params.get("learning.parameter_adjustment_history", []) or []
         last = history[-1] if history else None
         allowed, why = self.learning.live_mode_allowed()
@@ -1038,16 +1085,23 @@ class AlphaLoop:
         print(f"│ MEMECOIN ALPHA LOOP — DASHBOARD [{stats['mode']}]".ljust(61) + "│")
         print(f"├{'─' * 60}┤")
         print(
-            f"│ Capital : {stats['equity']:.2f} $ | P&L : {stats['total_pnl_usd']:+.2f} $".ljust(61)
-            + "│"
-        )
-        print(f"│ Positions ouvertes : {stats['open_positions']}".ljust(61) + "│")
-        print(
-            f"│ Win rate : {stats['win_rate']}% | Profit factor : {stats['profit_factor']}".ljust(61)
-            + "│"
+            f"│ FLOTTE ({agg['arms']} bras) — capital {agg['equity']:.2f} $ | "
+            f"P&L {agg['total_pnl_usd']:+.2f} $".ljust(61) + "│"
         )
         print(
-            f"│ Max drawdown : {stats['max_drawdown_pct']}% | Trades : {stats['total_trades']}".ljust(61)
+            f"│ Win rate : {agg['win_rate']}% ({agg['wins']}/{agg['closed_trades']}) | "
+            f"Profit factor : {agg['profit_factor']}".ljust(61) + "│"
+        )
+        print(
+            f"│ Positions ouvertes : {agg['open_positions']} | "
+            f"exposition {agg['exposure_usd']:.2f} $ | "
+            f"pire drawdown {agg['worst_arm_drawdown_pct']}%".ljust(61) + "│"
+        )
+        print(f"├{'─' * 60}┤")
+        print(
+            f"│ témoin (gelé) : {stats['equity']:.2f} $ | "
+            f"{stats['total_pnl_usd']:+.2f} $ | WR {stats['win_rate']}% | "
+            f"PF {stats['profit_factor']} | {stats['total_trades']} trades".ljust(61)
             + "│"
         )
         if stats["cooldown_min"]:

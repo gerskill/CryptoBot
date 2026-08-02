@@ -90,34 +90,48 @@ function EquityCurve() {
 
 function StatGrid() {
   const stats = useStore((s) => s.state.stats)
+  const agg = useStore((s) => s.state.aggregate)
   const live = useStore((s) => s.state.live_allowed)
   if (!stats) return null
+
+  // CES CHIFFRES SONT CEUX DE LA FLOTTE, PAS DU TÉMOIN. `stats` est le
+  // portefeuille du bras témoin, qui est GELÉ : il affichait « 4 gagnants sur
+  // 39 » et un PF de 0.28 figés depuis des heures pendant que les six autres
+  // bras accumulaient 27 gagnants sur 93. Les gains étaient bien enregistrés,
+  // c'est cette lecture qui regardait le mauvais portefeuille.
+  //
+  // `EquityCurve` avait déjà basculé sur `aggregate` pour la même raison —
+  // la grille était restée en arrière.
+  const trades = agg?.closed_trades ?? stats.total_trades
+  const winRate = agg?.win_rate ?? stats.win_rate
+  const profitFactor = agg?.profit_factor ?? stats.profit_factor
+  const drawdown = agg?.worst_arm_drawdown_pct ?? stats.max_drawdown_pct
+  const wins = agg?.wins ?? Math.round((stats.win_rate / 100) * stats.total_trades)
 
   // Un profit factor à 0.00 ressemble à un bug alors qu'il signifie
   // « aucun trade gagnant ». On l'affiche comme tel, avec le détail du
   // win rate pour que 0% se lise « 0 sur 3 » et non « métrique cassée ».
-  const wins = Math.round((stats.win_rate / 100) * stats.total_trades)
-  const noTrades = stats.total_trades === 0
+  const noTrades = trades === 0
   const cells = [
     {
       label: 'win rate',
-      value: noTrades ? '—' : `${stats.win_rate}%`,
-      hint: noTrades ? 'aucun trade' : `${wins} gagnant${wins > 1 ? 's' : ''} sur ${stats.total_trades}`,
+      value: noTrades ? '—' : `${winRate}%`,
+      hint: noTrades ? 'aucun trade' : `${wins} gagnant${wins > 1 ? 's' : ''} sur ${trades}`,
     },
     {
       label: 'profit factor',
-      value: noTrades ? '—' : stats.profit_factor > 0 ? stats.profit_factor.toFixed(2) : '0',
+      value: noTrades ? '—' : profitFactor > 0 ? profitFactor.toFixed(2) : '0',
       hint: noTrades
         ? 'aucun trade'
-        : stats.profit_factor > 0
-          ? 'gains / pertes'
+        : profitFactor > 0
+          ? 'gains / pertes, tous bras'
           : 'aucun gain à ce jour',
     },
-    { label: 'trades', value: String(stats.total_trades), hint: 'clôturés' },
+    { label: 'trades', value: String(trades), hint: 'clôturés, tous bras' },
     {
       label: 'drawdown max',
-      value: `${stats.max_drawdown_pct}%`,
-      hint: 'plus fort recul depuis un sommet',
+      value: `${drawdown}%`,
+      hint: agg ? 'pire bras, depuis son sommet' : 'plus fort recul depuis un sommet',
     },
   ]
 

@@ -12,7 +12,7 @@
     ],
     "cache_ttl_minutes": 30,
     "max_candidates_enriched": 25,
-    "alpha_score_entry_threshold": 70,
+    "alpha_score_entry_threshold": 67.5,
     "social_lookup_min_alpha": 70,
     "social_max_lookups_per_cycle": 2,
     "_note_monitor": "5s au lieu de 20s : mesure sur 10 trades, 8 sorties SL sur 8 depassaient leur seuil de 4.6 points en moyenne (pire -40.5% pour un SL a -25%). Cout : 1 requete par position et par tick, quota DexScreener 300/min.",
@@ -112,17 +112,25 @@
         "new_value": 70,
         "reason": "elargissement mesure : 200 rejets au seuil alpha, le motif n1. Twitter mort -> composant social absent -> poids redistribues -> scores structurellement plus bas",
         "trades_sample_size": 0
+      },
+      {
+        "timestamp": "2026-08-02T14:28:51.408620+00:00",
+        "param_name": "scan.alpha_score_entry_threshold",
+        "old_value": 70,
+        "new_value": 67.5,
+        "reason": "inactif depuis 315 cycles sans entrée (seuil 300) — motif « alpha N< N »",
+        "trades_sample_size": 315
       }
     ],
-    "total_trades": 6,
+    "total_trades": 7,
     "winning_trades": 3,
-    "losing_trades": 3,
+    "losing_trades": 4,
     "avg_win_pct": 95.24,
-    "avg_loss_pct": -36.24,
+    "avg_loss_pct": -38.59,
     "win_rate_by_age": {
       "2-4h": {
-        "win_rate": 50.0,
-        "sample": 2
+        "win_rate": 33.3,
+        "sample": 3
       },
       "4h+": {
         "win_rate": 50.0,
@@ -143,8 +151,8 @@
         "sample": 2
       },
       "10-30K": {
-        "win_rate": 50.0,
-        "sample": 2
+        "win_rate": 33.3,
+        "sample": 3
       }
     },
     "win_rate_by_social_score": {}

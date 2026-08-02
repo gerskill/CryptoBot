@@ -15,7 +15,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src import settings  # noqa: E402
 from src.core import arm as arm_module  # noqa: E402
-from src.core.arm import ManifestError, bootstrap_arms, materialise_arm_params  # noqa: E402
+from src.core.arm import (  # noqa: E402
+    ManifestError,
+    attach_portfolios,
+    bootstrap_arms,
+    materialise_arm_params,
+)
 from src.core.params import ParamsStore  # noqa: E402
 
 BASE = {
@@ -412,6 +417,85 @@ class TestRelachementDepuisLeCycle(ArmsTestCase):
         from src.main import INACTIVITY_CHECK_EVERY
 
         self.assertLess(INACTIVITY_CHECK_EVERY, INACTIVITY_CYCLES)
+
+
+class TestStatsDeLaFlotte(ArmsTestCase):
+    """Le panneau affichait le TÉMOIN et le présentait comme le bot.
+
+    LE BUG VERROUILLÉ ICI. `stats` est le portefeuille du bras témoin, qui est
+    GELÉ. Il montrait « 4 gagnants sur 39 », un profit factor de 0,28 et un
+    drawdown de 17,4 % figés depuis 16 h, pendant que les six autres bras
+    accumulaient 27 gagnants sur 93 trades. Les gains étaient bien écrits dans
+    les journaux : c'est la LECTURE qui regardait le mauvais portefeuille.
+    """
+
+    def _flotte(self, arms):
+        from src.main import AlphaLoop
+
+        faux = type("L", (), {})()
+        faux.arms = arms
+        return AlphaLoop._aggregate_stats(faux)
+
+    def _avec_portefeuilles(self):
+        arms = self._deux_bras()
+        attach_portfolios(arms, capital_total=1000.0)
+        return arms
+
+    def _avec_trades(self):
+        baseline, runner = self._avec_portefeuilles()
+        # Le témoin perd, le second gagne — le cas exact du bug.
+        for arm, pnls in ((baseline, [-4.0] * 3), (runner, [10.0, 10.0, -2.0])):
+            for index, pnl in enumerate(pnls):
+                with open(arm.journal.path, "a", encoding="utf-8") as fh:
+                    fh.write(json.dumps({
+                        "position_id": f"{arm.name}{index}", "token": "T",
+                        "pnl_usd": pnl, "pnl_pct": pnl, "is_final_exit": True,
+                    }) + "\n")
+        return baseline, runner
+
+    def test_compte_les_gagnants_de_tous_les_bras(self):
+        agg = self._flotte(list(self._avec_trades()))
+        self.assertEqual(agg["closed_trades"], 6)
+        self.assertEqual(agg["wins"], 2)
+
+    def test_le_win_rate_nest_pas_celui_du_temoin(self):
+        baseline, runner = self._avec_trades()
+        agg = self._flotte([baseline, runner])
+        self.assertEqual(baseline.portfolio.stats()["win_rate"], 0.0)
+        self.assertEqual(agg["win_rate"], round(100 * 2 / 6, 1))
+
+    def test_le_profit_factor_agrege_les_gains_et_les_pertes(self):
+        agg = self._flotte(list(self._avec_trades()))
+        # gains 20, pertes 3*4 + 2 = 14
+        self.assertEqual(agg["profit_factor"], round(20 / 14, 2))
+
+    def test_le_win_rate_nest_pas_une_moyenne_des_taux(self):
+        """Une moyenne pondérerait `quality` (2 trades) comme le témoin (39).
+        Le taux se recalcule sur les journaux."""
+        baseline, runner = self._avec_portefeuilles()
+        for index in range(20):
+            with open(baseline.journal.path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps({"position_id": f"b{index}", "token": "T",
+                                     "pnl_usd": -1.0, "is_final_exit": True}) + "\n")
+        with open(runner.journal.path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"position_id": "r0", "token": "T",
+                                 "pnl_usd": 1.0, "is_final_exit": True}) + "\n")
+
+        agg = self._flotte([baseline, runner])
+        # Moyenne des taux = (0% + 100%) / 2 = 50%. Le vrai taux est 1/21.
+        self.assertEqual(agg["win_rate"], round(100 / 21, 1))
+
+    def test_le_drawdown_ne_sadditionne_pas(self):
+        agg = self._flotte(list(self._avec_trades()))
+        pires = [a.portfolio.stats()["max_drawdown_pct"] for a in self._avec_portefeuilles()]
+        self.assertLessEqual(agg["worst_arm_drawdown_pct"], max(pires) + 100)
+        self.assertIn("worst_arm_drawdown_pct", agg)
+
+    def test_sans_aucun_trade_rien_ne_divise_par_zero(self):
+        agg = self._flotte(list(self._avec_portefeuilles()))
+        self.assertEqual(agg["closed_trades"], 0)
+        self.assertEqual(agg["win_rate"], 0.0)
+        self.assertEqual(agg["profit_factor"], 0.0)
 
 
 class TestManifesteLivre(unittest.TestCase):

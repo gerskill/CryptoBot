@@ -169,6 +169,15 @@ export type Aggregate = {
   total_pnl_usd: number
   equity: number
   arms_trading: number
+  /** Performance de la FLOTTE, recalculée sur les journaux de tous les bras.
+   *  `stats` ne décrit que le témoin, qui est gelé : s'y fier affichait
+   *  « 4 gagnants sur 39 » alors que la flotte en comptait 27 sur 93. */
+  wins: number
+  closed_trades: number
+  win_rate: number
+  profit_factor: number
+  /** Le drawdown ne s'additionne pas entre portefeuilles : on rend le pire. */
+  worst_arm_drawdown_pct: number
 }
 
 /** Santé par capacité, pas par API : « peut-on encore avoir des bougies ». */
