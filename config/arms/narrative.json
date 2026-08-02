@@ -127,7 +127,25 @@
         "reason": "inactif depuis 441 cycles sans entrée (seuil 300) — motif « alpha N< N »",
         "trades_sample_size": 441
       }
-    ]
+    ],
+    "total_trades": 1,
+    "winning_trades": 0,
+    "losing_trades": 1,
+    "avg_win_pct": 0,
+    "avg_loss_pct": -31.13,
+    "win_rate_by_age": {
+      "4h+": {
+        "win_rate": 0.0,
+        "sample": 1
+      }
+    },
+    "win_rate_by_liquidity": {
+      ">50K": {
+        "win_rate": 0.0,
+        "sample": 1
+      }
+    },
+    "win_rate_by_social_score": {}
   },
   "risk_rules": {
     "cooldown_hours": 0,

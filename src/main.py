@@ -819,6 +819,7 @@ class AlphaLoop:
                     f"| {row['pnl_usd']:+.2f} ${reste}"
                 )
                 if row["is_final_exit"]:
+                    self._measure_hold(arm, position, row)
                     self._after_trade_closed(arm)
         portfolio.flush()
 
@@ -1055,17 +1056,40 @@ class AlphaLoop:
             f"| TP1 +{position.take_profit_1}%{frais}"
         )
 
+    def _run_agents(self, essais, symbol: str) -> None:
+        """Exécute des mesures en isolant les pannes.
+
+        Un agent de mesure qui tombe ne doit pas emporter le cycle : à
+        l'ouverture la position existe déjà, à la clôture le trade est déjà
+        écrit au journal. Perdre la boucle de vue serait bien pire que perdre
+        une mesure. Invariant « la boucle ne meurt jamais ».
+        """
+        for nom, mesure in essais:
+            try:
+                mesure()
+            except Exception as exc:  # noqa: BLE001
+                print(f"[Agents] {nom} indisponible sur {symbol} : {exc}")
+
     def _measure_entry(self, position, candidate: Candidate) -> None:
-        """Les quatre agents de mesure, déclenchés À L'OUVERTURE.
+        """Les mesures qui n'ont de sens QU'À L'OUVERTURE.
 
-        POURQUOI ICI ET PAS PLUS TARD. `PriceHistory` vit en MÉMOIRE : il n'est
-        écrit nulle part et disparaît à chaque redémarrage. Les snapshots
-        d'avant l'entrée n'existent donc que pendant le cycle qui ouvre la
-        position — c'est la seule fenêtre où le contrefactuel de timing peut
-        reconstituer ce que valait le token trente secondes plus tôt.
+        POURQUOI ICI ET NULLE PART AILLEURS. `PriceHistory` vit en MÉMOIRE : il
+        n'est écrit nulle part et disparaît à chaque redémarrage. Les snapshots
+        d'AVANT l'entrée n'existent donc que pendant le cycle qui ouvre la
+        position — c'est la seule fenêtre où le contrefactuel peut reconstituer
+        ce que valait le token un cycle plus tôt. Et le candidat enrichi, que
+        lit `dev_history`, n'existe pas non plus au-delà de ce cycle.
 
-        Conséquence à connaître : ces mesures ne peuvent PAS être rejouées sur
-        les 93 trades déjà clôturés. Elles partent de zéro, vers l'avant.
+        Conséquence : ces mesures ne peuvent PAS être rejouées sur les 93
+        trades déjà clôturés. Elles partent de zéro, vers l'avant.
+
+        CE QUI A ÉTÉ DÉPLACÉ, ET POURQUOI. RSI, volatilité et microstructure
+        étaient ici aussi. Mesuré sur les deux premières entrées réelles du
+        2026-08-02 : 1 et 3 clôtures pour un RSI qui en demande 15, 1 et 5
+        rendements pour une volatilité qui en demande 8. Le bot entre vite
+        après la découverte, donc `PriceHistory` est presque vide à l'ouverture.
+        Ces trois-là mesurent une ACCUMULATION : leur place est à la clôture,
+        sur les snapshots du monitoring à 5 s. Voir `_measure_hold`.
 
         AUCUNE DE CES MESURES NE DÉCIDE. La position est déjà ouverte quand
         cette méthode est appelée ; elle ne peut ni l'annuler ni la
@@ -1073,29 +1097,53 @@ class AlphaLoop:
         sur un indicateur neuf serait du surapprentissage.
         """
         snapshots = self.history.snapshots(position.token_address)
-        candles = self.history.candles(position.token_address)
-        essais = (
+        self._run_agents((
             ("counterfactual", lambda: self.counterfactual.observe(
                 position.token_address, position.symbol,
                 position.entry_price, time.time(), snapshots,
             )),
-            ("rsi", lambda: self.rsi.observe(
-                position.token_address, position.symbol, candles)),
+            ("dev_history", lambda: self.dev_history.observe(candidate)),
+        ), position.symbol)
+
+    def _measure_hold(self, arm, position, row: dict) -> None:
+        """Les mesures d'ACCUMULATION, déclenchées à la clôture finale.
+
+        POURQUOI À LA CLÔTURE ET PAS À CHAQUE TICK. Le monitoring tourne à 5 s :
+        mesurer à chaque tour écrirait des centaines de lignes par position,
+        toutes redondantes sauf la dernière. À la clôture, les snapshots de
+        toute la détention sont là — c'est le point de mesure le plus riche, et
+        il ne coûte qu'une ligne par position.
+
+        CE QUE ÇA CHANGE CONCRÈTEMENT. À l'ouverture la volatilité voyait 1 à 5
+        rendements pour un minimum de 8. Sur une détention de 30 min à 5 s par
+        tick, elle en voit environ 360. Le RSI reste le plus exigeant : les
+        bougies font 180 s, donc ses 15 clôtures demandent 45 minutes de
+        détention — plus long que la durée de vie de plusieurs bras. Il
+        journalisera « inconnu » sur les positions courtes, et c'est la
+        réponse honnête plutôt qu'un RSI calculé sur trois points.
+
+        `position_id` et `arm` sont écrits pour que ces lignes se joignent au
+        journal de trades : une volatilité sans son P&L ne sert à rien.
+        """
+        snapshots = self.history.snapshots(position.token_address)
+        contexte = {
+            "position_id": row.get("position_id") or position.id,
+            "arm": arm.name,
+            "pnl_pct": row.get("pnl_pct"),
+            "peak_pct": position.high_water_pct,
+            "duration_min": position.duration_minutes(),
+        }
+        self._run_agents((
             ("volatility", lambda: self.volatility.observe(
-                position.token_address, position.symbol, snapshots)),
+                position.token_address, position.symbol, snapshots,
+                extra=contexte)),
             ("microstructure", lambda: self.microstructure.observe(
                 position.token_address, position.symbol, snapshots,
-                size_usd=position.size_usd)),
-            ("dev_history", lambda: self.dev_history.observe(candidate)),
-        )
-        # Un agent de mesure qui tombe ne doit pas emporter le cycle : la
-        # position est ouverte, la perdre de vue serait bien pire que perdre
-        # une mesure. Invariant « la boucle ne meurt jamais ».
-        for nom, mesure in essais:
-            try:
-                mesure()
-            except Exception as exc:  # noqa: BLE001
-                print(f"[Agents] {nom} indisponible sur {position.symbol} : {exc}")
+                size_usd=position.size_usd, extra=contexte)),
+            ("rsi", lambda: self.rsi.observe(
+                position.token_address, position.symbol,
+                self.history.candles(position.token_address), extra=contexte)),
+        ), position.symbol)
 
     def _periodic_reports(self) -> None:
         now = time.time()

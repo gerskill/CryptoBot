@@ -142,12 +142,22 @@ class RSIAgent:
             reason=f"RSI({self.period}) sur {len(closes)} clôtures reconstruites",
         )
 
-    def observe(self, token_address: str, symbol: str, candles: Sequence[Candle]) -> RSIReading:
+    def observe(
+        self,
+        token_address: str,
+        symbol: str,
+        candles: Sequence[Candle],
+        extra: Optional[dict[str, Any]] = None,
+    ) -> RSIReading:
         """Lit et journalise. Une lecture inconnue est journalisée AUSSI.
 
         Ne garder que les lectures connues biaiserait toute analyse ultérieure :
         on ne saurait plus distinguer « le RSI n'était jamais en surachat » de
         « on n'a jamais eu assez de bougies pour le savoir ».
+
+        `extra` porte le contexte du trade (`position_id`, bras, P&L). Sans lui
+        la ligne ne se joint à rien, et un indicateur qu'on ne peut pas relier
+        à un résultat ne s'évalue jamais.
         """
         reading = self.read(candles)
         if self.log_path:
@@ -156,5 +166,6 @@ class RSIAgent:
                 "token_address": token_address,
                 "symbol": symbol,
                 **reading.as_dict(),
+                **(extra or {}),
             })
         return reading

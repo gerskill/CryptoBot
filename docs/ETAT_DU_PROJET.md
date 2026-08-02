@@ -392,13 +392,64 @@ là-dessus produirait douze surapprentissages parallèles. Ceux-ci produisent
 d'abord la donnée que la couche d'apprentissage lira ensuite ; l'ordre inverse
 donnerait des lecteurs de fichiers vides.
 
-| agent | ce qu'il mesure | journal |
-|---|---|---|
-| `dev_history` | score créateur 0-100 sur 6 signaux déjà collectés | `dev_history_log.jsonl` |
-| `counterfactual_timing` | prix à −1, −2, −3 cycles avant l'entrée | `counterfactual_log.jsonl` |
-| `rsi_agent` | RSI de Wilder sur bougies reconstruites | `rsi_log.jsonl` |
-| `volatility_agent` | écart-type des rendements log, base horaire | `volatility_log.jsonl` |
-| `microstructure_agent` | dérive liquidité/prix, devis A/R, profondeur | `microstructure_log.jsonl` |
+| agent | ce qu'il mesure | quand | journal |
+|---|---|---|---|
+| `counterfactual_timing` | prix à −1, −2, −3 cycles avant l'entrée | ouverture | `counterfactual_log.jsonl` |
+| `dev_history` | score créateur 0-100 sur 6 signaux déjà collectés | ouverture | `dev_history_log.jsonl` |
+| `volatility_agent` | écart-type des rendements log, base horaire | clôture | `volatility_log.jsonl` |
+| `microstructure_agent` | dérive liquidité/prix, devis A/R, profondeur | clôture | `microstructure_log.jsonl` |
+| `rsi_agent` | RSI de Wilder sur bougies reconstruites | clôture | `rsi_log.jsonl` |
+
+### Deux points de mesure, et pourquoi
+
+Les cinq agents tournaient d'abord tous à l'ouverture. Mesuré sur les deux
+premières entrées réelles du 2026-08-02 :
+
+```
+rsi          samples 1 et 3    (il en faut 15)
+volatility   samples 1 et 5    (il en faut 8)
+```
+
+**Le bot entre vite après la découverte**, donc `PriceHistory` est presque vide
+au moment d'ouvrir. Trois des cinq agents mesuraient une ACCUMULATION avec un
+ou deux points.
+
+Le partage suit ce que chaque agent a réellement besoin de voir :
+
+- **à l'ouverture** — ce qui n'existe qu'à cet instant. Les snapshots d'AVANT
+  l'entrée disparaissent au cycle suivant, et le candidat enrichi aussi ;
+- **à la clôture finale** — ce qui s'accumule. Le monitoring tourne à 5 s : sur
+  une détention de 30 min, la volatilité passe de 1 à ~360 rendements. Une
+  ligne par position, pas une par tick — mesurer à chaque tour écrirait des
+  centaines de lignes redondantes sauf la dernière.
+
+Les lignes de clôture portent `position_id`, `arm`, `pnl_pct`, `peak_pct` et
+`duration_min` : **un indicateur qu'on ne peut pas relier à un résultat ne
+s'évalue jamais.**
+
+Le RSI reste le plus exigeant et le restera : les bougies font 180 s, donc ses
+15 clôtures demandent 45 minutes de détention — plus long que la durée de vie
+de plusieurs bras. Il journalise « inconnu » sur les positions courtes, ce qui
+est la réponse honnête plutôt qu'un RSI calculé sur trois points.
+
+### Première lecture réelle
+
+Le contrefactuel a produit du signal dès les deux premières entrées :
+
+```
+GOONER   -90s : +6,33 %
+Slop     -270s : +4,98 %   -180s : +0,91 %   -90s : +5,19 %
+```
+
+Trois valeurs sur quatre au-dessus du seuil de franchissement (3,06 %). Sur
+deux trades ça ne conclut rien — mais c'est la grandeur que cet agent existe
+pour capter, et le mécanisme fonctionne.
+
+`dev_history` sort une couverture de **14 %** : un seul de ses six signaux est
+renseigné, parce que ces tokens viennent de DexScreener et non de GMGN.
+`MIN_COVERAGE = 0.5` l'empêche donc de rejeter quoi que ce soit — le garde-fou
+joue son rôle, mais l'agent restera inerte tant que l'enrichissement GMGN ne
+couvrira pas les tokens réellement achetés.
 
 **Quatre décisions de conception qui viennent d'une mesure, pas d'une
 intuition :**

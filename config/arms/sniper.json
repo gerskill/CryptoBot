@@ -123,25 +123,25 @@
         "trades_sample_size": 20
       }
     ],
-    "total_trades": 34,
-    "winning_trades": 14,
-    "losing_trades": 20,
-    "avg_win_pct": 52.41,
-    "avg_loss_pct": -36.31,
+    "total_trades": 37,
+    "winning_trades": 15,
+    "losing_trades": 22,
+    "avg_win_pct": 56.06,
+    "avg_loss_pct": -35.05,
     "win_rate_by_age": {
       "1-2h": {
-        "win_rate": 55.6,
-        "sample": 9
+        "win_rate": 50.0,
+        "sample": 10
       },
       "0-1h": {
-        "win_rate": 36.0,
-        "sample": 25
+        "win_rate": 37.0,
+        "sample": 27
       }
     },
     "win_rate_by_liquidity": {
       "10-30K": {
-        "win_rate": 41.9,
-        "sample": 31
+        "win_rate": 41.2,
+        "sample": 34
       },
       "<10K": {
         "win_rate": 0.0,
@@ -154,9 +154,9 @@
     },
     "win_rate_by_social_score": {},
     "last_adjustment_at": {
-      "filters": 30,
-      "weights": 25,
-      "exits": 25,
+      "filters": 35,
+      "weights": 35,
+      "exits": 35,
       "risk": 20
     }
   },

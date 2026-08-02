@@ -47,9 +47,27 @@ class _Position:
         self.symbol = "TOK"
         self.entry_price = prix
         self.size_usd = 20.0
+        self.id = "pos-1"
+        self.high_water_pct = 42.0
+
+    def duration_minutes(self) -> float:
+        return 31.5
 
 
-class MesureALEntree(unittest.TestCase):
+class _Loop:
+    """Boucle minimale portant les VRAIES méthodes de mesure.
+
+    Emprunter `_run_agents` plutôt que le réécrire : c'est lui qui isole les
+    pannes d'agent, et un test qui le simulerait ne testerait pas la protection
+    réellement en place.
+    """
+
+    _run_agents = AlphaLoop._run_agents
+    _measure_entry = AlphaLoop._measure_entry
+    _measure_hold = AlphaLoop._measure_hold
+
+
+class MesureBase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self._saved = {k: getattr(settings, k) for k in CHEMINS}
@@ -59,7 +77,7 @@ class MesureALEntree(unittest.TestCase):
             lambda: [setattr(settings, k, v) for k, v in self._saved.items()]
         )
 
-        self.loop = type("L", (), {})()
+        self.loop = _Loop()
         self.loop.history = PriceHistory()
         self.loop.dev_history = DevHistoryAgent(
             log_path=settings.DEV_HISTORY_LOG_PATH)
@@ -97,17 +115,40 @@ class MesureALEntree(unittest.TestCase):
         base.update(kwargs)
         return Candidate(**base)
 
-    def test_les_cinq_agents_ecrivent_une_ligne(self):
+    def _detention(self, minutes: float = 30.0, tick: float = 5.0) -> None:
+        """Snapshots du monitoring : cadence 5 s, prix qui oscille."""
+        maintenant = time.time()
+        points = int(minutes * 60 / tick)
+        for index in range(points):
+            self.loop.history.record_raw(
+                "mint",
+                price=1.80 * (1 + 0.01 * (1 if index % 2 else -1)),
+                liquidity=24000 + 10 * index,
+                ts=maintenant - (points - index) * tick,
+            )
+
+
+class MesureALEntree(MesureBase):
+    """Ce qui n'a de sens QU'À L'OUVERTURE : contrefactuel et dev_history."""
+
+    def test_seuls_les_agents_dentree_ecrivent(self):
+        """RSI, volatilité et microstructure ont été DÉPLACÉS à la clôture.
+        Mesuré sur les deux premières entrées réelles : 1 et 3 clôtures pour un
+        RSI qui en demande 15, 1 et 5 rendements pour une volatilité qui en
+        demande 8. Le bot entre vite, `PriceHistory` est presque vide."""
         self._historique()
-        AlphaLoop._measure_entry(self.loop, _Position(1.80), self._candidat())
-        for cle in CHEMINS:
-            self.assertEqual(len(self._lignes(cle)), 1, cle)
+        self.loop._measure_entry(_Position(1.80), self._candidat())
+
+        self.assertEqual(len(self._lignes("COUNTERFACTUAL_LOG_PATH")), 1)
+        self.assertEqual(len(self._lignes("DEV_HISTORY_LOG_PATH")), 1)
+        for cle in ("RSI_LOG_PATH", "VOLATILITY_LOG_PATH", "MICROSTRUCTURE_LOG_PATH"):
+            self.assertEqual(self._lignes(cle), [], cle)
 
     def test_le_contrefactuel_reconstitue_vraiment_les_decalages(self):
         """LE TEST QUI COMPTE. Avec les décalages d'origine (-30/-10/+10 s),
         plus fins que la cadence de scan, les trois sortaient `null`."""
         self._historique()
-        AlphaLoop._measure_entry(self.loop, _Position(1.80), self._candidat())
+        self.loop._measure_entry(_Position(1.80), self._candidat())
 
         ligne = self._lignes("COUNTERFACTUAL_LOG_PATH")[0]
         self.assertTrue(
@@ -118,36 +159,18 @@ class MesureALEntree(unittest.TestCase):
 
     def test_sur_un_prix_qui_montait_entrer_plus_tot_etait_moins_cher(self):
         self._historique()
-        AlphaLoop._measure_entry(self.loop, _Position(1.80), self._candidat())
+        self.loop._measure_entry(_Position(1.80), self._candidat())
 
         deltas = self._lignes("COUNTERFACTUAL_LOG_PATH")[0]["deltas_pct"]
         self.assertGreater(deltas["-270s"], deltas["-90s"])
         self.assertGreater(deltas["-270s"], 0)
 
-    def test_sans_historique_les_agents_journalisent_leur_ignorance(self):
+    def test_sans_historique_lignorance_est_journalisee(self):
         """Ne rien écrire ferait disparaître le cas ; écrire zéro le
         travestirait en mesure."""
-        AlphaLoop._measure_entry(self.loop, _Position(1.80), self._candidat())
-
-        self.assertIsNone(self._lignes("RSI_LOG_PATH")[0]["rsi"])
-        self.assertIsNone(
-            self._lignes("VOLATILITY_LOG_PATH")[0]["volatility_hourly_pct"])
+        self.loop._measure_entry(_Position(1.80), self._candidat())
         self.assertIsNone(
             self._lignes("COUNTERFACTUAL_LOG_PATH")[0]["best_edge_pct"])
-
-    def test_un_agent_qui_tombe_nemporte_pas_les_autres(self):
-        """La position est DÉJÀ ouverte quand ces mesures tournent : la perdre
-        de vue serait bien pire que perdre une mesure."""
-        class Casse:
-            def observe(self, *args, **kwargs):
-                raise RuntimeError("boum")
-
-        self._historique()
-        self.loop.rsi = Casse()
-        AlphaLoop._measure_entry(self.loop, _Position(1.80), self._candidat())
-
-        self.assertEqual(len(self._lignes("COUNTERFACTUAL_LOG_PATH")), 1)
-        self.assertEqual(len(self._lignes("DEV_HISTORY_LOG_PATH")), 1)
 
     def test_la_mesure_ne_peut_pas_annuler_la_position(self):
         """Aucun agent ne rend de verdict exploitable par l'appelant : avec 93
@@ -159,10 +182,73 @@ class MesureALEntree(unittest.TestCase):
             twitter_create_token_count=11,
             rug_ratio=0.9, dev_wallet_pct=40.0,
         )
-        self.assertIsNone(
-            AlphaLoop._measure_entry(self.loop, _Position(1.80), suspect)
-        )
+        self.assertIsNone(self.loop._measure_entry(_Position(1.80), suspect))
         self.assertGreater(self._lignes("DEV_HISTORY_LOG_PATH")[0]["dev_score"], 45)
+
+
+class MesureSurLaDetention(MesureBase):
+    """Ce qui mesure une ACCUMULATION : à la clôture, pas à l'ouverture."""
+
+    def _bras(self):
+        return type("A", (), {"name": "sniper"})()
+
+    def _row(self):
+        return {"position_id": "pos-1", "pnl_pct": -12.3, "is_final_exit": True}
+
+    def test_la_volatilite_devient_mesurable(self):
+        """LE TEST QUI JUSTIFIE LE DÉPLACEMENT. À l'ouverture elle voyait 1 à 5
+        rendements pour un minimum de 8. Sur 30 min à 5 s par tick, ~360."""
+        self._detention()
+        self.loop._measure_hold(self._bras(), _Position(1.80), self._row())
+
+        ligne = self._lignes("VOLATILITY_LOG_PATH")[0]
+        self.assertIsNotNone(ligne["volatility_hourly_pct"])
+        self.assertGreater(ligne["samples"], 100)
+
+    def test_la_microstructure_devient_mesurable(self):
+        self._detention()
+        self.loop._measure_hold(self._bras(), _Position(1.80), self._row())
+
+        ligne = self._lignes("MICROSTRUCTURE_LOG_PATH")[0]
+        self.assertIsNotNone(ligne["liquidity_drift_pct"])
+
+    def test_les_lignes_se_joignent_au_journal_de_trades(self):
+        """Une volatilité sans son P&L ne dit rien : c'est leur mise en regard
+        qui répondra à « le stop est-il trop serré pour ce régime ? »."""
+        self._detention()
+        self.loop._measure_hold(self._bras(), _Position(1.80), self._row())
+
+        for cle in ("VOLATILITY_LOG_PATH", "MICROSTRUCTURE_LOG_PATH", "RSI_LOG_PATH"):
+            ligne = self._lignes(cle)[0]
+            self.assertEqual(ligne["position_id"], "pos-1", cle)
+            self.assertEqual(ligne["arm"], "sniper", cle)
+            self.assertEqual(ligne["pnl_pct"], -12.3, cle)
+            self.assertEqual(ligne["peak_pct"], 42.0, cle)
+
+    def test_une_detention_courte_laisse_le_rsi_inconnu(self):
+        """Les bougies font 180 s : 15 clôtures demandent 45 min. Sur une
+        position courte, « inconnu » est la réponse honnête plutôt qu'un RSI
+        calculé sur trois points."""
+        self._detention(minutes=4.0)
+        self.loop._measure_hold(self._bras(), _Position(1.80), self._row())
+
+        ligne = self._lignes("RSI_LOG_PATH")[0]
+        self.assertIsNone(ligne["rsi"])
+        self.assertEqual(ligne["zone"], "inconnu")
+
+    def test_un_agent_qui_tombe_nemporte_pas_les_autres(self):
+        """Le trade est DÉJÀ écrit au journal quand ces mesures tournent :
+        perdre la boucle de vue serait bien pire que perdre une mesure."""
+        class Casse:
+            def observe(self, *args, **kwargs):
+                raise RuntimeError("boum")
+
+        self._detention()
+        self.loop.volatility = Casse()
+        self.loop._measure_hold(self._bras(), _Position(1.80), self._row())
+
+        self.assertEqual(len(self._lignes("MICROSTRUCTURE_LOG_PATH")), 1)
+        self.assertEqual(len(self._lignes("RSI_LOG_PATH")), 1)
 
 
 if __name__ == "__main__":

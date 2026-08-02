@@ -132,12 +132,20 @@ class VolatilityAgent:
         )
 
     def observe(
-        self, token_address: str, symbol: str, snapshots: Sequence[Snapshot]
+        self,
+        token_address: str,
+        symbol: str,
+        snapshots: Sequence[Snapshot],
+        extra: Optional[dict[str, Any]] = None,
     ) -> VolatilityReading:
         """Lit et journalise, lecture inconnue comprise.
 
         Comme pour le RSI : ne garder que les lectures connues empêcherait plus
         tard de distinguer « jamais volatil » de « jamais mesuré ».
+
+        `extra` porte le contexte du trade. Une volatilité sans son P&L ne dit
+        rien — c'est leur mise en regard qui répondra à « le stop est-il trop
+        serré pour ce régime de volatilité ? ».
         """
         reading = self.read(snapshots)
         if self.log_path:
@@ -146,5 +154,6 @@ class VolatilityAgent:
                 "token_address": token_address,
                 "symbol": symbol,
                 **reading.as_dict(),
+                **(extra or {}),
             })
         return reading

@@ -190,7 +190,14 @@ class MicrostructureAgent:
         snapshots: Sequence[Snapshot],
         size_usd: float = 20.0,
         sol_price_usd: float = 0.0,
+        extra: Optional[dict[str, Any]] = None,
     ) -> MicrostructureReading:
+        """Lit et journalise. `extra` porte le contexte du trade.
+
+        Mesurée à la clôture, la dérive de liquidité devient un indicateur
+        rétrospectif de rug : la relier au P&L est ce qui permettra de dire si
+        le seuil de -50 % est trop permissif.
+        """
         reading = self.read(snapshots, token_address, size_usd, sol_price_usd)
         if self.log_path:
             _journal.append(self.log_path, {
@@ -198,5 +205,6 @@ class MicrostructureAgent:
                 "token_address": token_address,
                 "symbol": symbol,
                 **reading.as_dict(),
+                **(extra or {}),
             })
         return reading

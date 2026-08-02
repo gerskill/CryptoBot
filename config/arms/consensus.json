@@ -81,33 +81,33 @@
     "rugcheck": 0.15
   },
   "learning": {
-    "total_trades": 7,
+    "total_trades": 9,
     "winning_trades": 3,
-    "losing_trades": 4,
+    "losing_trades": 6,
     "avg_win_pct": 50.1,
-    "avg_loss_pct": -27.51,
+    "avg_loss_pct": -27.3,
     "win_rate_by_age": {
       "2-4h": {
-        "win_rate": 25.0,
-        "sample": 4
+        "win_rate": 20.0,
+        "sample": 5
       },
       "4h+": {
         "win_rate": 0.0,
         "sample": 1
       },
       "1-2h": {
-        "win_rate": 100.0,
-        "sample": 2
+        "win_rate": 66.7,
+        "sample": 3
       }
     },
     "win_rate_by_liquidity": {
       "10-30K": {
-        "win_rate": 50.0,
-        "sample": 4
+        "win_rate": 40.0,
+        "sample": 5
       },
       "30-50K": {
-        "win_rate": 33.3,
-        "sample": 3
+        "win_rate": 25.0,
+        "sample": 4
       }
     },
     "win_rate_by_social_score": {},
