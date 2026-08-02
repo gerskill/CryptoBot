@@ -8,7 +8,7 @@ d'auto-amélioration. **Mode PAPER : aucune transaction réelle n'est émise.**
 ```bash
 python -m src.main                              # la boucle
 uvicorn api.server:app --reload --port 8000     # l'API du dashboard
-python -m unittest discover -s tests            # les 71 tests
+python -m unittest discover -s tests            # les 334 tests
 ```
 
 ## Règles non négociables

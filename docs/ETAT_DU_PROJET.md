@@ -4,7 +4,7 @@
 > travail sans contexte préalable. Chaque chiffre cité a été **mesuré**, pas
 > estimé ; les sources sont indiquées.
 >
-> Dernière mise à jour : 2026-08-01
+> Dernière mise à jour : 2026-08-02
 
 ---
 
@@ -254,11 +254,64 @@ n'était visible dans la structure du code.
 | `Interval.conclusive` à 30 points | déclarait « concluant » un IC de 20,9 points couvrant catastrophe et succès | seuil à 12 points |
 | 425 lignes de code mort | `scoreboard.py` et `signals.py` testés, zéro appelant | tous deux câblés (justesse des bras, quorum du consensus) |
 
+## 6 ter. Audit du 2026-08-02 — le contrepoids était mort
+
+Quatre défauts, tous de la même famille que ceux ci-dessus : du code câblé,
+testé, et jamais atteint. Réunis, ils désactivaient **entièrement**
+`_relax_from_shadow` — le seul mécanisme qui relâche un filtre trop strict,
+donc la seule sortie de la boucle « peu de trades → filtres resserrés → moins
+de flux → encore moins de trades ».
+
+| défaut | conséquence | correctif |
+|---|---|---|
+| **Six bras sur sept sans shadow** | `bootstrap_arms` donne un `ShadowTracker` à chaque bras et le passe à son `LearningEngine`, mais `_track_rejections` n'alimentait que le témoin. 399 rejets jugés pour `baseline`, **zéro** pour les six autres — leur fichier n'existait pas | `_track_rejections` lit l'évaluation de chaque bras ; le prix est rafraîchi une fois sur l'union des adresses en attente |
+| **Relâchement derrière la porte des 15 trades** | `run()` retournait « (en attente) 0/15 » avant d'atteindre `_relax_from_shadow`. Un bras dont les filtres coupent tout ne trade pas, donc n'atteint jamais 15, donc ne peut jamais découvrir que ses filtres coupent trop | `_relax_from_shadow` passe avant la porte. Sans risque : il ne fait que relâcher, et `_starving` n'interdit que le resserrage |
+| **Âge et volume dans « autre »** | `reason_family()` n'avait pas de branche pour eux : 175 rejets d'âge et 42 de volume, **54 % du total**, rangés dans une famille qu'aucun paramètre ne dessert. Le motif dominant était invisible | familles `age_max`, `age_min` (corrections opposées) et `volume`, et `missed_rate_by_family` recalcule la famille depuis le motif pour rattraper l'historique |
+| **`funnel_log.jsonl` non borné** | 11 Mo, 61 922 lignes, aucune rotation. `recent_flow()` le parsait EN ENTIER pour n'en garder que 20 lignes — à chaque `_bounded_set`, pour chacun des 7 bras | `read_funnel(tail=N)`, rotation à 8 Mo, une génération conservée et relue pour ne pas devenir aveugle après une bascule |
+
+Cinquième correctif, de nature différente : **le veto économique portait sur
+un point tiré de 4 observations.** `TAUX_ATTEINTE_MESURES` stockait des taux
+nus ; « 15 % atteignent +100 % » vient de 4 succès sur 26 positions, IC95
+6–34 %. `evaluate()` s'en servait pour refuser des entrées. Désormais le
+plancher affiché reste celui du point, mais le **refus** se calcule à la borne
+haute : une entrée n'est rejetée que si elle reste sous le plancher même dans
+l'hypothèse la plus favorable compatible avec les données. Miroir exact de
+`live_mode_allowed`, qui n'autorise que si la borne défavorable est bonne.
+Effet mesuré : `scalp` et `runner` n'étaient plus jamais admis à 3,06 % de
+frais, ils le redeviennent ; le veto mord toujours à 7,9 % et à 23,62 %.
+
 ## 7. État opérationnel
 
-- **300 tests verts** (`python3 -m unittest discover -s tests`)
+*Mis à jour le 2026-08-02.*
+
+- **334 tests verts** (`python3 -m unittest discover -s tests`)
 - Boucle en cours, cycle 90 s, monitoring 5 s
-- **Aucun bras hors baseline n'a encore tradé**
+
+### Les bras ont commencé à trader
+
+Contredit la version précédente de cette section. Mesuré par
+`python3 scripts_analyse_sorties.py` :
+
+| bras | trades | WR | $/trade | PF | pic méd | creux méd |
+|---|---|---|---|---|---|---|
+| baseline | 39 | 10,3 % | −4,46 | 0,28 | +5,6 % | −17,2 % |
+| sniper | 25 | 36,0 % | −1,91 | 0,59 | +24,1 % | −28,8 % |
+| scalp | 5 | 40,0 % | −1,80 | 0,63 | +20,2 % | −27,5 % |
+| runner | 5 | 40,0 % | **+6,72** | 2,26 | +71,6 % | −35,2 % |
+| quality | 2 | 50,0 % | +4,51 | 2,02 | +59,1 % | −19,7 % |
+| narrative | 0 | — | — | — | — | — |
+| consensus | 6 | 50,0 % | +2,20 | 1,63 | +45,3 % | −17,6 % |
+
+**Aucune de ces lignes ne conclut, sauf peut-être `sniper`.** À 2, 5 et 6
+trades, ces chiffres sont du bruit : `runner` à +6,72 $/trade sur 5 trades ne
+distingue pas une bonne stratégie d'une bonne semaine. `sniper` est le seul
+au-dessus de 15 trades, et son $/trade reste négatif.
+
+Ce que la table dit tout de même : les fenêtres élargies le 2026-08-01
+produisent des pics médians de 2 à 12 fois ceux du témoin. C'est une piste à
+mesurer, pas un résultat.
+
+### Entonnoir mesuré (50 candidats par bras)
 
 ### Entonnoir mesuré (50 candidats par bras)
 
@@ -280,12 +333,38 @@ la technique ni la garde économique. Motif dominant de `scalp` : 19 rejets sur
 `consensus` affiche 0/6 : il exige ≥2 bras d'accord, mais trois bras acceptent
 zéro candidat. Il est en avance sur ses dépendances.
 
+### Mais l'entonnoir seul désigne le mauvais coupable
+
+« Motif dominant : l'âge » invite à élargir la fenêtre d'âge. Le shadow dit
+l'inverse. `python3 scripts_analyse_shadow.py --bras baseline`, 399 rejets
+jugés, seuil +100 % :
+
+```
+famille        n    ≥+100%     IC95      pic max
+liquidity    176     13,6%    [9–19]      +3578%
+age_max      168      0,6%    [0–3]        +154%
+volume        42      2,4%    [0–12]       +170%
+```
+
+**Le plafond d'âge est justifié : ce qu'il écarte ne monte pas.** Sur 168
+tokens rejetés pour « trop vieux », un seul a franchi +100 %. C'est le
+**plancher de liquidité** qui coûte : 24 des 27 gros manqués viennent de là,
+dont CATE à +3578 %, JORDAN à +1677 %, KEK à +1345 %.
+
+Réserve qui interdit d'en conclure « baisser la liquidité » : ce sont
+exactement les carnets où le slippage est le pire, et un shadow n'a ni
+slippage ni impact de marché. La suite est un devis Jupiter sur ces tokens,
+pas un changement de seuil.
+
+Comparaison qui situe l'enjeu : le win rate réalisé du témoin est 10,3 %,
+tandis que 13,6 % de ce qu'il a rejeté sur la liquidité a franchi +100 %.
+
 ---
 
 ## 8. Fichiers qui comptent
 
 ```
-src/main.py              boucle, orchestration des 7 bras          882 l
+src/main.py              boucle, orchestration des 7 bras         1084 l
 src/pipeline.py          collect() partagé / evaluate() par bras
 src/core/arm.py          StrategyArm, manifeste, ArmNotifier
 src/core/learning.py     ajustements, simulate_exits, bornes/bras
@@ -301,6 +380,7 @@ config/arms/<nom>.json   document params par bras (propriété du bras)
 
 scripts_analyse_sorties.py   perdants, gagnants, atteignabilité, grille
 scripts_analyse_rejets.py    entonnoir : où meurent les candidats
+scripts_analyse_shadow.py    ce que les filtres ont coûté, IC95 par famille
 scripts_export_vault.py      journal -> notes Obsidian reliées
 ```
 
@@ -335,6 +415,19 @@ scripts_export_vault.py      journal -> notes Obsidian reliées
    bras ne sont donc pas comparables sur cet axe.
 6. **Les bras ne sont pas isolés sur l'axe social** : la couverture de l'un
    dépend de ce que les autres ont demandé (budget partagé).
+7. **Les six bras neufs repartent de zéro sur le shadow.** Leur log vient
+   d'être branché (§6 ter) : il leur faut `SHADOW_MIN_SAMPLE` = 15 rejets
+   jugés par famille, à 4 h d'observation chacun, avant que `_relax_from_shadow`
+   puisse rendre quoi que ce soit. Les 399 rejets du témoin ne leur servent
+   pas — un bras rejette sur SES seuils.
+8. **`ShadowTracker._tracked` n'est pas persisté.** Les suivis en cours vivent
+   en mémoire : un redémarrage perd tout ce qui n'a pas encore atteint ses 4 h.
+   Sur une boucle relancée souvent, le shadow se remplit plus lentement que le
+   nombre de rejets ne le laisse croire.
+9. **Le multi-bras divise la puissance statistique.** `MIN_TRADES_PER_ARM` = 15
+   par bras, `MIN_TRADES_FOR_WEIGHTS` = 50 : à 7 bras, environ 105 trades avant
+   que l'apprentissage complet tourne quelque part. C'est gratuit en requêtes
+   API — la collecte est partagée — et cher en inférence.
 
 ---
 
@@ -342,10 +435,12 @@ scripts_export_vault.py      journal -> notes Obsidian reliées
 
 | sujet | état |
 |---|---|
-| élargir `scalp` de 2 h à 4 h | 19 rejets d'âge le suggèrent — non fait, seuil validé par le propriétaire |
+| élargir `scalp` de 2 h à 4 h | 19 rejets d'âge le suggéraient — **le shadow dit non** : 0,6 % [0–3] des rejets `age_max` franchissent +100 %. L'entonnoir désignait le mauvais coupable |
+| baisser le plancher de liquidité | 13,6 % [9–19] des rejets `liquidity` franchissent +100 %, dont un à +3578 %. **Ne rien changer avant un devis Jupiter** sur ces carnets : c'est là que le slippage est le pire, et le shadow ne le mesure pas |
+| réduire le nombre de bras | 7 bras, ~105 trades avant apprentissage complet. Concentrer sur 2–3 accélérerait l'inférence sans rien coûter en API — non tranché |
 | Birdeye Lite 39 $/mois | seul abonnement qui débloque quoi que ce soit |
 | suivi de wallets étape 2 | registre en place, 7 wallets, avances de +0,4 à +3,6 min — **trop faibles pour du copy-trading** si ça se confirme |
-| découpage de `main.py` | proposé, refusé pour l'instant : 882 lignes, règles encore mouvantes |
+| découpage de `main.py` | proposé, refusé pour l'instant : **1084 lignes** (+202 depuis le refus), règles encore mouvantes |
 | consensus pondéré | prématuré, zéro trade — `MIN_TRADES_FOR_WEIGHTS` l'interdit |
 
 ---
