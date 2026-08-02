@@ -35,6 +35,7 @@ from src.agents import (
     DevHistoryAgent,
     MicrostructureAgent,
     RSIAgent,
+    TelegramReporterAgent,
     VolatilityAgent,
 )
 from src.core.arm import CONSENSUS, attach_portfolios, bootstrap_arms
@@ -182,6 +183,12 @@ class AlphaLoop:
         self.state = StateWriter(settings.STATE_PATH)
         self.telegram = TelegramNotifier(settings.TELEGRAM_BOT_TOKEN, settings.TELEGRAM_CHAT_ID)
         self.telegram.drain_pending()
+        # POINT DE SORTIE UNIQUE des sept stratégies. Il arbitre par NATURE
+        # d'événement et non par bras : mesuré le 2026-08-02 sur 108 trades,
+        # la politique par bras avait tu 16 sorties à +50 % ou plus.
+        self.reporter = TelegramReporterAgent(
+            inner=self.telegram, log_path=settings.TELEGRAM_REPORTER_LOG_PATH
+        )
         # Remplacé plus bas par celui du bras témoin : deux LearningEngine sur
         # le même journal écriraient deux historiques d'ajustement.
         self.learning: Optional[LearningEngine] = None
@@ -204,7 +211,7 @@ class AlphaLoop:
         attach_portfolios(
             self.arms,
             capital_total=self._starting_capital(),
-            notifier=self.telegram,
+            notifier=self.reporter,
             mode=self.mode,
             cooldown_hours=cooldown,
             losses_trigger=self.params.get("risk_rules.consecutive_losses_trigger", 3),
@@ -340,6 +347,9 @@ class AlphaLoop:
         # APRÈS le flush : le relâchement lit l'entonnoir, y compris les lignes
         # de ce cycle-ci.
         self._relax_inactive_arms()
+        # Un seul appel par cycle : le reporter décide lui-même si son lot ou
+        # son rapport sont dus, et absorbe toute panne.
+        self.reporter.tick(self.arms)
         self.cache.purge()
         self._publish_state(result)
         self._periodic_reports()
@@ -1210,32 +1220,15 @@ class AlphaLoop:
             self._last_summary = now
 
     def _send_arm_digest(self) -> None:
-        """Un seul message pour toutes les stratégies silencieuses.
+        """Remplacé par `TelegramReporterAgent`. Conservé comme point d'entrée.
 
-        Sept bras qui notifient chacun leurs entrées et sorties noieraient le
-        canal ; le témoin parle en direct, les autres s'accumulent ici.
+        Le digest par bras cadencé à 4 h était l'une des causes des 16 sorties
+        à +50 % ou plus jamais notifiées : son compteur repartait à zéro à
+        chaque redémarrage, et il n'est jamais parti. Le reporter regroupe
+        maintenant par NATURE d'événement, avec sa propre cadence.
         """
-        lignes = []
-        for arm in self.arms:
-            notifier = getattr(arm.portfolio, "notifier", None)
-            messages = notifier.drain_digest() if notifier else []
-            stats = arm.portfolio.stats()
-            if messages or stats["total_trades"]:
-                lignes.append(
-                    f"<b>{arm.name}</b> — {stats['total_trades']} trades, "
-                    f"WR {stats['win_rate']}%, {stats['total_pnl_usd']:+.2f} $"
-                )
-                # LA TRONCATURE EST DITE. À 8-32 trades par jour et par bras,
-                # une fenêtre de 4 h en accumule bien plus que 5 : n'en montrer
-                # que les derniers SANS le signaler faisait passer un digest
-                # amputé pour un digest complet.
-                garde = messages[-DIGEST_MAX_LINES:]
-                omis = len(messages) - len(garde)
-                if omis > 0:
-                    lignes.append(f"  <i>({omis} message(s) plus ancien(s) omis)</i>")
-                lignes += [f"  {m}" for m in garde]
-        if lignes:
-            self.telegram.send("🧬 <b>Stratégies</b>\n" + "\n".join(lignes))
+        self.reporter.flush_batch(force=True)
+        self.reporter.report_periodic(self.arms, force=True)
 
     def _print_dashboard(self) -> None:
         """Deux blocs, et l'ordre compte.

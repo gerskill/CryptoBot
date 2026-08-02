@@ -22,6 +22,7 @@ from src.agents.counterfactual_timing import CounterfactualTimingAgent
 from src.agents.dev_history import DevHistoryAgent
 from src.agents.microstructure_agent import MicrostructureAgent
 from src.agents.rsi_agent import RSIAgent
+from src.agents.telegram_reporter import TelegramReporterAgent
 from src.agents.volatility_agent import VolatilityAgent
 
 __all__ = [
@@ -29,5 +30,6 @@ __all__ = [
     "DevHistoryAgent",
     "MicrostructureAgent",
     "RSIAgent",
+    "TelegramReporterAgent",
     "VolatilityAgent",
 ]

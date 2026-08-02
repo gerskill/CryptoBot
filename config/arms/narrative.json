@@ -128,11 +128,11 @@
         "trades_sample_size": 441
       }
     ],
-    "total_trades": 1,
+    "total_trades": 2,
     "winning_trades": 0,
-    "losing_trades": 1,
+    "losing_trades": 2,
     "avg_win_pct": 0,
-    "avg_loss_pct": -31.13,
+    "avg_loss_pct": -41.44,
     "win_rate_by_age": {
       "4h+": {
         "win_rate": 0.0,
@@ -142,7 +142,7 @@
     "win_rate_by_liquidity": {
       ">50K": {
         "win_rate": 0.0,
-        "sample": 1
+        "sample": 2
       }
     },
     "win_rate_by_social_score": {}

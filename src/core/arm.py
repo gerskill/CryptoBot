@@ -56,83 +56,51 @@ class ManifestError(RuntimeError):
 
 
 class ArmNotifier:
-    """Filtre les notifications d'une stratégie selon sa politique.
+    """Adapte les appels du portefeuille au reporter, en portant le nom du bras.
 
-    Sans ça, 7 stratégies sur le même token envoient 7 messages Telegram, et
-    `TelegramNotifier` rejoue sa file en attente au redémarrage — donc les
-    rejoue tous. Les stratégies expérimentales accumulent en silence ; seul le
-    témoin parle en direct.
+    CE QUE CETTE CLASSE N'EST PLUS. Elle décidait quoi envoyer, par bras : sept
+    politiques indépendantes, dont six à `none`. Résultat mesuré le 2026-08-02
+    sur 108 trades : **16 sorties à +50 % ou plus jamais notifiées**, dont
+    JORDAN +184,2 % et GOONER +107,2 %.
 
-    `poll_commands` n'est PAS exposé : les commandes sont au niveau du
+    La décision appartient maintenant à `TelegramReporterAgent`, qui arbitre
+    par NATURE D'ÉVÉNEMENT et non par stratégie — la valeur d'un +184 % ne
+    dépend pas de quel bras l'a produit. Ce qui reste ici est l'adaptation
+    d'interface et le nom du bras dans le message.
+
+    `poll_commands` n'est toujours PAS exposé : les commandes sont au niveau du
     processus, pas de la stratégie.
     """
 
     def __init__(self, inner: Any, arm_name: str, policy: str = "none"):
         self.inner = inner
         self.arm_name = arm_name
+        # Conservée pour compatibilité de manifeste, mais elle ne décide PLUS
+        # rien : `TelegramReporterAgent` arbitre par nature d'événement. Un
+        # manifeste qui porte encore `notify` reste valide et sans effet.
         self.policy = policy
         self.digest: list[str] = []
 
-    def _emit(self, message: str, kind: str, force: bool = False) -> None:
-        """`force` perce la politique. Réservé au remarquable, jamais au routinier.
-
-        Sans cette échappatoire, une stratégie en `notify=none` ne dit rien
-        avant le digest — cadencé à 4 h et tronqué. Un +100 % y arrivait des
-        heures après coup, ou pas du tout.
-        """
+    def send(self, message: str) -> None:
+        """Message libre d'une stratégie. Groupé — jamais urgent en soi."""
         if self.inner is None:
             return
-        if force or self.policy == "all" or (self.policy == "exits" and kind == "exit"):
-            self.inner.send(message)
-        else:
-            self.digest.append(message)
-
-    def send(self, message: str) -> None:
-        self._emit(f"[{self.arm_name}] {message}", "info")
+        self.inner.report_alert(f"{self.arm_name}", message)
 
     def send_entry(self, position: Any) -> None:
-        if self.policy == "all" and hasattr(self.inner, "send_entry"):
-            self.inner.send_entry(position)
+        if self.inner is None:
             return
-        self._emit(
-            f"[{self.arm_name}] 🟢 {position.symbol} à "
-            f"{position.size_usd:.2f} $ (SL {position.stop_loss_pct}%)",
-            "entry",
-        )
+        self.inner.report_entry(self.arm_name, position)
 
     def send_exit(self, position: Any, pnl_pct: float, reason: str, minutes: float) -> None:
-        if self.policy == "all" and hasattr(self.inner, "send_exit"):
-            self.inner.send_exit(position, pnl_pct, reason, minutes)
+        if self.inner is None:
             return
-        # Un gros gain sort en direct même d'un bras muet. Les pertes restent
-        # au digest : 96 % des trades touchent -10 %, les alerter serait du
-        # bruit permanent qui ferait ignorer le canal.
-        self._emit(
-            f"[{self.arm_name}] {'💰' if pnl_pct > 0 else '🔻'} {position.symbol} "
-            f"{pnl_pct:+.1f}% en {minutes:.0f} min — {reason}",
-            "exit",
-            force=pnl_pct >= NOTABLE_GAIN_PCT,
-        )
+        self.inner.report_exit(self.arm_name, position, pnl_pct, reason, minutes)
 
     def send_milestone(self, position: Any, pnl_pct: float, palier: float) -> None:
-        """Un PALIER franchi par une position encore OUVERTE.
-
-        Ce qui manquait complètement. `send_entry` et `send_exit` couvrent les
-        deux extrémités ; entre les deux, une position pouvait monter à +83 %
-        sans que rien ne le dise — c'est le cas signalé sur `Meowt`. Le gain
-        latent est précisément ce qu'on veut voir en direct, puisque c'est là
-        que se décide s'il faut laisser courir.
-
-        Toujours forcé : un palier n'est franchi qu'une fois par position, le
-        risque d'inondation n'existe pas.
-        """
-        self._emit(
-            f"[{self.arm_name}] 🚀 {position.symbol} franchit +{palier:.0f}% "
-            f"(latent {pnl_pct:+.1f}%, reste "
-            f"{position.remaining_fraction * 100:.0f}%)",
-            "milestone",
-            force=True,
-        )
+        if self.inner is None:
+            return
+        self.inner.report_milestone(self.arm_name, position, pnl_pct, palier)
 
     def drain_digest(self) -> list[str]:
         messages, self.digest = self.digest, []

@@ -29,6 +29,9 @@ RSI_LOG_PATH = os.path.join(BASE_DIR, "data", "rsi_log.jsonl")
 VOLATILITY_LOG_PATH = os.path.join(BASE_DIR, "data", "volatility_log.jsonl")
 MICROSTRUCTURE_LOG_PATH = os.path.join(BASE_DIR, "data", "microstructure_log.jsonl")
 COUNTERFACTUAL_LOG_PATH = os.path.join(BASE_DIR, "data", "counterfactual_log.jsonl")
+TELEGRAM_REPORTER_LOG_PATH = os.path.join(
+    BASE_DIR, "data", "telegram_reporter_log.jsonl"
+)
 
 # --- Multi-stratégie ---
 STRATEGIES_PATH = os.path.join(BASE_DIR, "config", "strategies.json")
