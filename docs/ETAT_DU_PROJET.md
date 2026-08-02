@@ -381,6 +381,50 @@ tandis que 13,6 % de ce qu'il a rejeté sur la liquidité a franchi +100 %.
 
 ---
 
+## 7 bis. Notifications — ce qui perce le silence
+
+Corrigé le 2026-08-02, sur signalement : une position à +100 % visible au
+dashboard, rien sur Telegram. **Quatre défauts distincts**, pas un.
+
+1. **Aucune notification de gain LATENT.** `send_entry` et `send_exit`
+   couvrent les deux extrémités du trade. Entre les deux, rien : `Meowt`
+   (runner) est montée à +83,4 % sans qu'un seul message parte, parce qu'elle
+   était encore ouverte.
+2. **`notify=none` taisait aussi les gros gains.** La politique « seul le
+   témoin parle en direct » a été écrite quand seul le témoin tradait. Depuis,
+   il n'a rien pris en 5 h pendant que les six autres bras produisaient 27
+   gagnants sur 93 : la règle revenait à taire exactement ce qu'on voulait voir.
+3. **Le premier digest arrivait 4 h après le démarrage.** `_last_summary` était
+   initialisé à `time.time()`, donc chaque redémarrage repoussait l'échéance.
+   Avec plusieurs relances dans la journée, il n'est jamais parti.
+4. **La troncature était silencieuse.** `messages[-5:]` faisait passer un
+   digest amputé pour un digest complet.
+
+**Ce qui parle maintenant :**
+
+| événement | comportement |
+|---|---|
+| gain latent franchissant +50 / +100 / +150 % | alerte immédiate, une fois par position, **quelle que soit la politique** |
+| sortie ≥ +50 % | perce `notify=none` |
+| sortie perdante, sortie < +50 % | digest, comme avant |
+| premier digest | 15 min après le démarrage, puis toutes les 4 h |
+
+Les seuils viennent des taux d'atteinte mesurés sur 26 positions
+instrumentées : +50 % est franchi par 23 % des trades, +100 % par 15 %,
++150 % par 4 %. Le pic médian étant **+4,9 %**, un palier plus bas sonnerait à
+chaque trade.
+
+**Les pertes restent muettes, et c'est délibéré.** 96 % des trades touchent
+−10 % : les alerter serait un bruit permanent, et un canal qu'on finit par
+ignorer ne notifie plus rien du tout.
+
+L'état des paliers vit dans la boucle, pas dans `Position` — celle-ci est
+immuable et sérialisée sur disque, y ajouter un champ obligerait à migrer les
+positions déjà ouvertes. Le coût assumé : un redémarrage réannonce une fois un
+palier déjà franchi.
+
+---
+
 ## 7 ter. Agents de mesure (`src/agents/`)
 
 Ajoutés le 2026-08-02. **Ils calculent et journalisent ; aucun n'écrit un

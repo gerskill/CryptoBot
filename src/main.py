@@ -72,6 +72,14 @@ from src.pipeline import ScanPipeline, discovery_envelope
 PAPER_DEFAULT_CAPITAL = 1000.0
 DASHBOARD_EVERY_SECONDS = 300
 SUMMARY_EVERY_SECONDS = 4 * 3600
+# Délai avant le TOUT PREMIER digest après un démarrage. Assez court pour voir
+# rapidement ce que font les stratégies muettes, assez long pour que les bras
+# aient eu le temps d'évaluer quelques cycles.
+FIRST_SUMMARY_DELAY = 15 * 60
+# Messages conservés par bras dans un digest. 5 était trop bas depuis que les
+# bras tradent : à 8-32 trades par jour et par bras, une fenêtre de 4 h en
+# accumule facilement le double.
+DIGEST_MAX_LINES = 12
 RUG_WINDOW_SECONDS = 120
 # Seuil d'OBSERVATION, pas de sortie : on journalise les chutes bien avant le
 # seuil de rug pour pouvoir juger après coup si -50% laisse partir trop tard.
@@ -80,6 +88,13 @@ LIQUIDITY_ALERT_PCT = -25.0
 # non un compte : « 2 sur 5 » se casse dès qu'un bras s'abstient, « 60% des
 # présents » survit à des fenêtres disjointes en gardant la même exigence.
 CONSENSUS_MIN_RATIO = 0.6
+# PALIERS DE GAIN LATENT annoncés en direct, une fois par position.
+#
+# Tirés des taux d'atteinte mesurés sur 26 positions instrumentées : +50 % est
+# franchi par 23 % des trades, +100 % par 15 %, +150 % par 4 %. Ce sont donc
+# des événements du quart supérieur, pas des étapes de routine. Le pic médian
+# étant +4,9 %, un palier plus bas sonnerait à chaque trade.
+GAIN_MILESTONES = (50.0, 100.0, 150.0)
 # Cadence du contrôle d'inactivité, en cycles. Il faut `INACTIVITY_CYCLES` =
 # 300 cycles sans entrée pour qu'un relâchement se déclenche : contrôler tous
 # les 50 cycles (~1 h 15 à 90 s) ne peut donc rien manquer, et évite de lire la
@@ -212,7 +227,14 @@ class AlphaLoop:
         self._last_evaluations: dict = {}
         self._last_confluence: dict = {}
         self._last_dashboard = 0.0
-        self._last_summary = time.time()
+        # PREMIER DIGEST PEU APRÈS LE DÉMARRAGE, pas quatre heures après.
+        # `time.time()` remettait le compteur à zéro à chaque lancement : avec
+        # plusieurs redémarrages dans la journée, le digest des stratégies
+        # silencieuses n'était jamais parti une seule fois.
+        self._last_summary = time.time() - SUMMARY_EVERY_SECONDS + FIRST_SUMMARY_DELAY
+        # Paliers de gain déjà annoncés, par position. Volontairement hors de
+        # `Position`, qui est immuable et persistée : voir `_announce_milestones`.
+        self._milestones_sent: dict[str, set[float]] = {}
 
     def _starting_capital(self) -> float:
         capital = float(self.params.get("capital_total", 0) or 0)
@@ -799,6 +821,8 @@ class AlphaLoop:
                 self.funnel.record_liquidity_alert(
                     arm.name, position, drop, acted=drop <= RUG_LIQUIDITY_DROP_PCT
                 )
+            self._announce_milestones(arm, position, price)
+
             if verbose:
                 print(
                     f"[Monitor]{arm.label} {position.symbol:>10} | ${price:.8f} "
@@ -822,6 +846,36 @@ class AlphaLoop:
                     self._measure_hold(arm, position, row)
                     self._after_trade_closed(arm)
         portfolio.flush()
+
+    def _announce_milestones(self, arm, position, price: float) -> None:
+        """Annonce les paliers de gain LATENT franchis par une position ouverte.
+
+        LE TROU QUE ÇA BOUCHE. `send_entry` et `send_exit` couvrent les deux
+        extrémités du trade. Entre les deux, rien : une position pouvait monter
+        à +83 % sans qu'aucune notification ne parte, et sur un bras en
+        `notify=none` même sa sortie n'aurait été vue qu'au digest, quatre
+        heures plus tard. C'est le cas signalé sur `Meowt` (runner).
+
+        L'ÉTAT VIT DANS LA BOUCLE, pas dans la position : `Position` est
+        immuable et sérialisée sur disque, y ajouter un champ obligerait à
+        migrer les positions déjà ouvertes. Le coût est qu'un redémarrage
+        réannonce une fois un palier déjà franchi — préférable à une migration
+        de format pour une notification.
+
+        Le plus-haut sert de référence et pas le prix courant : un palier
+        franchi puis reperdu a bien été franchi, et c'est justement le moment
+        où l'information avait de la valeur.
+        """
+        atteint = max(position.pnl_pct(price), position.high_water_pct or 0.0)
+        deja = self._milestones_sent.setdefault(position.id, set())
+        notifier = getattr(arm.portfolio, "notifier", None)
+        if notifier is None:
+            return
+
+        for palier in GAIN_MILESTONES:
+            if atteint >= palier and palier not in deja:
+                deja.add(palier)
+                notifier.send_milestone(position, atteint, palier)
 
     def _current_market(self, position) -> tuple[Optional[float], Optional[float]]:
         """Prix + liquidité. DexScreener d'abord (quota large), Birdeye en repli."""
@@ -1171,7 +1225,15 @@ class AlphaLoop:
                     f"<b>{arm.name}</b> — {stats['total_trades']} trades, "
                     f"WR {stats['win_rate']}%, {stats['total_pnl_usd']:+.2f} $"
                 )
-                lignes += [f"  {m}" for m in messages[-5:]]
+                # LA TRONCATURE EST DITE. À 8-32 trades par jour et par bras,
+                # une fenêtre de 4 h en accumule bien plus que 5 : n'en montrer
+                # que les derniers SANS le signaler faisait passer un digest
+                # amputé pour un digest complet.
+                garde = messages[-DIGEST_MAX_LINES:]
+                omis = len(messages) - len(garde)
+                if omis > 0:
+                    lignes.append(f"  <i>({omis} message(s) plus ancien(s) omis)</i>")
+                lignes += [f"  {m}" for m in garde]
         if lignes:
             self.telegram.send("🧬 <b>Stratégies</b>\n" + "\n".join(lignes))
 

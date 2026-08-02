@@ -37,6 +37,19 @@ VOTER = "voter"
 CONSENSUS = "consensus"
 NOTIFY_POLICIES = ("all", "exits", "none")
 
+# GAIN À PARTIR DUQUEL UNE STRATÉGIE SILENCIEUSE PARLE QUAND MÊME.
+#
+# Calé sur les taux d'atteinte mesurés (26 positions instrumentées) : +50 % est
+# franchi par 23 % des trades, +100 % par 15 %. Un gain de cet ordre est donc
+# dans le quart supérieur — assez rare pour valoir une alerte, contrairement
+# aux pertes, dont 96 % touchent -10 % et qui resteraient du bruit permanent.
+#
+# POURQUOI CE SEUIL EXISTE. La politique `notify=none` a été écrite quand seul
+# le témoin tradait. Depuis, le témoin n'a rien pris en 5 h pendant que les six
+# autres bras produisaient 27 gagnants sur 93 trades : la règle « seul le
+# témoin parle » revenait à taire exactement ce qu'on voulait voir.
+NOTABLE_GAIN_PCT = 50.0
+
 
 class ManifestError(RuntimeError):
     """Manifeste incohérent : mieux vaut refuser de démarrer que fausser tout."""
@@ -60,10 +73,16 @@ class ArmNotifier:
         self.policy = policy
         self.digest: list[str] = []
 
-    def _emit(self, message: str, kind: str) -> None:
+    def _emit(self, message: str, kind: str, force: bool = False) -> None:
+        """`force` perce la politique. Réservé au remarquable, jamais au routinier.
+
+        Sans cette échappatoire, une stratégie en `notify=none` ne dit rien
+        avant le digest — cadencé à 4 h et tronqué. Un +100 % y arrivait des
+        heures après coup, ou pas du tout.
+        """
         if self.inner is None:
             return
-        if self.policy == "all" or (self.policy == "exits" and kind == "exit"):
+        if force or self.policy == "all" or (self.policy == "exits" and kind == "exit"):
             self.inner.send(message)
         else:
             self.digest.append(message)
@@ -85,10 +104,34 @@ class ArmNotifier:
         if self.policy == "all" and hasattr(self.inner, "send_exit"):
             self.inner.send_exit(position, pnl_pct, reason, minutes)
             return
+        # Un gros gain sort en direct même d'un bras muet. Les pertes restent
+        # au digest : 96 % des trades touchent -10 %, les alerter serait du
+        # bruit permanent qui ferait ignorer le canal.
         self._emit(
             f"[{self.arm_name}] {'💰' if pnl_pct > 0 else '🔻'} {position.symbol} "
             f"{pnl_pct:+.1f}% en {minutes:.0f} min — {reason}",
             "exit",
+            force=pnl_pct >= NOTABLE_GAIN_PCT,
+        )
+
+    def send_milestone(self, position: Any, pnl_pct: float, palier: float) -> None:
+        """Un PALIER franchi par une position encore OUVERTE.
+
+        Ce qui manquait complètement. `send_entry` et `send_exit` couvrent les
+        deux extrémités ; entre les deux, une position pouvait monter à +83 %
+        sans que rien ne le dise — c'est le cas signalé sur `Meowt`. Le gain
+        latent est précisément ce qu'on veut voir en direct, puisque c'est là
+        que se décide s'il faut laisser courir.
+
+        Toujours forcé : un palier n'est franchi qu'une fois par position, le
+        risque d'inondation n'existe pas.
+        """
+        self._emit(
+            f"[{self.arm_name}] 🚀 {position.symbol} franchit +{palier:.0f}% "
+            f"(latent {pnl_pct:+.1f}%, reste "
+            f"{position.remaining_fraction * 100:.0f}%)",
+            "milestone",
+            force=True,
         )
 
     def drain_digest(self) -> list[str]:
