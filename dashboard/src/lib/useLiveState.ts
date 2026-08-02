@@ -26,7 +26,7 @@ export function useLiveState() {
     const loadRest = async () => {
       try {
         const [trades, shadow] = await Promise.all([
-          fetch('/api/trades').then((r) => r.json()),
+          fetch('/api/trades?arm=all').then((r) => r.json()),
           fetch('/api/shadow').then((r) => r.json()),
         ])
         setTrades(trades.trades ?? [])

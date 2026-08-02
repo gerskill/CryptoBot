@@ -1,0 +1,166 @@
+{
+  "version": "2.0",
+  "mode": "PAPER",
+  "capital_total": 0,
+  "risk_per_trade": 0.025,
+  "max_concurrent_positions": 3,
+  "scan": {
+    "interval_seconds": 90,
+    "monitor_interval_seconds": 5,
+    "chains": [
+      "solana"
+    ],
+    "cache_ttl_minutes": 30,
+    "max_candidates_enriched": 25,
+    "alpha_score_entry_threshold": 70,
+    "social_lookup_min_alpha": 70,
+    "social_max_lookups_per_cycle": 2,
+    "_note_monitor": "5s au lieu de 20s : mesure sur 10 trades, 8 sorties SL sur 8 depassaient leur seuil de 4.6 points en moyenne (pire -40.5% pour un SL a -25%). Cout : 1 requete par position et par tick, quota DexScreener 300/min.",
+    "gmgn_intervals": [
+      "5m",
+      "1h",
+      "24h"
+    ],
+    "gmgn_limit": 100,
+    "gmgn_order_by": "volume",
+    "gmgn_filters": [
+      "not_wash_trading"
+    ],
+    "_note_gmgn": "Decouverte GMGN filtree cote serveur. Mesure 2026-08-01 : le flux DexScreener /token-profiles est de la promo payante, liquidite mediane 1634$. GMGN rend liquidite + holders + top10 + smart money en UN appel deja filtre, donc on n enrichit plus du dechet. 3 intervalles = 3 appels par cycle."
+  },
+  "filters": {
+    "min_liquidity_usd": 10000,
+    "min_holders": 75,
+    "min_volume_1h": 8000,
+    "max_dev_wallet_pct": 10,
+    "min_rugcheck_score": 70,
+    "max_top_wallet_concentration": 20,
+    "min_social_mentions_1h": 0,
+    "min_smart_money_buys_30min": 0,
+    "max_tax_buy": 5,
+    "max_tax_sell": 5,
+    "max_age_hours": 12.0,
+    "min_age_hours": 1.0,
+    "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose.",
+    "max_bundler_rate": 0.35,
+    "max_insider_rate": 0.15,
+    "reject_wash_trading": true,
+    "reject_creator_sold": true,
+    "min_swaps": 300,
+    "min_liquidity_growth_ratio": 1.2,
+    "min_volume_liquidity_ratio": 1.5,
+    "max_price_change_1h": 150,
+    "max_drawdown_from_ath_pct": 55,
+    "min_market_cap": 100000,
+    "require_social": true,
+    "max_dev_tokens_launched": 10
+  },
+  "entry_rules": {
+    "slippage_max_pct": 15,
+    "entry_timing": "breakout_5m",
+    "min_liquidity_lock_days": 30,
+    "position_size_formula": "kelly_criterion_adjusted",
+    "max_initial_dump_pct": -50,
+    "candle_seconds": 180,
+    "ohlcv_interval": "1m",
+    "required_candles": 3,
+    "structure_mode": "balanced"
+  },
+  "exit_rules": {
+    "stop_loss_pct": -35,
+    "take_profit_1": 150,
+    "take_profit_2": 400,
+    "take_profit_3": 800,
+    "breakeven_trigger": 100,
+    "partial_sell_tp1_pct": 0.5,
+    "partial_sell_tp2_pct": 0.5,
+    "trailing_stop_activation": 100,
+    "trailing_stop_distance_pct": 40,
+    "max_hold_time_minutes": 360,
+    "stop_loss_slippage_buffer_pct": 0.0,
+    "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
+  },
+  "scoring_weights": {
+    "liquidity": 0.2,
+    "volume_momentum": 0.25,
+    "social_sentiment": 0.2,
+    "smart_money": 0.2,
+    "rugcheck": 0.15
+  },
+  "learning": {
+    "parameter_adjustment_history": [
+      {
+        "timestamp": "2026-08-01T15:45:24.278384+00:00",
+        "param_name": "filters.max_age_hours",
+        "old_value": 6.0,
+        "new_value": 12.0,
+        "reason": "elargissement mesure : 127 rejets sur « age > 6h »",
+        "trades_sample_size": 0
+      },
+      {
+        "timestamp": "2026-08-01T15:45:24.278848+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 15000,
+        "new_value": 10000,
+        "reason": "elargissement mesure : 22 rejets liquidite. Mesure : 6h+15K rend 8 tokens, 6h+10K en rend 21",
+        "trades_sample_size": 0
+      },
+      {
+        "timestamp": "2026-08-01T15:45:24.279131+00:00",
+        "param_name": "scan.alpha_score_entry_threshold",
+        "old_value": 75,
+        "new_value": 70,
+        "reason": "elargissement mesure : 200 rejets au seuil alpha, le motif n1. Twitter mort -> composant social absent -> poids redistribues -> scores structurellement plus bas",
+        "trades_sample_size": 0
+      }
+    ],
+    "total_trades": 5,
+    "winning_trades": 2,
+    "losing_trades": 3,
+    "avg_win_pct": 121.55,
+    "avg_loss_pct": -36.24,
+    "win_rate_by_age": {
+      "2-4h": {
+        "win_rate": 50.0,
+        "sample": 2
+      },
+      "4h+": {
+        "win_rate": 0.0,
+        "sample": 1
+      },
+      "1-2h": {
+        "win_rate": 50.0,
+        "sample": 2
+      }
+    },
+    "win_rate_by_liquidity": {
+      "30-50K": {
+        "win_rate": 50.0,
+        "sample": 2
+      },
+      ">50K": {
+        "win_rate": 0.0,
+        "sample": 1
+      },
+      "10-30K": {
+        "win_rate": 50.0,
+        "sample": 2
+      }
+    },
+    "win_rate_by_social_score": {}
+  },
+  "risk_rules": {
+    "cooldown_hours": 0,
+    "consecutive_losses_trigger": 3,
+    "_note": "cooldown_hours: 0 desactive la pause. En PAPER on veut collecter les 20 trades de validation sans interruption. Remettre 2 avant LIVE.",
+    "max_concurrent_positions": 2
+  },
+  "api_budgets": {
+    "_note": "Plafonds MENSUELS d appels. 0 = illimite. Twitter Free = 100 lectures/mois. Depuis fevrier 2026 les nouveaux comptes X sont en pay-per-use (0.005 $/lecture) ; les paliers Basic 200 $ et Pro 5000 $ sont fermes aux nouvelles inscriptions. Ce bot est sur le palier GRATUIT : 100, pas 15000.",
+    "twitter": 100,
+    "birdeye": 0,
+    "helius": 0,
+    "gmgn": 0
+  },
+  "strategy": "runner"
+}

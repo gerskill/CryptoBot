@@ -1,0 +1,20 @@
+{
+  "_note": "CLI EXTERNES EPINGLES. Ces deux binaires sont executes en sous-processus par le bot et peuvent, dans leurs versions completes, signer des transactions. Un 'npm i -g' sans version installe silencieusement une version nouvelle : c'est une surface de supply chain, pas une commodite. Verifier avec : python3 scripts_verifie_outils.py",
+  "_note_confiance": "Le bot n'appelle QUE des commandes de lecture, verifiees par liste blanche AVANT le sous-processus (ALLOWED_COMMANDS dans src/apis/gmgn.py, ALLOWED_PATHS dans src/apis/jupiter.py). L'epinglage protege d'un autre risque : une version compromise qui detournerait une commande de lecture.",
+  "tools": {
+    "gmgn-cli": {
+      "version": "1.5.5",
+      "install": "npm i -g gmgn-cli@1.5.5",
+      "used_for": "decouverte market trending, bougies market kline, flux smart money",
+      "executes_transactions": true,
+      "bot_uses_read_only": true
+    },
+    "@jup-ag/cli": {
+      "version": "0.10.1",
+      "install": "npm i -g @jup-ag/cli@0.10.1",
+      "used_for": "outil manuel uniquement — NON cable dans la boucle",
+      "executes_transactions": true,
+      "bot_uses_read_only": true
+    }
+  }
+}

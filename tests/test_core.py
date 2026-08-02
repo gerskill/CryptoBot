@@ -551,7 +551,7 @@ class TestGmgnParsing(unittest.TestCase):
             {"token_address": "BBB", "side": "buy", "wallet_address": "w3",
              "timestamp": now, "volume_usd": 50},
         ])
-        activity = self.api.activity_by_token()
+        activity = self.api.activity_by_token(min_trade_usd=0, require_wallet_tags=[])
         self.assertEqual(activity["AAA"].buys, 2)
         self.assertEqual(activity["AAA"].sells, 1)
         self.assertEqual(activity["AAA"].unique_wallets, 2)
@@ -564,13 +564,21 @@ class TestGmgnParsing(unittest.TestCase):
             {"token_address": "AAA", "side": "buy", "timestamp": now},
             {"token_address": "AAA", "side": "buy", "timestamp": now - 3600},
         ])
-        self.assertEqual(self.api.activity_by_token(window_minutes=30)["AAA"].buys, 1)
+        self.assertEqual(
+            self.api.activity_by_token(window_minutes=30, min_trade_usd=0, require_wallet_tags=[])[
+                "AAA"
+            ].buys,
+            1,
+        )
 
     def test_timestamp_en_millisecondes(self):
         self._snapshot([
             {"token_address": "AAA", "side": "buy", "timestamp": time.time() * 1000},
         ])
-        self.assertEqual(self.api.activity_by_token()["AAA"].buys, 1)
+        self.assertEqual(
+            self.api.activity_by_token(min_trade_usd=0, require_wallet_tags=[])["AAA"].buys,
+            1,
+        )
 
     def test_champ_base_address_du_flux_reel(self):
         """`base_address` est le nom réel côté /v1/user/smartmoney.
@@ -586,7 +594,7 @@ class TestGmgnParsing(unittest.TestCase):
             {"base_address": "AAA", "side": "sell", "maker": "w2",
              "timestamp": now, "amount_usd": 50.0},
         ])
-        activity = self.api.activity_by_token()
+        activity = self.api.activity_by_token(min_trade_usd=0, require_wallet_tags=[])
         self.assertIn("AAA", activity)
         self.assertEqual(activity["AAA"].buys, 1)
         self.assertEqual(activity["AAA"].sells, 1)
@@ -599,9 +607,75 @@ class TestGmgnParsing(unittest.TestCase):
             {"token": "AAA", "event": "sell", "maker": "w1", "block_time": now},
             {"mint": "AAA", "direction": "buy", "address": "w2", "trade_time": now},
         ])
-        activity = self.api.activity_by_token()
+        activity = self.api.activity_by_token(min_trade_usd=0, require_wallet_tags=[])
         self.assertEqual(activity["AAA"].buys, 1)
         self.assertEqual(activity["AAA"].sells, 1)
+
+    def test_exclut_arbitrager_et_micro_trades(self):
+        """Les bots MEV et les micro-montants ne doivent pas gonfler le signal."""
+        now = time.time()
+        self._snapshot([
+            {
+                "base_address": "AAA",
+                "side": "buy",
+                "maker": "arb_bot",
+                "timestamp": now,
+                "amount_usd": 500,
+                "maker_info": {"tags": ["arbitrager"]},
+            },
+            {
+                "base_address": "AAA",
+                "side": "buy",
+                "maker": "micro",
+                "timestamp": now,
+                "amount_usd": 5,
+                "maker_info": {"tags": ["smart_degen"]},
+            },
+            {
+                "base_address": "AAA",
+                "side": "buy",
+                "maker": "real",
+                "timestamp": now,
+                "amount_usd": 150,
+                "maker_info": {"tags": ["smart_degen", "trojan"]},
+            },
+        ])
+        activity = self.api.activity_by_token(
+            min_trade_usd=25,
+            require_wallet_tags=["smart_degen"],
+            exclude_wallet_tags=["arbitrager"],
+        )
+        self.assertEqual(activity["AAA"].buys, 1)
+        self.assertEqual(activity["AAA"].unique_wallets, 1)
+        self.assertEqual(activity["AAA"].volume_usd, 150.0)
+
+    def test_buys_only_ignore_les_ventes(self):
+        now = time.time()
+        self._snapshot([
+            {
+                "base_address": "AAA",
+                "side": "buy",
+                "maker": "w1",
+                "timestamp": now,
+                "amount_usd": 100,
+                "maker_info": {"tags": ["smart_degen"]},
+            },
+            {
+                "base_address": "AAA",
+                "side": "sell",
+                "maker": "w1",
+                "timestamp": now,
+                "amount_usd": 100,
+                "maker_info": {"tags": ["smart_degen"]},
+            },
+        ])
+        activity = self.api.activity_by_token(
+            min_trade_usd=0,
+            require_wallet_tags=["smart_degen"],
+            buys_only=True,
+        )
+        self.assertEqual(activity["AAA"].buys, 1)
+        self.assertEqual(activity["AAA"].sells, 0)
 
 
 class TestPositionRestaurableEtFermable(unittest.TestCase):

@@ -89,6 +89,22 @@ class BirdeyeAPI:
                     print(f"[Birdeye] {response.status_code} non autorisé sur {path}")
                     return None
 
+                # QUOTA MENSUEL ÉPUISÉ. Birdeye répond 400, pas 429, avec
+                # « Compute units usage limit exceeded » — un code qui ressemble
+                # à une requête malformée. Mesuré : 489 requêtes brûlées sur un
+                # quota déjà mort, à 1 req/s, soit 23 s de chaque cycle de 90 s
+                # dépensées pour rien. Se couper est la seule réponse utile :
+                # un quota mensuel ne se rouvre pas en réessayant.
+                if response.status_code == 400 and "compute unit" in response.text.lower():
+                    print(
+                        "[Birdeye] quota mensuel de Compute Units épuisé — module "
+                        "désactivé. Les holders passent sur Helius (borne "
+                        "inférieure) et l'analyse technique sur des bougies "
+                        "reconstruites."
+                    )
+                    self.enabled = False
+                    return None
+
                 response.raise_for_status()
                 body = response.json()
                 if not body.get("success"):

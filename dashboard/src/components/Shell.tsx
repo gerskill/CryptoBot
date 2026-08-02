@@ -83,25 +83,33 @@ export function Shell({ children }: { children: React.ReactNode }) {
                   </span>
                 )}
               </div>
-              <div className="mt-0.5 flex items-baseline gap-3">
-                <span className={`font-mono text-4xl font-semibold tabular-nums ${equityPulse}`}>
+              {/* Le seul chiffre héroïque de l'écran. Tout le reste recule
+                  d'un cran : sans ce contraste d'échelle, l'équité se noie
+                  dans la densité des panneaux. */}
+              <div className="mt-1 flex items-baseline gap-3">
+                <span
+                  className={`font-mono text-[clamp(2.25rem,1.2rem+3vw,3.5rem)] font-semibold leading-[0.9] tracking-tight ${equityPulse}`}
+                >
                   {usd(equity, 2)}
                 </span>
-                <span className={`font-mono text-sm tabular-nums ${pnlColor(pnl)}`}>
-                  {pnl >= 0 ? '+' : ''}{usd(pnl, 2)} · {pct(pnlPct)}
+                <span className={`font-mono text-[13px] ${pnlColor(pnl)}`}>
+                  {pnl >= 0 ? '+' : ''}{usd(pnl, 2)}
+                  <span className="ml-1.5 text-dim">·</span>{' '}
+                  <span className={pnlColor(pnl)}>{pct(pnlPct)}</span>
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-5 pb-1">
+          {/* Rail d'état : tout ce qui n'est pas une décision, à voix basse. */}
+          <div className="flex items-center gap-4 pb-1.5 text-[11px]">
             {nightWatch && (
-              <span className="rounded-full border border-gem/30 bg-gem/10 px-3 py-1 text-xs text-gem">
-                Night Watch — le bot surveille, tu dors
+              <span className="rounded-full bg-gem/10 px-2.5 py-1 text-[10px] text-gem ring-1 ring-gem/25">
+                Night Watch
               </span>
             )}
             <ScanClock />
-            <span className="font-mono text-sm text-dim tabular-nums">cycle {cycle ?? '—'}</span>
+            <span className="font-mono text-dim">cycle {cycle ?? '—'}</span>
             <Heartbeat />
           </div>
         </div>

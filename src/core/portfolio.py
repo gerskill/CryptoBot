@@ -64,7 +64,14 @@ class PaperPortfolio:
         positions_path: Optional[str] = None,
         cooldown_hours: float = COOLDOWN_HOURS,
         losses_trigger: int = CONSECUTIVE_LOSSES_TRIGGER,
+        max_drawdown_stop_pct: float = 0.0,
     ):
+        # COUPE-CIRCUIT. Le cooldown réagit à 3 pertes CONSÉCUTIVES ; il ne
+        # voit rien d'une érosion lente qui alterne gains et pertes. Sur ce
+        # journal, le drawdown a atteint 17,2 % sans jamais déclencher trois
+        # pertes d'affilée. Un plafond de drawdown est le seul garde-fou qui
+        # regarde la trajectoire plutôt que la séquence. 0 = désactivé.
+        self.max_drawdown_stop_pct = max_drawdown_stop_pct
         # `cooldown_hours = 0` désactive la pause. Voulu en PAPER : une pause
         # de 2h après 3 pertes bloque la collecte des 20 trades de validation.
         self.cooldown_hours = cooldown_hours
@@ -74,6 +81,11 @@ class PaperPortfolio:
         self.mode = mode
         self.positions_path = positions_path
         self.positions: dict[str, Position] = {}
+        # Écriture différée : `update()` sauvegardait à CHAQUE tick, même sans
+        # rien à faire. 3 positions x 12 ticks/min = 36 écritures atomiques
+        # par minute, x7 stratégies = 252. Une SORTIE reste écrite tout de
+        # suite (durabilité) ; le reste attend `flush()`, une fois par tick.
+        self.dirty = False
         self.closed_count = 0
         self.consecutive_losses = 0
         self.cooldown_until: Optional[float] = None
@@ -108,8 +120,13 @@ class PaperPortfolio:
         Le drawdown doit lui aussi être rejoué : calculé uniquement à la
         clôture d'un trade, il repartait à 0% après chaque redémarrage et le
         dashboard affichait « drawdown max 0% » sur un compte en perte.
+
+        Agrégé PAR POSITION (`read_positions`) et pas par sortie finale : une
+        position sortie en deux fois voyait son gain de TP1 disparaître du
+        capital reconstruit, et une position gagnante grâce à son TP1 était
+        comptée comme une perte consécutive de plus.
         """
-        rows = self.journal.read_final_exits()
+        rows = self.journal.read_positions()
         self.closed_count = len(rows)
 
         streak = 0
@@ -191,6 +208,7 @@ class PaperPortfolio:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 json.dump(payload, fh, ensure_ascii=False)
             os.replace(tmp_path, self.positions_path)
+            self.dirty = False
         except Exception as exc:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
@@ -205,8 +223,23 @@ class PaperPortfolio:
             return 0.0
         return (self.cooldown_until - time.time()) / 60
 
+    @property
+    def drawdown_breached(self) -> bool:
+        return (
+            self.max_drawdown_stop_pct > 0
+            and self.max_drawdown_pct >= self.max_drawdown_stop_pct
+        )
+
     def can_open(self, candidate: Candidate, max_positions: int) -> Optional[str]:
         """None = ouverture autorisée. Sinon, la raison du refus."""
+        # Vérifié EN PREMIER : c'est un arrêt, pas une pause. Contrairement au
+        # cooldown il ne s'efface pas avec le temps — il faut décider
+        # explicitement de relever le plafond ou de repartir.
+        if self.drawdown_breached:
+            return (
+                f"COUPE-CIRCUIT — drawdown {self.max_drawdown_pct:.1f}% ≥ "
+                f"{self.max_drawdown_stop_pct:.0f}%, plus aucune entrée"
+            )
         if self.in_cooldown:
             return f"cooldown actif ({self.cooldown_remaining_min():.0f} min restantes)"
         if len(self.positions) >= max_positions:
@@ -300,8 +333,23 @@ class PaperPortfolio:
             if not position.is_open:
                 self._finalize(position, price)
                 break
-        self.save_positions()
+
+        if rows:
+            # Une sortie doit survivre à un crash : écriture immédiate.
+            self.save_positions()
+        else:
+            # Ce qu'on risque de perdre entre deux flush : la dérive de
+            # high_water_pct / low_water_pct. De l'instrumentation, plus la
+            # référence du trailing — qui ne s'arme qu'au-dessus de +200%.
+            self.dirty = True
         return rows
+
+    def flush(self) -> bool:
+        """Écrit si quelque chose a bougé. Appelé une fois par tick."""
+        if not self.dirty:
+            return False
+        self.save_positions()
+        return True
 
     def force_close(
         self, position_id: str, price: float, reason: str = "MANUAL_STOP"
@@ -372,7 +420,7 @@ class PaperPortfolio:
         return self.capital + engaged
 
     def stats(self, journal_rows: Optional[list[dict[str, Any]]] = None) -> dict[str, Any]:
-        rows = journal_rows if journal_rows is not None else self.journal.read_final_exits()
+        rows = journal_rows if journal_rows is not None else self.journal.read_positions()
         wins = [r for r in rows if r.get("pnl_usd", 0) > 0]
         losses = [r for r in rows if r.get("pnl_usd", 0) <= 0]
         gross_win = sum(r.get("pnl_usd", 0) for r in wins)

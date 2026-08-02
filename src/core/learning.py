@@ -8,13 +8,20 @@ GARDE-FOU CENTRAL : aucun ajustement sans `MIN_SEGMENT_SAMPLE` trades DANS LE
 SEGMENT concerné. Sans ça le bot sur-réagit au bruit.
 """
 
-from typing import Any, Optional
+import statistics
+from typing import Any, Callable, Optional
 
 from src.core.journal import TradeJournal
 from src.core.params import ParamsStore
 from src.core.shadow import ShadowTracker
 
 MIN_SEGMENT_SAMPLE = 10
+# Plancher ABSOLU par stratégie, indépendant des cadences. Avec 7 bras, une
+# cadence « tous les 5 trades » se déclenche sur 5 trades DE CE BRAS — un
+# échantillon où le hasard domine tout. Le multi-bras divise l'échantillon
+# par le nombre de bras : sans ce plancher, chaque bras apprend plus vite et
+# plus faux qu'un bras unique ne le faisait.
+MIN_TRADES_PER_ARM = 15
 FILTER_CADENCE = 5
 WEIGHTS_CADENCE = 10
 EXIT_CADENCE = 10
@@ -28,6 +35,20 @@ SHADOW_MIN_SAMPLE = 15
 BACKTEST_WINDOW = 20
 BACKTEST_MIN_IMPROVEMENT = 0.10
 BACKTEST_MIN_KEPT = 5
+
+# Rejeu des SORTIES : il faut assez de trades instrumentés (peak/trough) pour
+# trancher. En dessous, `validate_exit_changes` ne rend AUCUN verdict — ne pas
+# savoir ne doit pas vouloir dire « annule ».
+EXIT_BACKTEST_MIN_COVERAGE = 15
+EXIT_BACKTEST_MIN_CHANGED = 5
+
+# Repli quand l'échantillon ne permet pas encore de les mesurer.
+DEFAULT_SL_SLIPPAGE = -4.4
+DEFAULT_BREAKEVEN_REST = -2.9
+
+# Grille explorée par `_search_exits`.
+SL_GRID = (-10.0, -15.0, -20.0, -25.0, -30.0, -40.0)
+TP1_GRID = (25.0, 40.0, 50.0, 75.0, 100.0, 150.0)
 
 # BORNES DURES — sans elles, les règles d'ajustement ne font que resserrer et
 # le bot converge vers "plus aucun candidat ne passe", définitivement.
@@ -47,6 +68,58 @@ PARAM_BOUNDS: dict[str, tuple[float, float]] = {
     "exit_rules.trailing_stop_distance_pct": (20, 80),
     "exit_rules.max_hold_time_minutes": (30, 1440),
 }
+
+# --- ANTI-BOUCLE DE RÉTROACTION NÉGATIVE ---
+#
+# LA CAUSE RACINE DU PROJET, prouvée par l'historique : 6 resserrages en 13 h,
+# aucun relâchement, tous décidés sur 10 à 13 trades.
+#
+#   min_liquidity_usd  15000 -> 20000 -> 25000
+#   min_age_hours        0.5 ->   1.0 ->   1.5
+#
+# Or la combinaison finale (âge 1,5-6h, liquidité 25 K) ne laisse plus qu'UN
+# token disponible sur tout le marché Solana — mesuré. La boucle :
+#
+#   peu de trades -> apprentissage sur du bruit -> filtres resserrés
+#        -> moins de flux -> encore moins de trades -> ...
+#
+# `_relax_from_shadow` était censé faire contrepoids, mais il exige
+# SHADOW_MIN_SAMPLE rejets jugés dans une famille — or un flux réduit produit
+# aussi moins de rejets, donc le contrepoids s'éteint en même temps que la
+# cause. Les deux mécanismes s'affaiblissent ensemble : c'est ce qui rend la
+# boucle auto-entretenue.
+#
+# La garde : refuser de RESSERRER quand le flux est déjà famélique. Relâcher
+# reste toujours permis — l'asymétrie est volontaire, c'est elle qui casse la
+# boucle.
+# Valeur calée sur la MESURE, pas sur un ordre de grandeur : le flux réel est
+# de 0 à 4 candidats retenus par cycle et par bras (entonnoir du 2026-08-01,
+# 2300 candidats présentés). Un seuil de 50 — proposé lors d'un audit externe —
+# bloquerait tout resserrage à jamais : l'échec symétrique de celui qu'on
+# corrige. Le seuil doit être juste au-dessus de « famine », pas au niveau
+# d'un flux confortable qui n'existe pas ici.
+#
+# Volontairement GLOBAL et non par bras. Un bras sélectif comme `quality` a
+# structurellement peu de flux — et c'est précisément lui qui ne doit pas
+# resserrer davantage. Rendre le seuil configurable par bras permettrait à un
+# bras affamé de se resserrer encore, ce que la garde existe pour empêcher.
+MIN_FLOW_TO_TIGHTEN = 2.0
+# Sens du resserrage par paramètre : monter un plancher restreint, baisser un
+# plafond restreint. Sans cette table, impossible de distinguer les deux.
+TIGHTENS_WHEN_RAISED = frozenset({
+    "filters.min_age_hours",
+    "filters.min_liquidity_usd",
+    "filters.min_holders",
+    "filters.min_volume_1h",
+    "filters.min_rugcheck_score",
+    "filters.min_social_mentions_1h",
+    "filters.min_smart_money_buys_30min",
+})
+TIGHTENS_WHEN_LOWERED = frozenset({
+    "filters.max_age_hours",
+    "filters.max_top_wallet_concentration",
+    "filters.max_dev_wallet_pct",
+})
 
 AGE_BUCKETS = [(0, 1, "0-1h"), (1, 2, "1-2h"), (2, 4, "2-4h"), (4, 999, "4h+")]
 LIQ_BUCKETS = [
@@ -68,6 +141,12 @@ def _bucket(value: Optional[float], buckets: list) -> Optional[str]:
 
 
 def _win_rate(rows: list[dict[str, Any]]) -> float:
+    """Attend des POSITIONS (`journal.read_positions`), pas des sorties finales.
+
+    Sur des sorties finales, une position sortie en TP1 puis breakeven est
+    comptée sur sa seule dernière jambe (-1.8%) et classée perdante alors
+    qu'elle a rapporté +49% : le win rate mesuré était 2,8% au lieu de 11,1%.
+    """
     if not rows:
         return 0.0
     return 100 * sum(1 for r in rows if r.get("pnl_usd", 0) > 0) / len(rows)
@@ -92,16 +171,29 @@ class LearningEngine:
         params: ParamsStore,
         journal: TradeJournal,
         shadow: Optional[ShadowTracker] = None,
+        bounds: Optional[dict[str, tuple[float, float]]] = None,
+        flow: Optional[Callable[[], Optional[float]]] = None,
     ):
         self.params = params
         self.journal = journal
         self.shadow = shadow
+        # Mesure du flux de candidats. Sans elle, resserrer paraît toujours
+        # prudent ; avec elle, on voit qu'on s'étrangle.
+        self.flow = flow
+        # Bornes par stratégie : un bras expérimental doit pouvoir explorer un
+        # stop loss à -35% pendant que le bras témoin reste dans (-50, -10).
+        self.bounds = {**PARAM_BOUNDS, **(bounds or {})}
 
     def _bounded_set(
         self, path: str, value: float, reason: str, sample: int
     ) -> Optional[str]:
         """Écrit un paramètre en respectant ses bornes. None si rien ne change."""
-        low, high = PARAM_BOUNDS.get(path, (float("-inf"), float("inf")))
+        blocage = self._starving(path, value)
+        if blocage:
+            print(f"🧠 {blocage}")
+            return None
+
+        low, high = self.bounds.get(path, (float("-inf"), float("inf")))
         clamped = max(low, min(high, value))
         current = self.params.get(path)
 
@@ -113,9 +205,45 @@ class LearningEngine:
         self.params.set(path, clamped, reason, sample)
         return f"{path} -> {clamped}"
 
+    def _starving(self, path: str, value: float) -> Optional[str]:
+        """Ce changement resserre-t-il un filtre alors que le flux est déjà nul ?
+
+        L'asymétrie est le cœur de la garde : RELÂCHER reste toujours permis,
+        quel que soit le flux. Seul le resserrage est conditionné. Bloquer les
+        deux figerait le bot dans l'état étranglé où la boucle l'a mené.
+        """
+        if self.flow is None:
+            return None
+        current = self.params.get(path)
+        if current is None:
+            return None
+
+        if path in TIGHTENS_WHEN_RAISED:
+            resserre = value > current
+        elif path in TIGHTENS_WHEN_LOWERED:
+            resserre = value < current
+        else:
+            return None
+        if not resserre:
+            return None
+
+        try:
+            flux = self.flow()
+        except Exception:
+            return None
+        if flux is None or flux >= MIN_FLOW_TO_TIGHTEN:
+            return None
+
+        return (
+            f"{path} : resserrage {current} → {value} REFUSÉ — flux à "
+            f"{flux:.0f} candidat(s)/cycle, sous le plancher de "
+            f"{MIN_FLOW_TO_TIGHTEN:.0f}. Resserrer ici garantit de ne plus "
+            f"jamais collecter la donnée qui dirait si c'était justifié."
+        )
+
     def refresh_stats(self) -> dict[str, Any]:
         """Étapes 6.1 et 6.2 : stats globales + analyse par segment."""
-        rows = self.journal.read_final_exits()
+        rows = self.journal.read_positions()
         wins = [r for r in rows if r.get("pnl_usd", 0) > 0]
         losses = [r for r in rows if r.get("pnl_usd", 0) <= 0]
 
@@ -145,6 +273,15 @@ class LearningEngine:
         total = learning["total_trades"]
         applied: list[str] = []
 
+        if total < MIN_TRADES_PER_ARM:
+            # Se taire, mais le DIRE : « rien ajusté » et « pas assez de
+            # données pour ajuster » sont deux états différents, et les
+            # confondre fait croire que l'apprentissage tourne.
+            return [
+                f"(en attente) {total}/{MIN_TRADES_PER_ARM} trades avant "
+                f"tout ajustement"
+            ]
+
         if self._due("filters", total, FILTER_CADENCE):
             # Photo des filtres AVANT ajustement : le backtest doit pouvoir
             # revenir en arrière si le changement n'améliore rien.
@@ -161,7 +298,18 @@ class LearningEngine:
         if self._due("weights", total, WEIGHTS_CADENCE):
             applied += self._adjust_weights(learning)
         if self._due("exits", total, EXIT_CADENCE):
-            applied += self._adjust_exits(learning)
+            # Photo AVANT ajustement, comme pour les filtres : le rejeu doit
+            # pouvoir revenir en arrière.
+            previous_exits = self.params.get("exit_rules", {})
+            exit_changes = self._adjust_exits(learning) + self._search_exits()
+            if exit_changes:
+                verdict = self.validate_exit_changes(previous_exits)
+                if verdict and "annulées" in verdict:
+                    print(f"🧠 BACKTEST | {verdict}")
+                    exit_changes = [f"(annulé) {c}" for c in exit_changes]
+                elif verdict:
+                    print(f"🧠 BACKTEST | {verdict}")
+            applied += exit_changes
         if self._due("risk", total, RISK_CADENCE):
             applied += self._adjust_risk(learning, max_drawdown_pct)
         return applied
@@ -297,7 +445,7 @@ class LearningEngine:
     def _adjust_exits(self, learning: dict) -> list[str]:
         """Étape 6.3.C — recalibre stop loss et take profit sur le vécu."""
         changes = []
-        rows = self.journal.read_final_exits()
+        rows = self.journal.read_positions()
         stop_loss = self.params.get("exit_rules.stop_loss_pct", -25)
         avg_loss = learning.get("avg_loss_pct", 0)
 
@@ -340,7 +488,7 @@ class LearningEngine:
 
     def _adjust_risk(self, learning: dict, max_drawdown_pct: float = 0.0) -> list[str]:
         """Étape 6.3.D — ajuste le risque par trade, jamais hors des bornes."""
-        rows = self.journal.read_final_exits()
+        rows = self.journal.read_positions()
         if len(rows) < RISK_CADENCE:
             return []
 
@@ -363,15 +511,19 @@ class LearningEngine:
         change = self._bounded_set("risk_per_trade", new, reason, len(rows))
         return [change] if change else []
 
+    # ------------------------------------------------------- rejeu / entrée
+
     def simulate_filters(
         self, rows: list[dict[str, Any]], filters: dict[str, Any]
     ) -> dict[str, Any]:
-        """Rejoue les trades passés sous un jeu de filtres donné.
+        """Rejoue les trades passés sous un jeu de filtres d'ENTRÉE donné.
 
-        Ne rejoue QUE les filtres d'entrée : le journal conserve la liquidité,
-        les holders, l'âge et le social au moment de l'entrée. Les règles de
-        SORTIE ne sont pas rejouables — il faudrait la trajectoire de prix de
-        chaque position, que le journal ne stocke pas.
+        Le journal conserve la liquidité, les holders, l'âge et le social au
+        moment de l'entrée : ces filtres-là se rejouent exactement.
+
+        Pour les règles de SORTIE, voir `simulate_exits` — le journal stocke
+        depuis l'instrumentation le pic (`peak_pct`) et le creux
+        (`trough_pct`), ce qui suffit à savoir si un seuil a été franchi.
         """
         kept = []
         for row in rows:
@@ -404,7 +556,7 @@ class LearningEngine:
 
     def validate_filter_changes(self, previous_filters: dict[str, Any]) -> Optional[str]:
         """Étape 6.4 — annule un ajustement de filtres qui n'améliore rien."""
-        rows = self.journal.read_final_exits()[-BACKTEST_WINDOW:]
+        rows = self.journal.read_positions()[-BACKTEST_WINDOW:]
         if len(rows) < BACKTEST_WINDOW:
             return None  # échantillon trop court pour trancher
 
@@ -435,6 +587,313 @@ class LearningEngine:
             f"filtres validés (P&L/trade {before['pnl_per_trade']} → {after['pnl_per_trade']})"
         )
 
+    # ------------------------------------------------------- rejeu / sortie
+
+    def measured_slippage(self, rows: list[dict[str, Any]]) -> float:
+        """Écart médian entre le P&L réel et le seuil qui a déclenché la sortie.
+
+        Médiane et pas moyenne : un gap de -25 points n'est pas du glissement
+        d'échantillonnage, et une moyenne le laisserait dominer la mesure.
+        """
+        ecarts = [
+            row.get("final_leg_pnl_pct", row.get("pnl_pct")) - row["stop_loss_trigger_pct"]
+            for row in rows
+            if str(row.get("exit_reason", "")).startswith("STOP_LOSS")
+            and row.get("stop_loss_trigger_pct") is not None
+            and row.get("final_leg_pnl_pct", row.get("pnl_pct")) is not None
+        ]
+        return round(statistics.median(ecarts), 2) if ecarts else DEFAULT_SL_SLIPPAGE
+
+    def measured_breakeven_rest(self, rows: list[dict[str, Any]]) -> float:
+        """Ce que rapporte le second lot après un TP1, mesuré.
+
+        Sur les données réelles c'est -2,9%, pas 0 : le passage au breakeven
+        après TP1 rend systématiquement la seconde moitié un peu en dessous du
+        prix d'entrée. Supposer 0 surestimerait chaque scénario avec TP.
+        """
+        rests = [
+            leg["pnl_pct"]
+            for leg in self.journal.read_all()
+            if str(leg.get("exit_reason", "")).startswith("BREAKEVEN_STOP")
+            and leg.get("pnl_pct") is not None
+        ]
+        return round(statistics.median(rests), 2) if rests else DEFAULT_BREAKEVEN_REST
+
+    @staticmethod
+    def _tp_before_sl(row: dict[str, Any], ambiguity: str) -> tuple[bool, bool]:
+        """Le pic a-t-il précédé le creux ? Retourne (tp_avant, par_fuite).
+
+        FUITE DE DONNÉES — le défaut le plus grave du rejeu, corrigé ici.
+        Sans horodatage du creux, la version précédente déduisait l'ordre de
+        la RAISON DE SORTIE HISTORIQUE : « sortie en breakeven donc TP1 avait
+        été touché ». C'est circulaire. Cette raison a été produite par les
+        règles qu'on cherche justement à évaluer ; l'utiliser revient à
+        supposer que la configuration testée s'est comportée comme
+        l'historique, ce qui est exactement la question posée.
+
+        Effet mesuré : les 3 positions ambiguës sont 3 des 4 gagnantes.
+        Politique pessimiste −2,76 $/trade, optimiste −1,14 $. La fuite
+        choisissait systématiquement la plus favorable.
+
+        Le second membre du tuple signale la déduction non fiable. Les
+        appelants qui DÉCIDENT (`_search_exits`) doivent refuser d'agir
+        dessus ; ceux qui INFORMENT peuvent l'afficher, en le disant.
+        """
+        minutes_to_peak = row.get("minutes_to_peak")
+        minutes_to_trough = row.get("minutes_to_trough")
+        if minutes_to_peak is not None and minutes_to_trough is not None:
+            return minutes_to_peak < minutes_to_trough, False
+        if ambiguity == "optimistic":
+            return True, False
+        # Défaut et `resolve` : PESSIMISTE. Ne pas savoir doit coûter, pas
+        # rapporter. Un rejeu qui, dans le doute, choisit l'issue favorable
+        # produit des paramètres optimistes qu'on découvre faux en réel.
+        return False, True
+
+    def simulate_exits(
+        self,
+        positions: list[dict[str, Any]],
+        exit_rules: dict[str, Any],
+        ambiguity: str = "resolve",
+    ) -> dict[str, Any]:
+        """Rejoue les positions passées sous un jeu de règles de SORTIE.
+
+        Repose sur les deux statistiques d'ordre de la trajectoire, `peak_pct`
+        (plus fort gain latent) et `trough_pct` (plus forte perte latente) :
+        elles suffisent à savoir SI un seuil a été franchi.
+
+        CE QUE CETTE SIMULATION NE SAIT PAS — à lire avant d'agir dessus :
+
+        1. L'ORDRE, sur les lignes antérieures à `minutes_to_trough`. Ce n'est
+           pas marginal : aux réglages d'origine, 3 des 26 positions
+           instrumentées sont ambiguës, et ce sont 3 des 4 gagnantes. Une
+           politique `pessimistic` les transforme toutes en stop loss et
+           conclut TOUJOURS « le SL va bien, le TP est inatteignable » ;
+           `optimistic` conclut toujours l'inverse. `resolve` s'appuie sur la
+           raison de sortie historique, ce qui est une FUITE : ça ne marche
+           que parce que les règles d'alors prenaient déjà TP1 à +100%. Les
+           trades postérieurs à l'instrumentation portent les deux dates et
+           sont tranchés exactement.
+        2. LE CHEMIN. -8 / +90 / -9 / +105 est indistinguable d'une montée
+           droite. Les échelles TP1 -> TP2 -> TP3 ne sont pas séquençables.
+        3. LE TRAILING, pas rejouable du tout : il dépend du plus-haut courant
+           à chaque tick. `trailing_stop_*` est ignoré ici, volontairement.
+        4. LE TEMPS. `max_hold_time_minutes` est hors périmètre : couper plus
+           tôt suppose de connaître le P&L à cet instant, que le journal ne
+           stocke pas.
+        5. ÉLARGIR LE STOP est SOUS-ÉVALUÉ. Le cas « aucun seuil franchi »
+           retombe sur le P&L réel, produit par le stop loss historique. La
+           grille est indicative, jamais un motif de rejet.
+        6. Le P&L reste optimiste côté take profit : ni slippage ni frais.
+        """
+        stop_loss = exit_rules.get("stop_loss_pct", -25)
+        buffer_pct = exit_rules.get("stop_loss_slippage_buffer_pct", 0.0)
+        stop_effective = stop_loss + buffer_pct
+        tp1 = exit_rules.get("take_profit_1", 100)
+        tp2 = exit_rules.get("take_profit_2", 300)
+        f1 = exit_rules.get("partial_sell_tp1_pct", 0.5)
+        f2 = exit_rules.get("partial_sell_tp2_pct", 0.5)
+
+        slip = self.measured_slippage(positions)
+        rest = self.measured_breakeven_rest(positions)
+
+        total_pnl = 0.0
+        wins = 0
+        skipped = 0
+        ambiguous = 0
+        degraded = 0
+        changed = 0
+        by_outcome: dict[str, int] = {}
+        evaluated = 0
+
+        for row in positions:
+            peak = row.get("peak_pct")
+            if peak is None:
+                skipped += 1
+                continue
+            trough = row.get("trough_pct")
+            if trough is None:
+                skipped += 1
+                continue
+
+            evaluated += 1
+            size = row.get("position_size") or 0.0
+            hit_stop = trough <= stop_effective
+            hit_tp1 = peak >= tp1
+            if hit_stop and hit_tp1:
+                ambiguous += 1
+                tp_first, guessed = self._tp_before_sl(row, ambiguity)
+                if guessed:
+                    degraded += 1
+                hit_stop = not tp_first
+                hit_tp1 = not hit_stop
+
+            if hit_tp1:
+                pnl_pct = f1 * tp1
+                remaining = 1 - f1
+                if peak >= tp2:
+                    pnl_pct += remaining * f2 * tp2
+                    remaining -= remaining * f2
+                pnl_pct += remaining * rest
+                outcome = "TP_LADDER" if peak >= tp2 else "TP1"
+                pnl_usd = size * pnl_pct / 100
+            elif hit_stop:
+                pnl_pct = stop_effective + slip
+                outcome = "SL"
+                pnl_usd = size * pnl_pct / 100
+            else:
+                # Aucun seuil franchi : la position serait sortie par une règle
+                # que ce rejeu ne modifie pas (temps, trailing, rug).
+                outcome = "UNCHANGED"
+                pnl_usd = row.get("pnl_usd", 0) or 0.0
+
+            if outcome != "UNCHANGED":
+                changed += 1
+            by_outcome[outcome] = by_outcome.get(outcome, 0) + 1
+            total_pnl += pnl_usd
+            if pnl_usd > 0:
+                wins += 1
+
+        return {
+            "trades": evaluated,
+            "total_pnl_usd": round(total_pnl, 4),
+            "pnl_per_trade": round(total_pnl / evaluated, 4) if evaluated else 0.0,
+            "win_rate": round(100 * wins / evaluated, 1) if evaluated else 0.0,
+            "coverage": evaluated,
+            "skipped": skipped,
+            "ambiguous": ambiguous,
+            # Positions dont l'ordre pic/creux a été DEVINÉ faute
+            # d'horodatage. Un résultat majoritairement dégradé ne doit
+            # pas servir à décider.
+            "degraded": degraded,
+            "changed": changed,
+            "by_outcome": by_outcome,
+            "slippage_used": slip,
+            "breakeven_rest_used": rest,
+        }
+
+    def exit_grid(
+        self,
+        positions: list[dict[str, Any]],
+        exit_rules: Optional[dict[str, Any]] = None,
+        ambiguity: str = "resolve",
+    ) -> list[dict[str, Any]]:
+        """Grille SL x TP1, triée du meilleur P&L/trade au pire.
+
+        36 évaluations sur au plus 20 positions : quelques microsecondes.
+        """
+        base = dict(exit_rules or self.params.get("exit_rules", {}))
+        grid = []
+        for stop_loss in SL_GRID:
+            for tp1 in TP1_GRID:
+                candidate = {**base, "stop_loss_pct": stop_loss, "take_profit_1": tp1}
+                outcome = self.simulate_exits(positions, candidate, ambiguity)
+                grid.append({"stop_loss_pct": stop_loss, "take_profit_1": tp1, **outcome})
+        return sorted(grid, key=lambda row: row["pnl_per_trade"], reverse=True)
+
+    def _instrumented(self, window: int = BACKTEST_WINDOW) -> list[dict[str, Any]]:
+        """Positions récentes portant pic ET creux."""
+        return [
+            row
+            for row in self.journal.read_positions()[-window:]
+            if row.get("peak_pct") is not None and row.get("trough_pct") is not None
+        ]
+
+    def _search_exits(self) -> list[str]:
+        """Cherche le meilleur couple (stop loss, TP1) sur l'historique rejoué.
+
+        Débloque un apprentissage qui ne pouvait rien faire : la seule règle de
+        `_adjust_exits` sur le stop loss ne sait que le resserrer, et il est
+        déjà collé à sa borne basse — elle retournait `None` à chaque appel,
+        définitivement.
+        """
+        positions = self._instrumented()
+        if len(positions) < EXIT_BACKTEST_MIN_COVERAGE:
+            return []
+
+        current = self.params.get("exit_rules", {})
+        reference = self.simulate_exits(positions, current)
+
+        # Refuser de DÉCIDER sur un rejeu majoritairement deviné. L'ordre
+        # pic/creux manque sur les lignes antérieures à `minutes_to_trough`,
+        # et ces positions ambiguës sont précisément les gagnantes : régler un
+        # stop loss dessus reviendrait à optimiser une supposition.
+        if reference["degraded"] > len(positions) * 0.25:
+            print(
+                f"🧠 recherche de sorties suspendue — {reference['degraded']}/"
+                f"{len(positions)} positions sans horodatage du creux, l'ordre "
+                f"est deviné. Les nouveaux trades le portent."
+            )
+            return []
+
+        best = None
+        for row in self.exit_grid(positions, current):
+            # Un « gagnant » qui ne change presque rien ne fait que recopier le
+            # résultat historique : ce n'est pas une découverte.
+            if row["changed"] < EXIT_BACKTEST_MIN_CHANGED:
+                continue
+            low, high = self.bounds.get("exit_rules.stop_loss_pct", (-100.0, 0.0))
+            if not low <= row["stop_loss_pct"] <= high:
+                continue
+            low, high = self.bounds.get("exit_rules.take_profit_1", (0.0, 1000.0))
+            if not low <= row["take_profit_1"] <= high:
+                continue
+            best = row
+            break
+
+        if best is None:
+            return []
+        gain = best["pnl_per_trade"] - reference["pnl_per_trade"]
+        if gain < abs(reference["pnl_per_trade"]) * BACKTEST_MIN_IMPROVEMENT:
+            return []
+
+        reason = (
+            f"rejeu sur {len(positions)} positions : P&L/trade "
+            f"{reference['pnl_per_trade']} → {best['pnl_per_trade']} "
+            f"({best['ambiguous']} ambiguës)"
+        )
+        changes = []
+        for path, value in (
+            ("exit_rules.stop_loss_pct", best["stop_loss_pct"]),
+            ("exit_rules.take_profit_1", best["take_profit_1"]),
+        ):
+            change = self._bounded_set(path, value, reason, len(positions))
+            if change:
+                changes.append(change)
+        return changes
+
+    def validate_exit_changes(self, previous_exits: dict[str, Any]) -> Optional[str]:
+        """Annule un ajustement de sorties qui n'améliore rien sur l'historique.
+
+        Sous `EXIT_BACKTEST_MIN_COVERAGE` positions instrumentées : aucun
+        verdict, et surtout aucune annulation. Ne pas savoir n'est pas une
+        raison de revenir en arrière.
+        """
+        positions = self._instrumented()
+        if len(positions) < EXIT_BACKTEST_MIN_COVERAGE:
+            return None
+
+        before = self.simulate_exits(positions, previous_exits)
+        after = self.simulate_exits(positions, self.params.get("exit_rules", {}))
+
+        gain = after["pnl_per_trade"] - before["pnl_per_trade"]
+        threshold = abs(before["pnl_per_trade"]) * BACKTEST_MIN_IMPROVEMENT
+        if gain < threshold:
+            self.params.set(
+                "exit_rules",
+                previous_exits,
+                f"backtest sorties : P&L/trade {before['pnl_per_trade']} → "
+                f"{after['pnl_per_trade']}, pas d'amélioration ≥ "
+                f"{BACKTEST_MIN_IMPROVEMENT:.0%} — annulé",
+                len(positions),
+            )
+            return "sorties annulées (backtest non concluant)"
+
+        return (
+            f"sorties validées (P&L/trade {before['pnl_per_trade']} → "
+            f"{after['pnl_per_trade']})"
+        )
+
     def live_mode_allowed(self) -> tuple[bool, str]:
         """Règle 10 de la spec, PLUS un verrou propriétaire explicite.
 
@@ -447,7 +906,7 @@ class LearningEngine:
         if not self.params.get("live_mode_authorized_by_owner", False):
             return False, "verrou propriétaire — passage en réel non autorisé"
 
-        rows = self.journal.read_final_exits()
+        rows = self.journal.read_positions()
         if len(rows) < 20:
             return False, f"{len(rows)}/20 trades papier"
 
@@ -461,4 +920,28 @@ class LearningEngine:
             return False, f"win rate {win_rate:.0f}% ≤ 40%"
         if profit_factor <= 1.5:
             return False, f"profit factor {profit_factor:.2f} ≤ 1.5"
-        return True, f"WR {win_rate:.0f}%, PF {profit_factor:.2f} sur {len(rows)} trades"
+
+        # VERROU STATISTIQUE, ajouté après l'audit. Les trois seuils ci-dessus
+        # portent sur des POINTS : un win rate de 41% sur 20 trades a un
+        # intervalle de confiance à 95% qui va d'environ 20% à 65%. Passer en
+        # réel sur ce chiffre revient à parier sur la borne haute.
+        #
+        # Le seul critère non négociable : la borne BASSE de l'intervalle du
+        # P&L par trade doit être positive. Tant qu'elle ne l'est pas, perdre
+        # de l'argent reste une issue compatible avec les données.
+        from src.core.stats import pnl_per_trade_interval
+
+        interval = pnl_per_trade_interval(rows)
+        if interval is None:
+            return False, "échantillon trop court pour un intervalle de confiance"
+        if interval.low <= 0:
+            return False, (
+                f"P&L/trade {interval.value:+.2f} $ IC95 "
+                f"[{interval.low:+.2f} .. {interval.high:+.2f}] — la borne basse "
+                f"n'est pas positive, perdre reste compatible avec les données"
+            )
+
+        return True, (
+            f"WR {win_rate:.0f}%, PF {profit_factor:.2f}, P&L/trade IC95 "
+            f"[{interval.low:+.2f} .. {interval.high:+.2f}] sur {len(rows)} trades"
+        )

@@ -66,6 +66,7 @@ class Position:
     # Instrumentation : quand le pic a été atteint, et le point bas traversé.
     high_water_at: Optional[float] = None
     low_water_pct: float = 0.0
+    low_water_at: Optional[float] = None
     tp1_hit: bool = False
     tp2_hit: bool = False
     breakeven_moved: bool = False
@@ -95,6 +96,20 @@ class Position:
         if self.high_water_at is None:
             return None
         return (self.high_water_at - self.entry_time) / 60
+
+    @property
+    def minutes_to_trough(self) -> Optional[float]:
+        """Délai entre l'entrée et le plus bas.
+
+        Le pendant de `minutes_to_peak`, et la pièce qui manquait pour rejouer
+        les règles de sortie : avec les deux dates, on sait si le prix a touché
+        le stop AVANT ou APRÈS le take profit. Sans elle, un trade qui a fait
+        +130% puis -11% est indistinguable de l'inverse, et le rejeu doit
+        deviner.
+        """
+        if self.low_water_at is None:
+            return None
+        return (self.low_water_at - self.entry_time) / 60
 
     def pnl_pct(self, price: float) -> float:
         if self.entry_price <= 0:
@@ -210,6 +225,7 @@ def update_water_marks(position: Position, price: float) -> Position:
             updates["trailing_active"] = True
     if pnl < position.low_water_pct:
         updates["low_water_pct"] = pnl
+        updates["low_water_at"] = time.time()
 
     return replace(position, **updates) if updates else position
 

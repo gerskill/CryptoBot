@@ -4,6 +4,7 @@ import { Shell } from './components/Shell'
 import { TheHunt } from './components/TheHunt'
 import { ActivePositions } from './components/ActivePositions'
 import { TheBrain } from './components/TheBrain'
+import { TheArms } from './components/TheArms'
 
 /** Bandeau d'alerte quand le bot ne tourne pas — un dashboard figé doit le dire. */
 function OfflineBanner() {
@@ -29,9 +30,12 @@ export default function App() {
   return (
     <Shell>
       <OfflineBanner />
-      {/* 3 colonnes sur grand écran, empilées en dessous */}
-      <div className="grid gap-4 lg:h-[calc(100vh-8.5rem)] lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,1fr)]">
+      {/* 4 colonnes sur très grand écran, 2 sur laptop, empilées en dessous.
+          Les stratégies viennent en second : ce sont elles qui décident, et
+          `state.candidates` ne montre que le bras témoin. */}
+      <div className="grid gap-4 xl:h-[calc(100vh-8.5rem)] md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,1fr)]">
         <TheHunt />
+        <TheArms />
         <ActivePositions />
         <TheBrain />
       </div>

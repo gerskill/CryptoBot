@@ -7,6 +7,8 @@ le pipeline continue en mode dégradé.
 from dataclasses import dataclass
 from typing import Any, Optional
 
+import re
+
 import requests
 
 from src.core.ratelimit import RateLimiter
@@ -27,6 +29,18 @@ class HolderStats:
     supply: Optional[float] = None
 
 
+def _safe_error(exc: Exception) -> str:
+    """Message d'erreur sans la clé API.
+
+    L'URL Helius porte la clé en query string et `requests` l'inclut dans
+    chaque message d'exception. Un log est un fichier qu'on partage, qu'on
+    colle dans un ticket, qu'on donne à une IA : la clé ne doit jamais y
+    entrer. On garde le type et le code, on jette l'URL.
+    """
+    texte = re.sub(r"api-key=[^&\s\"']+", "api-key=<masquée>", str(exc))
+    return f"{type(exc).__name__} — {texte[:160]}"
+
+
 class HeliusAPI:
     """Client RPC Helius (JSON-RPC + DAS)."""
 
@@ -34,7 +48,13 @@ class HeliusAPI:
         self.api_key = api_key
         self.enabled = bool(api_key)
         self.session = requests.Session()
-        self.rate_limiter = RateLimiter(600, 60.0, name="helius")
+        # 10/s et non 600/min : le palier gratuit renvoie des 429 bien avant
+        # 600. Mesuré 4 fois dans les logs — et depuis que Birdeye est mort,
+        # TOUTES les recherches de holders retombent ici, donc la charge a
+        # changé de nature. Une fenêtre d'une seconde empêche la rafale qu'un
+        # quota par minute autorise.
+        self.rate_limiter = RateLimiter(10, 1.0, name="helius")
+        self.rate_limited = 0
         self._request_id = 0
 
     @property
@@ -57,7 +77,12 @@ class HeliusAPI:
                 return None
             return body.get("result")
         except requests.exceptions.RequestException as exc:
-            print(f"[Helius] {method} erreur réseau : {exc}")
+            # FUITE DE CLÉ. `requests` place l'URL COMPLÈTE dans le message
+            # d'exception, et l'URL Helius porte la clé en query string. Chaque
+            # erreur réseau l'écrivait donc en clair dans logs/loop.log —
+            # observé sur 4 réponses 429. Ne jamais laisser une exception
+            # réseau s'imprimer telle quelle quand la clé est dans l'URL.
+            print(f"[Helius] {method} erreur réseau : {_safe_error(exc)}")
         except ValueError as exc:
             print(f"[Helius] {method} JSON invalide : {exc}")
         return None

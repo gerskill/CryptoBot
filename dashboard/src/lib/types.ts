@@ -37,6 +37,8 @@ export type Candidate = {
 
 export type Position = {
   id: string
+  /** Stratégie propriétaire. Plusieurs bras peuvent tenir le même token. */
+  arm?: string
   symbol: string
   token_address: string
   chain: string
@@ -102,10 +104,47 @@ export type BotState = {
   entry_threshold?: number
   live_allowed?: [boolean, string]
   api_status?: Record<string, boolean>
+  arms?: Arm[]
+  confluence?: ConfluenceRow[]
+  aggregate?: Aggregate
+  capabilities?: CapabilityStatus[]
+  blind_spots?: string[]
   updated_at?: number
 }
 
+/** Une stratégie : ses règles, son portefeuille, ce qu'elle a vu ce cycle. */
+export type Arm = {
+  name: string
+  role: 'voter' | 'consensus'
+  enabled: boolean
+  capital_pct: number
+  description?: string
+  entry_threshold: number
+  min_confluence: number
+  stop_loss_pct?: number
+  take_profit_1?: number
+  max_hold_time_minutes?: number
+  kept?: number
+  rejected?: number
+  qualified?: number
+  social_served?: number
+  trades?: number
+  stats?: Stats
+}
+
+export type ConfluenceRow = {
+  token_address: string
+  symbol: string
+  accepted_by: string[]
+  above_threshold_by: string[]
+  accepted_count: number
+  above_threshold_count: number
+  scores_by_arm: Record<string, number>
+}
+
 export type Trade = {
+  /** Stratégie propriétaire. Sans ça, impossible de comparer les bras. */
+  arm?: string
   id: string
   token: string
   exit_reason: string
@@ -119,4 +158,25 @@ export type Trade = {
   holders_at_entry: number | null
   age_hours_at_entry: number
   timestamp_exit: string
+}
+
+/** Vue d'ensemble des stratégies. `stats` reste le témoin seul. */
+export type Aggregate = {
+  arms: number
+  open_positions: number
+  exposure_usd: number
+  total_trades: number
+  total_pnl_usd: number
+  equity: number
+  arms_trading: number
+}
+
+/** Santé par capacité, pas par API : « peut-on encore avoir des bougies ». */
+export type CapabilityStatus = {
+  capability: string
+  using: string | null
+  degraded: boolean
+  available: string[]
+  down: string[]
+  blind: boolean
 }

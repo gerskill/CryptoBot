@@ -1,18 +1,53 @@
 @import "tailwindcss";
 
+/**
+ * TERMINAL ÉDITORIAL
+ *
+ * Direction assumée : un outil qu'on regarde des heures, la nuit, pour
+ * prendre une décision. Trois règles en découlent, et tout le reste en dépend.
+ *
+ * 1. LA COULEUR EST SÉMANTIQUE, JAMAIS DÉCORATIVE. Vert et rouge ne servent
+ *    QU'au signe d'un P&L. La version précédente peignait aussi les titres,
+ *    les bordures et deux halos en néon : quand tout est saturé, un vrai gain
+ *    ne se distingue plus d'un séparateur.
+ *
+ * 2. LA HIÉRARCHIE PASSE PAR L'ÉCHELLE, PAS PAR LES BOÎTES. Rapport de ~6
+ *    entre le chiffre principal et le corps. Une information domine l'écran,
+ *    le reste recule.
+ *
+ * 3. LA DENSITÉ EST GRADUÉE. Plus une donnée est loin de la décision, plus
+ *    elle est discrète. Tout était en 10-11px : rien ne ressortait.
+ */
+
 @theme {
-  --color-void: #0a0a0f;
-  --color-surface: #12121a;
-  --color-edge: #23233a;
-  --color-toxic: #39ff14;
-  --color-blood: #ff2a6d;
-  --color-warn: #ff9f1c;
-  --color-gem: #b026ff;
-  --color-dim: #6b7280;
-  --color-ink: #e8e8f0;
+  /* --- Surfaces : quatre profondeurs, aucun gradient décoratif --- */
+  --color-void: #08080c;
+  --color-surface: #101017;
+  --color-raised: #16161f;
+  --color-edge: #23232f;
+  --color-edge-strong: #32323f;
+
+  /* --- Texte : trois niveaux, écart franc --- */
+  --color-ink: #edeef2;
+  --color-muted: #8b8d9b;
+  --color-dim: #5a5c6a;
+
+  /* --- Sémantique. Rien d'autre ne porte ces couleurs. --- */
+  --color-toxic: #2ee56b;   /* gain */
+  --color-blood: #ff4a6e;   /* perte */
+  --color-warn: #ffab2e;    /* attention */
+  --color-gem: #7c6cff;     /* accent unique : la machine qui apprend */
 
   --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
   --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+
+  /* --- Échelle typographique, ratio ~1.3, bornée aux deux bouts --- */
+  --text-micro: 0.625rem;
+  --text-tiny: 0.6875rem;
+  --text-body: 0.8125rem;
+  --text-lead: 1rem;
+  --text-figure: 1.75rem;
+  --text-hero: clamp(2.25rem, 1.2rem + 3vw, 3.5rem);
 }
 
 html, body, #root { height: 100%; }
@@ -21,23 +56,57 @@ body {
   background: var(--color-void);
   color: var(--color-ink);
   font-family: var(--font-sans);
-  /* Halos discrets : évite l'aplat noir mort sur grand écran */
-  background-image:
-    radial-gradient(ellipse 80% 50% at 15% 0%, rgba(176, 38, 255, 0.07), transparent 60%),
-    radial-gradient(ellipse 60% 40% at 85% 5%, rgba(57, 255, 20, 0.05), transparent 55%);
-  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
 }
 
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--color-edge); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #3a3a55; }
+/* UNE seule source de lumière, en haut à gauche, très basse intensité : elle
+   donne une direction à l'écran sans colorer la donnée. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    ellipse 70% 45% at 12% -5%,
+    rgba(124, 108, 255, 0.055),
+    transparent 65%
+  );
+}
 
-/* Le pouls du prix : déclenché à chaque changement de valeur */
+/* Grain fin : casse l'aplat mort des grandes surfaces sombres, sans couleur. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.02;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+#root { position: relative; z-index: 1; }
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-edge); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-edge-strong); }
+
+/* Chiffres alignés partout : une colonne de montants qui danse est illisible. */
+.tabular, .font-mono { font-variant-numeric: tabular-nums; }
+
+/* Le pouls du prix : SEUL usage animé de la couleur sémantique. */
 @keyframes pulse-up   { 0% { color: var(--color-toxic); } 100% { color: inherit; } }
 @keyframes pulse-down { 0% { color: var(--color-blood); } 100% { color: inherit; } }
 .pulse-up   { animation: pulse-up 700ms ease-out; }
 .pulse-down { animation: pulse-down 700ms ease-out; }
+
+/* Les panneaux sont dépliables donc navigables au clavier. */
+:focus-visible {
+  outline: 1px solid var(--color-gem);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

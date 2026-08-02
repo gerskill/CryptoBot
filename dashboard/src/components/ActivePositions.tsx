@@ -67,6 +67,14 @@ function PositionCard({ position }: { position: Position }) {
         <div>
           <div className="flex items-center gap-2">
             <span className="text-lg font-semibold">{position.symbol}</span>
+            {/* Indispensable : deux stratégies peuvent tenir le MÊME token
+                avec des stop loss opposés. Sans le bras, deux cartes
+                identiques afficheraient des règles contradictoires. */}
+            {position.arm && (
+              <span className="rounded bg-white/10 px-1.5 py-px font-mono text-[9px] text-muted">
+                {position.arm}
+              </span>
+            )}
             {position.trailing_active && (
               <span className="rounded bg-gem/15 px-1.5 py-px text-[9px] font-bold uppercase text-gem">
                 trailing
@@ -116,10 +124,25 @@ function PositionCard({ position }: { position: Position }) {
 export function ActivePositions() {
   const positions = useStore((s) => s.state.positions ?? EMPTY_ARRAY)
   const stats = useStore((s) => s.state.stats)
-  const maxPositions = useStore((s) => s.state.params?.max_concurrent_positions ?? 3)
+  const aggregate = useStore((s) => s.state.aggregate)
+
+  // Le compteur porte sur TOUTES les stratégies. Il n'affichait que celles du
+  // témoin : deux bras détenaient une position chacun et le panneau annonçait
+  // « 1 ». Un tableau de bord qui sous-estime l'exposition est pire qu'absent.
+  const exposure = aggregate?.exposure_usd ?? 0
+  const armsTrading = aggregate?.arms_trading ?? 0
 
   return (
-    <Panel title="Positions actives" count={`${positions.length}/${maxPositions}`}>
+    <Panel
+      title="Positions actives"
+      count={`${positions.length}`}
+      figure={exposure > 0 ? usd(exposure) : undefined}
+      hint={
+        positions.length > 0
+          ? `exposé sur ${armsTrading} stratégie${armsTrading > 1 ? 's' : ''}`
+          : undefined
+      }
+    >
       {stats && stats.cooldown_min > 0 && (
         <div className="mb-3 rounded-lg border border-blood/40 bg-blood/10 px-3 py-2 text-xs text-blood">
           Cooldown actif — {Math.round(stats.cooldown_min)} min restantes après

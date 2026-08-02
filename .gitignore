@@ -3,6 +3,9 @@ __pycache__/
 *.pyc
 data/*.json
 data/*.jsonl
+# Journaux par bras : meme nature que data/*.jsonl, un niveau plus bas.
+# Sans cette ligne, `git add -A` versionne la memoire du bot.
+data/arms/
 logs/
 .venv/
 node_modules/
@@ -11,3 +14,6 @@ backups/
 .scratch/
 alpha_loop.pid
 data/*.pid
+.DS_Store
+# Sortie de /graphify : 4,8 Mo de HTML et de cache regenerables.
+graphify-out/

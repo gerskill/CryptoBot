@@ -97,6 +97,25 @@ class TestInstrumentationPicEtCreux(unittest.TestCase):
     def test_delai_absent_si_jamais_positif(self):
         self.assertIsNone(self._position().minutes_to_peak)
 
+    def test_delai_jusquau_creux(self):
+        # Le pendant de minutes_to_peak : sans lui, le rejeu des sorties ne
+        # peut pas savoir si le stop a été touché avant ou après le TP.
+        position = update_water_marks(self._position(), price=0.85)
+        delay = position.minutes_to_trough
+        self.assertIsNotNone(delay)
+        self.assertLess(delay, 1)
+
+    def test_delai_creux_absent_si_jamais_negatif(self):
+        position = update_water_marks(self._position(), price=1.3)
+        self.assertIsNone(position.minutes_to_trough)
+
+    def test_la_date_du_creux_ne_remonte_pas(self):
+        position = update_water_marks(self._position(), price=0.7)
+        stamped = position.low_water_at
+        position = update_water_marks(position, price=0.9)
+        self.assertEqual(position.low_water_at, stamped)
+        self.assertAlmostEqual(position.low_water_pct, -30.0)
+
 
 class TestJournalInstrumente(unittest.TestCase):
     """Le journal doit porter de quoi recalibrer TP et SL."""
@@ -122,6 +141,7 @@ class TestJournalInstrumente(unittest.TestCase):
         self.assertAlmostEqual(row["peak_pct"], 60.0)
         self.assertIsNotNone(row["minutes_to_peak"])
         self.assertLess(row["trough_pct"], 0)
+        self.assertIsNotNone(row["minutes_to_trough"])
 
     def test_contexte_de_prix_a_lentree_journalise(self):
         # Teste l'hypothèse « le score achète le haut de la bougie ».

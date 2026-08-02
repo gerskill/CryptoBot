@@ -95,9 +95,24 @@ def social_absolute(candidate: Candidate) -> Optional[float]:
 
 
 def smart_money_absolute(candidate: Candidate) -> Optional[float]:
+    """Score smart money, pondéré par la FRAÎCHEUR des achats.
+
+    Le compte brut traitait un achat vieux de 29 minutes comme un achat d'il
+    y a 30 secondes. Sur un memecoin, une demi-heure est une éternité : le
+    mouvement est terminé et suivre revient à acheter la sortie de ceux qu'on
+    croyait suivre.
+
+    Repli sur le compte brut si la pondération manque — journaux anciens ou
+    horodatages absents. Une donnée absente ne dégrade jamais le score.
+    """
     if candidate.smart_money_buys_30m is None:
         return None
-    return _clamp(100 * candidate.smart_money_buys_30m / SMART_MONEY_SATURATION_BUYS)
+    buys = (
+        candidate.smart_money_weighted_buys
+        if candidate.smart_money_weighted_buys is not None
+        else candidate.smart_money_buys_30m
+    )
+    return _clamp(100 * buys / SMART_MONEY_SATURATION_BUYS)
 
 
 def rugcheck_absolute(candidate: Candidate) -> Optional[float]:

@@ -163,6 +163,38 @@ def from_ohlcv(items: Sequence[Any]) -> list[Candle]:
     ]
 
 
+def from_gmgn_kline(items: Sequence[dict]) -> list[Candle]:
+    """Convertit des bougies GMGN. Deux pièges que Birdeye n'a pas.
+
+    1. `time` est en MILLISECONDES, pas en secondes. Le bucket sert à ordonner
+       et à mesurer des durées : une erreur d'un facteur 1000 rendrait toutes
+       les bougies contemporaines.
+    2. Les prix sont des CHAÎNES, pas des nombres.
+
+    C'est le repli gratuit de Birdeye, dont le quota mensuel s'épuise et qui
+    plafonne à 1 requête par seconde.
+    """
+    candles = []
+    for item in items:
+        try:
+            high = float(item.get("high") or 0)
+            if high <= 0:
+                continue
+            raw_time = float(item.get("time") or 0)
+            candles.append(
+                Candle(
+                    bucket=int(raw_time / 1000 if raw_time > 1e11 else raw_time),
+                    high=high,
+                    low=float(item.get("low") or 0),
+                    close=float(item.get("close") or 0),
+                    volume=float(item.get("volume") or 0),
+                )
+            )
+        except (TypeError, ValueError):
+            continue
+    return sorted(candles, key=lambda c: c.bucket)
+
+
 def analyze(
     candidate: Candidate,
     history: Optional[PriceHistory] = None,

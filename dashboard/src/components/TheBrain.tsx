@@ -4,10 +4,38 @@ import { EMPTY_ARRAY, EMPTY_OBJECT } from '../lib/empty'
 import { Panel, NoSource } from './Panel'
 import { usd, pct, duration, pnlColor } from '../lib/format'
 
+/**
+ * Valeur d'ajustement lisible.
+ *
+ * `learning.parameter_adjustment_history` mélange deux formes : un scalaire
+ * (`stop_loss_pct: -10 → -15`) et un DOCUMENT entier quand une section est
+ * remplacée d'un bloc (`filters`, `exit_rules`, `scan`). `String()` rendait
+ * « [object Object] » sur la seconde — la ligne la plus intéressante devenait
+ * la moins lisible.
+ */
+function formatValue(value: unknown): string {
+  if (value === null || value === undefined) return '—'
+  if (typeof value !== 'object') return String(value)
+  const entries = Object.entries(value as Record<string, unknown>).filter(
+    ([key]) => !key.startsWith('_'),
+  )
+  if (!entries.length) return '{}'
+  const head = entries
+    .slice(0, 2)
+    .map(([key, v]) => `${key}=${typeof v === 'object' ? '…' : v}`)
+    .join(', ')
+  return entries.length > 2 ? `{${head}, +${entries.length - 2}}` : `{${head}}`
+}
+
 /** Courbe d'equity reconstruite depuis le journal, du plus ancien au plus récent. */
 function EquityCurve() {
   const trades = useStore((s) => s.trades)
+  // La liste des trades couvre les 7 stratégies : le point de départ doit
+  // être le capital AGRÉGÉ, pas celui du témoin seul. Sinon on empile le P&L
+  // de sept bras sur la mise d'un seul et la courbe descend deux fois trop.
   const initial = useStore((s) => {
+    const agg = s.state.aggregate
+    if (agg) return agg.equity - agg.total_pnl_usd
     const stats = s.state.stats
     return stats ? stats.equity - stats.total_pnl_usd : 1000
   })
@@ -97,10 +125,10 @@ function StatGrid() {
     <>
       <dl className="grid grid-cols-2 gap-2">
         {cells.map((cell) => (
-          <div key={cell.label} className="rounded-lg border border-edge/60 px-3 py-2">
-            <dt className="text-[9px] uppercase tracking-wide text-dim">{cell.label}</dt>
-            <dd className="font-mono text-lg leading-tight tabular-nums">{cell.value}</dd>
-            <dd className="mt-0.5 text-[9px] leading-snug text-dim/70">{cell.hint}</dd>
+          <div key={cell.label} className="rounded-lg ring-1 ring-edge/50 px-3 py-2">
+            <dt className="text-[10px] uppercase tracking-wide text-dim">{cell.label}</dt>
+            <dd className="font-mono text-[17px] leading-none tabular-nums">{cell.value}</dd>
+            <dd className="mt-0.5 text-[10px] leading-snug text-dim">{cell.hint}</dd>
           </div>
         ))}
       </dl>
@@ -128,7 +156,7 @@ function GhostMode() {
   const families = Object.entries(byFamily).sort((a, b) => b[1].missed_rate - a[1].missed_rate)
 
   return (
-    <div className="rounded-lg border border-edge/60 px-3 py-2.5">
+    <div className="rounded-lg ring-1 ring-edge/50 px-3 py-2.5">
       <div className="flex items-baseline justify-between">
         <span className="text-[10px] uppercase tracking-wide text-dim">Ghost mode</span>
         <span className="font-mono text-[10px] text-dim tabular-nums">
@@ -189,8 +217,12 @@ function LearningFeed() {
     <ul className="space-y-2">
       {recent.map((entry, index) => (
         <li key={index} className="rounded-lg border border-gem/25 bg-gem/[0.04] px-3 py-2">
+          {/* `String({...})` rendait « [object Object] » : certains ajustements
+              remplacent une SECTION entière (filters, exit_rules, scan) et pas
+              un scalaire. Voir formatValue. */}
           <div className="font-mono text-[11px] text-gem">
-            {entry.param_name} : {String(entry.old_value)} → {String(entry.new_value)}
+            {entry.param_name} : {formatValue(entry.old_value)} →{' '}
+            {formatValue(entry.new_value)}
           </div>
           <div className="mt-0.5 text-[10px] leading-snug text-dim">{entry.reason}</div>
         </li>
@@ -213,6 +245,13 @@ function RecentTrades() {
           className="flex items-baseline justify-between gap-2 rounded-lg border border-edge/50 px-3 py-1.5"
         >
           <span className="truncate text-xs font-medium">{trade.token}</span>
+          {/* Sans le bras, une liste mêlant 7 stratégies est illisible : on
+              ne sait pas QUI a gagné, donc rien n'est comparable. */}
+          {trade.arm && (
+            <span className="shrink-0 rounded bg-white/10 px-1 py-px font-mono text-[9px] text-muted">
+              {trade.arm}
+            </span>
+          )}
           <span className="truncate font-mono text-[10px] text-dim">{trade.exit_reason}</span>
           <span className={`shrink-0 font-mono text-xs tabular-nums ${pnlColor(trade.pnl_pct)}`}>
             {pct(trade.pnl_pct)}
@@ -263,14 +302,12 @@ export function TheBrain() {
             why="Twitter inactif — quota mensuel épuisé ou clé refusée. Poids redistribués."
           />
         )}
-        <NoSource
-          label="BubbleMap"
-          why="Écarté (trop cher). La concentration est approchée par le top holder et le top 10."
-        />
-        <NoSource
-          label="Test honeypot"
-          why="Demande un wallet et un swap réel. Impossible en mode papier."
-        />
+        {!apis.jupiter && (
+          <NoSource
+            label="Coût réel & honeypot"
+            why="Jupiter inactif — pas de devis, donc P&L sans frais et aucun test de sortie."
+          />
+        )}
         {offline.length > 0 && (
           <NoSource label="Autres sources inactives" why={offline.join(', ')} />
         )}

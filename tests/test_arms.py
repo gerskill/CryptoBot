@@ -1,0 +1,239 @@
+"""Isolation des stratégies.
+
+La promesse du multi-bras : chaque stratégie apprend de SES trades, dans SON
+fichier. Une contamination entre bras rendrait la comparaison sans valeur —
+et pire, invisible. Ces tests verrouillent l'étanchéité.
+"""
+
+import json
+import os
+import sys
+import tempfile
+import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src import settings  # noqa: E402
+from src.core import arm as arm_module  # noqa: E402
+from src.core.arm import ManifestError, bootstrap_arms, materialise_arm_params  # noqa: E402
+from src.core.params import ParamsStore  # noqa: E402
+
+BASE = {
+    "version": "2.0",
+    "mode": "PAPER",
+    "filters": {"min_liquidity_usd": 25000, "min_holders": 75},
+    "exit_rules": {"stop_loss_pct": -10, "take_profit_1": 100},
+    "scoring_weights": {"liquidity": 1.0},
+    "scan": {"alpha_score_entry_threshold": 75},
+    "learning": {"total_trades": 36, "parameter_adjustment_history": [{"param_name": "vieux"}]},
+}
+
+
+class ArmsTestCase(unittest.TestCase):
+    """Redirige tous les chemins vers un dossier jetable."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self._saved = {
+            key: getattr(settings, key)
+            for key in ("PARAMS_PATH", "TRADES_LOG_PATH", "SHADOW_LOG_PATH",
+                        "POSITIONS_PATH", "STRATEGIES_PATH", "ARMS_CONFIG_DIR",
+                        "ARMS_DATA_DIR")
+        }
+        settings.PARAMS_PATH = os.path.join(self.tmp, "params.json")
+        settings.TRADES_LOG_PATH = os.path.join(self.tmp, "trades_log.jsonl")
+        settings.SHADOW_LOG_PATH = os.path.join(self.tmp, "shadow_log.jsonl")
+        settings.POSITIONS_PATH = os.path.join(self.tmp, "open_positions.json")
+        settings.STRATEGIES_PATH = os.path.join(self.tmp, "strategies.json")
+        settings.ARMS_CONFIG_DIR = os.path.join(self.tmp, "arms")
+        settings.ARMS_DATA_DIR = os.path.join(self.tmp, "data_arms")
+        with open(settings.PARAMS_PATH, "w", encoding="utf-8") as fh:
+            json.dump(BASE, fh)
+
+    def tearDown(self):
+        for key, value in self._saved.items():
+            setattr(settings, key, value)
+
+    def _manifest(self, arms):
+        with open(settings.STRATEGIES_PATH, "w", encoding="utf-8") as fh:
+            json.dump({"arms": arms}, fh)
+
+    def _deux_bras(self):
+        self._manifest([
+            {"name": "baseline", "role": "voter", "capital_pct": 0.5, "notify": "all"},
+            {"name": "runner", "role": "voter", "capital_pct": 0.5, "notify": "none",
+             "overrides": {"exit_rules.stop_loss_pct": -35,
+                           "filters.min_liquidity_usd": 40000}},
+        ])
+        return bootstrap_arms()
+
+
+class TestChemins(ArmsTestCase):
+    def test_baseline_garde_les_chemins_historiques(self):
+        # Toute la rétrocompatibilité tient là : pas de migration des 36 trades.
+        paths = settings.arm_paths("baseline")
+        self.assertEqual(paths["trades"], settings.TRADES_LOG_PATH)
+        self.assertEqual(paths["params"], settings.PARAMS_PATH)
+        self.assertEqual(paths["positions"], settings.POSITIONS_PATH)
+
+    def test_les_autres_bras_ont_leurs_propres_fichiers(self):
+        paths = settings.arm_paths("runner")
+        self.assertNotEqual(paths["trades"], settings.TRADES_LOG_PATH)
+        self.assertIn("runner", paths["trades"])
+        self.assertIn("runner", paths["params"])
+
+
+class TestMaterialisation(ArmsTestCase):
+    def test_applique_les_overrides_en_chemin_pointe(self):
+        path = materialise_arm_params("runner", BASE, {"exit_rules.stop_loss_pct": -35})
+        with open(path, encoding="utf-8") as fh:
+            document = json.load(fh)
+        self.assertEqual(document["exit_rules"]["stop_loss_pct"], -35)
+        self.assertEqual(document["exit_rules"]["take_profit_1"], 100, "le reste est hérité")
+
+    def test_nherite_pas_de_lhistorique_du_temoin(self):
+        path = materialise_arm_params("runner", BASE, {})
+        with open(path, encoding="utf-8") as fh:
+            document = json.load(fh)
+        self.assertEqual(document["learning"], {})
+
+    def test_ne_regenere_jamais_un_fichier_existant(self):
+        # Sinon chaque redémarrage effacerait ce que le bras a appris et les
+        # overrides du manifeste deviendraient un plafond invisible.
+        path = materialise_arm_params("runner", BASE, {"exit_rules.stop_loss_pct": -35})
+        store = ParamsStore(path)
+        store.set("exit_rules.stop_loss_pct", -22, log=False)
+        materialise_arm_params("runner", BASE, {"exit_rules.stop_loss_pct": -35})
+        self.assertEqual(ParamsStore(path).get("exit_rules.stop_loss_pct"), -22)
+
+
+class TestManifeste(ArmsTestCase):
+    def test_refuse_un_capital_qui_ne_somme_pas_a_un(self):
+        self._manifest([
+            {"name": "baseline", "capital_pct": 0.5},
+            {"name": "runner", "capital_pct": 0.9},
+        ])
+        with self.assertRaises(ManifestError):
+            bootstrap_arms()
+
+    def test_refuse_des_noms_en_double(self):
+        self._manifest([
+            {"name": "baseline", "capital_pct": 0.5},
+            {"name": "baseline", "capital_pct": 0.5},
+        ])
+        with self.assertRaises(ManifestError):
+            bootstrap_arms()
+
+    def test_refuse_une_politique_de_notification_inconnue(self):
+        self._manifest([{"name": "baseline", "capital_pct": 1.0, "notify": "spam"}])
+        with self.assertRaises(ManifestError):
+            bootstrap_arms()
+
+    def test_ignore_les_bras_desactives(self):
+        self._manifest([
+            {"name": "baseline", "capital_pct": 1.0},
+            {"name": "runner", "capital_pct": 5.0, "enabled": False},
+        ])
+        self.assertEqual([a.name for a in bootstrap_arms()], ["baseline"])
+
+    def test_sans_manifeste_un_seul_bras_temoin(self):
+        arms = bootstrap_arms()
+        self.assertEqual(len(arms), 1)
+        self.assertTrue(arms[0].is_baseline)
+
+    def test_le_bras_consensus_est_evalue_en_dernier(self):
+        # Il lit le décompte des votes : il lui faut les votants d'abord.
+        self._manifest([
+            {"name": "consensus", "role": "consensus", "capital_pct": 0.5,
+             "min_confluence": 2},
+            {"name": "baseline", "role": "voter", "capital_pct": 0.5, "notify": "all"},
+        ])
+        self.assertEqual([a.name for a in bootstrap_arms()][-1], "consensus")
+
+
+class TestIsolation(ArmsTestCase):
+    def test_chaque_bras_a_ses_propres_regles(self):
+        baseline, runner = self._deux_bras()
+        self.assertEqual(baseline.params.get("exit_rules.stop_loss_pct"), -10)
+        self.assertEqual(runner.params.get("exit_rules.stop_loss_pct"), -35)
+        self.assertEqual(runner.filters()["min_liquidity_usd"], 40000)
+
+    def test_lapprentissage_dun_bras_nimpacte_pas_lautre(self):
+        baseline, runner = self._deux_bras()
+        path = settings.arm_paths("runner")["params"]
+        with open(path, encoding="utf-8") as fh:
+            before = json.load(fh)
+        baseline.params.set("filters.min_liquidity_usd", 99000, "test")
+        with open(path, encoding="utf-8") as fh:
+            after = json.load(fh)
+        self.assertEqual(before, after)
+        self.assertEqual(runner.filters()["min_liquidity_usd"], 40000)
+
+    def test_les_historiques_dajustement_sont_separes(self):
+        baseline, runner = self._deux_bras()
+        runner.params.set("filters.min_holders", 200, "essai runner")
+        baseline_history = baseline.params.get("learning.parameter_adjustment_history", [])
+        runner_history = runner.params.get("learning.parameter_adjustment_history", [])
+        self.assertEqual(len(runner_history), 1)
+        self.assertNotIn(
+            "essai runner", [entry.get("reason") for entry in baseline_history]
+        )
+
+    def test_chaque_bras_ecrit_dans_son_propre_journal(self):
+        baseline, runner = self._deux_bras()
+        self.assertNotEqual(baseline.journal.path, runner.journal.path)
+        self.assertNotEqual(baseline.shadow.path, runner.shadow.path)
+
+    def test_les_bornes_du_manifeste_arrivent_au_learning(self):
+        self._manifest([
+            {"name": "baseline", "capital_pct": 0.5, "notify": "all"},
+            {"name": "runner", "capital_pct": 0.5,
+             "bounds": {"exit_rules.stop_loss_pct": [-60, -15]}},
+        ])
+        baseline, runner = bootstrap_arms()
+        self.assertEqual(runner.learning.bounds["exit_rules.stop_loss_pct"], (-60.0, -15.0))
+        self.assertEqual(baseline.learning.bounds["exit_rules.stop_loss_pct"], (-50, -10))
+
+    def test_chaque_bras_recoit_une_mise_independante(self):
+        # capital_pct n'est PAS appliqué en PAPER : découper rétroactivement
+        # ferait démarrer le témoin à -16,46 $ (mise 150 $, journal -166 $),
+        # et un bras à 5 % prendrait des positions dix fois plus petites,
+        # affichant un P&L moindre pour une raison d'allocation.
+        from src.core.arm import attach_portfolios
+
+        baseline, runner = self._deux_bras()
+        attach_portfolios([baseline, runner], capital_total=1000.0)
+        self.assertEqual(baseline.portfolio.baseline, 1000.0)
+        self.assertEqual(runner.portfolio.baseline, 1000.0)
+
+    def test_les_portefeuilles_ecrivent_dans_des_fichiers_distincts(self):
+        from src.core.arm import attach_portfolios
+
+        baseline, runner = self._deux_bras()
+        attach_portfolios([baseline, runner], capital_total=1000.0)
+        self.assertNotEqual(
+            baseline.portfolio.positions_path, runner.portfolio.positions_path
+        )
+
+    def test_le_label_du_temoin_reste_vide(self):
+        # Sa sortie console ne doit pas changer d'un poil.
+        baseline, runner = self._deux_bras()
+        self.assertEqual(baseline.label, "")
+        self.assertEqual(runner.label, " [runner]")
+
+
+class TestManifesteLivre(unittest.TestCase):
+    """Le manifeste réellement livré doit être cohérent."""
+
+    def test_le_manifeste_du_depot_est_valide(self):
+        arms = arm_module.load_manifest()
+        actifs = [a for a in arms if a.get("enabled", True)]
+        self.assertAlmostEqual(sum(a["capital_pct"] for a in actifs), 1.0, places=6)
+        self.assertIn("baseline", [a["name"] for a in actifs])
+        consensus = [a for a in actifs if a.get("role") == "consensus"]
+        for entry in consensus:
+            self.assertGreaterEqual(entry.get("min_confluence", 0), 2)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

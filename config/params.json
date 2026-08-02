@@ -2,7 +2,7 @@
   "version": "2.0",
   "mode": "PAPER",
   "capital_total": 0,
-  "risk_per_trade": 0.03,
+  "risk_per_trade": 0.025,
   "max_concurrent_positions": 3,
   "scan": {
     "interval_seconds": 90,
@@ -15,10 +15,21 @@
     "alpha_score_entry_threshold": 75,
     "social_lookup_min_alpha": 70,
     "social_max_lookups_per_cycle": 2,
-    "_note_monitor": "5s au lieu de 20s : mesure sur 10 trades, 8 sorties SL sur 8 depassaient leur seuil de 4.6 points en moyenne (pire -40.5% pour un SL a -25%). Cout : 1 requete par position et par tick, quota DexScreener 300/min."
+    "_note_monitor": "5s au lieu de 20s : mesure sur 10 trades, 8 sorties SL sur 8 depassaient leur seuil de 4.6 points en moyenne (pire -40.5% pour un SL a -25%). Cout : 1 requete par position et par tick, quota DexScreener 300/min.",
+    "gmgn_intervals": [
+      "5m",
+      "1h",
+      "24h"
+    ],
+    "gmgn_limit": 100,
+    "gmgn_order_by": "volume",
+    "gmgn_filters": [
+      "not_wash_trading"
+    ],
+    "_note_gmgn": "Decouverte GMGN filtree cote serveur. Mesure 2026-08-01 : le flux DexScreener /token-profiles est de la promo payante, liquidite mediane 1634$. GMGN rend liquidite + holders + top10 + smart money en UN appel deja filtre, donc on n enrichit plus du dechet. 3 intervalles = 3 appels par cycle."
   },
   "filters": {
-    "min_liquidity_usd": 15000,
+    "min_liquidity_usd": 25000,
     "min_holders": 75,
     "min_volume_1h": 8000,
     "max_dev_wallet_pct": 10,
@@ -29,7 +40,7 @@
     "max_tax_buy": 5,
     "max_tax_sell": 5,
     "max_age_hours": 6,
-    "min_age_hours": 0.5,
+    "min_age_hours": 1.5,
     "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose."
   },
   "entry_rules": {
@@ -44,7 +55,7 @@
     "structure_mode": "balanced"
   },
   "exit_rules": {
-    "stop_loss_pct": -20,
+    "stop_loss_pct": -10,
     "take_profit_1": 100,
     "take_profit_2": 300,
     "take_profit_3": 500,
@@ -65,39 +76,43 @@
     "rugcheck": 0.15
   },
   "learning": {
-    "total_trades": 10,
-    "winning_trades": 0,
-    "losing_trades": 10,
-    "avg_win_pct": 0,
-    "avg_loss_pct": -43.48,
+    "total_trades": 39,
+    "winning_trades": 4,
+    "losing_trades": 35,
+    "avg_win_pct": 79.5,
+    "avg_loss_pct": -27.17,
     "best_performer_filter": null,
     "worst_performer_filter": null,
     "win_rate_by_age": {
       "2-4h": {
-        "win_rate": 0.0,
-        "sample": 2
+        "win_rate": 25.0,
+        "sample": 12
       },
       "1-2h": {
         "win_rate": 0.0,
-        "sample": 4
+        "sample": 9
       },
       "0-1h": {
+        "win_rate": 7.7,
+        "sample": 13
+      },
+      "4h+": {
         "win_rate": 0.0,
-        "sample": 4
+        "sample": 5
       }
     },
     "win_rate_by_liquidity": {
       ">50K": {
-        "win_rate": 0.0,
-        "sample": 1
+        "win_rate": 40.0,
+        "sample": 5
       },
       "30-50K": {
-        "win_rate": 0.0,
-        "sample": 4
+        "win_rate": 11.1,
+        "sample": 18
       },
       "10-30K": {
         "win_rate": 0.0,
-        "sample": 5
+        "sample": 16
       }
     },
     "win_rate_by_social_score": {
@@ -114,22 +129,282 @@
         "new_value": -20,
         "reason": "perte moyenne -43.48% bien au-delà du SL -25%",
         "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-07-31T11:38:57.616021+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 15000,
+        "new_value": 20000,
+        "reason": "WR 0.0% sous 30K",
+        "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-07-31T11:38:57.618050+00:00",
+        "param_name": "filters",
+        "old_value": {
+          "min_liquidity_usd": 20000,
+          "min_holders": 75,
+          "min_volume_1h": 8000,
+          "max_dev_wallet_pct": 10,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 20,
+          "min_social_mentions_1h": 0,
+          "min_smart_money_buys_30min": 0,
+          "max_tax_buy": 5,
+          "max_tax_sell": 5,
+          "max_age_hours": 6,
+          "min_age_hours": 0.5,
+          "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose."
+        },
+        "new_value": {
+          "min_liquidity_usd": 15000,
+          "min_holders": 75,
+          "min_volume_1h": 8000,
+          "max_dev_wallet_pct": 10,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 20,
+          "min_social_mentions_1h": 0,
+          "min_smart_money_buys_30min": 0,
+          "max_tax_buy": 5,
+          "max_tax_sell": 5,
+          "max_age_hours": 6,
+          "min_age_hours": 0.5,
+          "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose."
+        },
+        "reason": "backtest : P&L/trade -9.241 → -9.5913, pas d'amélioration ≥ 10% — annulé",
+        "trades_sample_size": 20
+      },
+      {
+        "timestamp": "2026-07-31T11:38:57.621833+00:00",
+        "param_name": "exit_rules.stop_loss_pct",
+        "old_value": -20,
+        "new_value": -15,
+        "reason": "perte moyenne -33.84% bien au-delà du SL -20%",
+        "trades_sample_size": 20
+      },
+      {
+        "timestamp": "2026-07-31T11:38:57.624439+00:00",
+        "param_name": "risk_per_trade",
+        "old_value": 0.03,
+        "new_value": 0.025,
+        "reason": "WR 0%, drawdown 17%",
+        "trades_sample_size": 20
+      },
+      {
+        "timestamp": "2026-07-31T17:54:00.780270+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 15000,
+        "new_value": 20000,
+        "reason": "WR 0.0% sous 30K",
+        "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-07-31T17:54:00.783199+00:00",
+        "param_name": "filters",
+        "old_value": {
+          "min_liquidity_usd": 20000,
+          "min_holders": 75,
+          "min_volume_1h": 8000,
+          "max_dev_wallet_pct": 10,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 20,
+          "min_social_mentions_1h": 0,
+          "min_smart_money_buys_30min": 0,
+          "max_tax_buy": 5,
+          "max_tax_sell": 5,
+          "max_age_hours": 6,
+          "min_age_hours": 0.5,
+          "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose."
+        },
+        "new_value": {
+          "min_liquidity_usd": 15000,
+          "min_holders": 75,
+          "min_volume_1h": 8000,
+          "max_dev_wallet_pct": 10,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 20,
+          "min_social_mentions_1h": 0,
+          "min_smart_money_buys_30min": 0,
+          "max_tax_buy": 5,
+          "max_tax_sell": 5,
+          "max_age_hours": 6,
+          "min_age_hours": 0.5,
+          "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose."
+        },
+        "reason": "backtest : P&L/trade -5.7332 → -5.5412, pas d'amélioration ≥ 10% — annulé",
+        "trades_sample_size": 20
+      },
+      {
+        "timestamp": "2026-07-31T22:42:43.677332+00:00",
+        "param_name": "filters.min_age_hours",
+        "old_value": 0.5,
+        "new_value": 1.0,
+        "reason": "WR 0.0% sur tokens 0-1h",
+        "trades_sample_size": 13
+      },
+      {
+        "timestamp": "2026-07-31T22:42:43.678351+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 15000,
+        "new_value": 20000,
+        "reason": "WR 0.0% sous 30K",
+        "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-07-31T22:42:43.683614+00:00",
+        "param_name": "exit_rules.stop_loss_pct",
+        "old_value": -15,
+        "new_value": -10,
+        "reason": "perte moyenne -29.56% bien au-delà du SL -15%",
+        "trades_sample_size": 29
+      },
+      {
+        "timestamp": "2026-08-01T00:47:52.980314+00:00",
+        "param_name": "filters.min_age_hours",
+        "old_value": 1.0,
+        "new_value": 1.5,
+        "reason": "WR 0.0% sur tokens 0-1h",
+        "trades_sample_size": 13
+      },
+      {
+        "timestamp": "2026-08-01T00:47:52.981699+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 20000,
+        "new_value": 25000,
+        "reason": "WR 0.0% sous 30K",
+        "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-08-01T08:13:52.731947+00:00",
+        "param_name": "exit_rules.stop_loss_slippage_buffer_pct",
+        "old_value": 0.0,
+        "new_value": 4.0,
+        "reason": "glissement mesure sur 25 sorties SL instrumentees : mediane -4.03 points, 25/25 sous le seuil",
+        "trades_sample_size": 25
+      },
+      {
+        "timestamp": "2026-08-01T08:45:06.111746+00:00",
+        "param_name": "exit_rules.stop_loss_slippage_buffer_pct",
+        "old_value": 4.0,
+        "new_value": 0.0,
+        "reason": "temoin : garder le declenchement a -10 pour rester comparable aux 36 trades historiques. Le tampon mesure reste actif sur les 4 autres bras.",
+        "trades_sample_size": 25
+      },
+      {
+        "timestamp": "2026-08-01T09:21:31.246302+00:00",
+        "param_name": "scan",
+        "old_value": {
+          "interval_seconds": 90,
+          "monitor_interval_seconds": 5,
+          "chains": [
+            "solana"
+          ],
+          "cache_ttl_minutes": 30,
+          "max_candidates_enriched": 25,
+          "alpha_score_entry_threshold": 75,
+          "social_lookup_min_alpha": 70,
+          "social_max_lookups_per_cycle": 2,
+          "_note_monitor": "5s au lieu de 20s : mesure sur 10 trades, 8 sorties SL sur 8 depassaient leur seuil de 4.6 points en moyenne (pire -40.5% pour un SL a -25%). Cout : 1 requete par position et par tick, quota DexScreener 300/min."
+        },
+        "new_value": {
+          "interval_seconds": 90,
+          "monitor_interval_seconds": 5,
+          "chains": [
+            "solana"
+          ],
+          "cache_ttl_minutes": 30,
+          "max_candidates_enriched": 25,
+          "alpha_score_entry_threshold": 75,
+          "social_lookup_min_alpha": 70,
+          "social_max_lookups_per_cycle": 2,
+          "_note_monitor": "5s au lieu de 20s : mesure sur 10 trades, 8 sorties SL sur 8 depassaient leur seuil de 4.6 points en moyenne (pire -40.5% pour un SL a -25%). Cout : 1 requete par position et par tick, quota DexScreener 300/min.",
+          "gmgn_intervals": [
+            "5m",
+            "1h",
+            "24h"
+          ],
+          "gmgn_limit": 100,
+          "gmgn_order_by": "volume",
+          "gmgn_filters": [
+            "not_wash_trading"
+          ],
+          "_note_gmgn": "Decouverte GMGN filtree cote serveur. Mesure 2026-08-01 : le flux DexScreener /token-profiles est de la promo payante, liquidite mediane 1634$. GMGN rend liquidite + holders + top10 + smart money en UN appel deja filtre, donc on n enrichit plus du dechet. 3 intervalles = 3 appels par cycle."
+        },
+        "reason": "branchement de la decouverte GMGN market trending",
+        "trades_sample_size": 0
+      },
+      {
+        "timestamp": "2026-08-01T09:21:31.248005+00:00",
+        "param_name": "api_budgets",
+        "old_value": {
+          "_note": "Plafonds MENSUELS d'appels. 0 = illimité. Le limiteur de debit protege du 'trop vite', ces budgets protegent du 'trop au total'. Twitter Free = 100 posts/mois, Basic = 15000.",
+          "twitter": 15000,
+          "birdeye": 0,
+          "helius": 0,
+          "gmgn": 0
+        },
+        "new_value": {
+          "_note": "Plafonds MENSUELS d appels. 0 = illimite. Twitter Free = 100 lectures/mois. Depuis fevrier 2026 les nouveaux comptes X sont en pay-per-use (0.005 $/lecture) ; les paliers Basic 200 $ et Pro 5000 $ sont fermes aux nouvelles inscriptions. Ce bot est sur le palier GRATUIT : 100, pas 15000.",
+          "twitter": 100,
+          "birdeye": 0,
+          "helius": 0,
+          "gmgn": 0
+        },
+        "reason": "palier X gratuit = 100 lectures/mois, le budget etait regle sur Basic (15000) qui n est pas souscrit",
+        "trades_sample_size": 0
+      },
+      {
+        "timestamp": "2026-08-01T15:14:18.253894+00:00",
+        "param_name": "risk_rules",
+        "old_value": {
+          "cooldown_hours": 0,
+          "consecutive_losses_trigger": 3,
+          "_note": "cooldown_hours: 0 desactive la pause. En PAPER on veut collecter les 20 trades de validation sans interruption. Remettre 2 avant LIVE."
+        },
+        "new_value": {
+          "cooldown_hours": 2,
+          "consecutive_losses_trigger": 3,
+          "_note": "cooldown REACTIVE (etait a 0) : un coupe-circuit desactive sur un bot qui perd de facon statistiquement significative (P&L/trade [-7.86 .. -1.25] $, IC95 excluant zero) est un risque reel. Avec 7 bras a portefeuille independant, une pause de 2h ne bloque plus la collecte globale. max_drawdown_stop_pct : le cooldown ne voit que 3 pertes CONSECUTIVES ; le drawdown a atteint 17.2% sans jamais en declencher trois d affilee.",
+          "max_drawdown_stop_pct": 25
+        },
+        "reason": "audit : reactivation du cooldown + coupe-circuit drawdown",
+        "trades_sample_size": 36
+      },
+      {
+        "timestamp": "2026-08-01T16:13:05.350643+00:00",
+        "param_name": "risk_rules",
+        "old_value": {
+          "cooldown_hours": 2,
+          "consecutive_losses_trigger": 3,
+          "_note": "cooldown REACTIVE (etait a 0) : un coupe-circuit desactive sur un bot qui perd de facon statistiquement significative (P&L/trade [-7.86 .. -1.25] $, IC95 excluant zero) est un risque reel. Avec 7 bras a portefeuille independant, une pause de 2h ne bloque plus la collecte globale. max_drawdown_stop_pct : le cooldown ne voit que 3 pertes CONSECUTIVES ; le drawdown a atteint 17.2% sans jamais en declencher trois d affilee.",
+          "max_drawdown_stop_pct": 25
+        },
+        "new_value": {
+          "cooldown_hours": 0,
+          "consecutive_losses_trigger": 3,
+          "_note": "cooldown_hours 0 : DESACTIVE EN PAPER, decision du proprietaire. Une pause de 2h apres 3 pertes bloque la collecte, et en papier il n y a rien a proteger. LE COUPE-CIRCUIT DRAWDOWN RESTE ACTIF (max_drawdown_stop_pct) : lui ne coute rien tant qu on ne perd pas 25%, et il voit l erosion lente que 3 pertes consecutives ne detectent pas. A remettre a 2 AVANT tout passage en reel.",
+          "max_drawdown_stop_pct": 25
+        },
+        "reason": "PAPER : cooldown desactive sur decision du proprietaire, coupe-circuit drawdown conserve",
+        "trades_sample_size": 0
       }
     ],
     "last_adjustment_at": {
-      "filters": 10,
-      "weights": 10,
-      "exits": 10
+      "filters": 35,
+      "weights": 30,
+      "exits": 30,
+      "risk": 20
     }
   },
   "risk_rules": {
     "cooldown_hours": 0,
     "consecutive_losses_trigger": 3,
-    "_note": "cooldown_hours: 0 desactive la pause. En PAPER on veut collecter les 20 trades de validation sans interruption. Remettre 2 avant LIVE."
+    "_note": "cooldown_hours 0 : DESACTIVE EN PAPER, decision du proprietaire. Une pause de 2h apres 3 pertes bloque la collecte, et en papier il n y a rien a proteger. LE COUPE-CIRCUIT DRAWDOWN RESTE ACTIF (max_drawdown_stop_pct) : lui ne coute rien tant qu on ne perd pas 25%, et il voit l erosion lente que 3 pertes consecutives ne detectent pas. A remettre a 2 AVANT tout passage en reel.",
+    "max_drawdown_stop_pct": 25
   },
   "api_budgets": {
-    "_note": "Plafonds MENSUELS d'appels. 0 = illimité. Le limiteur de debit protege du 'trop vite', ces budgets protegent du 'trop au total'. Twitter Free = 100 posts/mois, Basic = 15000.",
-    "twitter": 15000,
+    "_note": "Plafonds MENSUELS d appels. 0 = illimite. Twitter Free = 100 lectures/mois. Depuis fevrier 2026 les nouveaux comptes X sont en pay-per-use (0.005 $/lecture) ; les paliers Basic 200 $ et Pro 5000 $ sont fermes aux nouvelles inscriptions. Ce bot est sur le palier GRATUIT : 100, pas 15000.",
+    "twitter": 100,
     "birdeye": 0,
     "helius": 0,
     "gmgn": 0

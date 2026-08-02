@@ -229,13 +229,24 @@ class TestLearning(unittest.TestCase):
         self.assertEqual(self.params.get("filters.min_age_hours"), 0.5)
 
     def test_ajuste_lage_minimum_quand_le_segment_jeune_perd(self):
-        self._write_trades(12, pnl_pct=-25, age_hours=0.5)
+        # 15 et non 12 : MIN_TRADES_PER_ARM impose un plancher par stratégie.
+        self._write_trades(15, pnl_pct=-25, age_hours=0.5)
         changes = self.engine.run()
         self.assertEqual(self.params.get("filters.min_age_hours"), 1.0)
         self.assertTrue(any("min_age_hours" in c for c in changes))
 
-    def test_cadence_ne_rejoue_pas_le_meme_palier(self):
+    def test_aucun_ajustement_sous_le_plancher_par_bras(self):
+        # Avec 7 bras, une cadence « tous les 5 trades » se déclenche sur
+        # 5 trades DE CE BRAS. Le multi-bras divise l'échantillon : sans
+        # plancher, chaque bras apprend plus vite et plus faux.
         self._write_trades(12, pnl_pct=-25, age_hours=0.5)
+        changes = self.engine.run()
+        self.assertEqual(self.params.get("filters.min_age_hours"), 0.5)
+        self.assertTrue(any("en attente" in c for c in changes),
+                        "l'attente doit être DITE, pas silencieuse")
+
+    def test_cadence_ne_rejoue_pas_le_meme_palier(self):
+        self._write_trades(15, pnl_pct=-25, age_hours=0.5)
         self.engine.run()
         first = self.params.get("filters.min_age_hours")
         self.engine.run()

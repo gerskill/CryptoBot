@@ -58,6 +58,40 @@ class Candidate:
     smart_money_sells_30m: Optional[int] = None
     smart_money_wallets_30m: Optional[int] = None
     smart_money_volume_usd: Optional[float] = None
+    # Achats pondérés par la fraîcheur : un achat vieux de 29 min pèse moins
+    # qu'un achat d'il y a 30 s. Le compte brut les traitait à égalité.
+    smart_money_weighted_buys: Optional[float] = None
+    smart_money_newest_age_min: Optional[float] = None
+
+    # --- Manipulation et qualité du carnet (GMGN market trending) ---
+    # Tous rendus par le MÊME appel que la découverte : les filtrer ne coûte
+    # aucune requête. `None` = donnée absente et ne rejette jamais.
+    swaps: Optional[int] = None
+    sniper_count: Optional[int] = None  # bots ayant acheté au lancement
+    bot_degen_count: Optional[int] = None
+    renowned_count: Optional[int] = None  # wallets KOL identifiés
+    bundler_rate: Optional[float] = None  # 0-1, achats groupés dans un bloc
+    insider_rate: Optional[float] = None  # 0-1
+    entrapment_ratio: Optional[float] = None  # 0-1, piège à acheteurs
+    rug_ratio: Optional[float] = None
+    is_wash_trading: Optional[bool] = None
+    bluechip_owner_pct: Optional[float] = None
+
+    # --- Réputation du créateur ---
+    burn_ratio: Optional[float] = None
+    dev_token_burn_ratio: Optional[float] = None
+    creator_token_status: Optional[str] = None  # creator_hold / creator_sell...
+    twitter_rename_count: Optional[int] = None
+    twitter_create_token_count: Optional[int] = None  # tokens déjà lancés par ce compte
+
+    # --- Contexte de lancement ---
+    has_social: Optional[bool] = None
+    launchpad: Optional[str] = None
+    initial_liquidity: Optional[float] = None
+    history_highest_market_cap: Optional[float] = None
+    price_change_1m: Optional[float] = None
+    # Promotion payée sur DexScreener : signal d'intention, pas de qualité.
+    dexscreener_paid: Optional[bool] = None
 
     # --- Scoring ---
     alpha_score: float = 0.0  # 60% absolu + 40% rang dans le batch -> CLASSEMENT
@@ -78,6 +112,23 @@ class Candidate:
         if total == 0:
             return 0.5
         return self.buys_5m / total
+
+    @property
+    def drawdown_from_ath_pct(self) -> Optional[float]:
+        """Recul depuis le plus haut market cap historique, en %.
+
+        0 = au sommet. Achète-t-on le haut de la bougie, ou un repli ?
+        """
+        if not self.history_highest_market_cap or not self.market_cap:
+            return None
+        return 100 * (1 - self.market_cap / self.history_highest_market_cap)
+
+    @property
+    def liquidity_growth_ratio(self) -> Optional[float]:
+        """Liquidité actuelle / liquidité initiale. <1 = la LP se vide."""
+        if not self.initial_liquidity:
+            return None
+        return self.liquidity_usd / self.initial_liquidity
 
     @property
     def holders_display(self) -> str:
