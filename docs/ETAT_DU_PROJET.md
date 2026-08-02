@@ -284,7 +284,7 @@ frais, ils le redeviennent ; le veto mord toujours à 7,9 % et à 23,62 %.
 
 *Mis à jour le 2026-08-02.*
 
-- **334 tests verts** (`python3 -m unittest discover -s tests`)
+- **361 tests verts** (`python3 -m unittest discover -s tests`)
 - Boucle en cours, cycle 90 s, monitoring 5 s
 
 ### Les bras ont commencé à trader
@@ -397,6 +397,51 @@ scripts_export_vault.py      journal -> notes Obsidian reliées
 | `MIN_SIGNALS_PER_AGENT` | 20 | avant de juger un agent |
 | `EXIT_BACKTEST_MIN_COVERAGE` | 15 | sous ce seuil, **aucun verdict** — ne pas savoir ≠ annuler |
 | `PARAM_BOUNDS` | par bras | bornes dures, sinon les règles ne font que resserrer |
+| `INACTIVITY_CYCLES` | 300 | au-delà, un bras qui n'entre plus voit son seuil dominant desserré. Calé sur la mesure : les bras qui entrent le font tous les 36 à 155 cycles |
+| `_relax_set` | — | **un relâchement qui, une fois clampé, resserrerait est refusé.** Les bornes sont globales, la config d'un bras ne l'est pas |
+| `compare` | IC95 disjoints | aucun bras déclaré meilleur que le témoin sans séparation franche. Sept stratégies comparées produisent un gagnant par hasard |
+
+### Les trois relâchements, et sur quelle preuve
+
+Ils sont indépendants et ne se remplacent pas :
+
+| mécanisme | preuve exigée | débloque |
+|---|---|---|
+| `_adjust_filters` | 15 trades du bras **et** 10 dans le segment | un bras qui trade déjà et perd sur un segment |
+| `_relax_from_shadow` | 15 rejets jugés dans une famille, >25 % montés à +100 % | un bras dont les rejets gagnaient |
+| `_relax_from_inactivity` | 300 cycles évalués sans **aucune** entrée | un bras qui ne joue pas du tout |
+
+Le troisième existe parce que les deux premiers sont inatteignables pour un
+bras qui n'entre jamais : pas de trades, et pas assez de rejets jugés par
+famille. `narrative` était dans ce cas — 0 entrée sur 927 cycles.
+
+**Le témoin est exclu des trois.** Il est gelé (`frozen=True`) : c'est la seule
+référence comparable aux trades historiques, et un relâchement automatique la
+détruirait, la comparaison entre bras avec elle.
+
+### Mise en commun des trajectoires
+
+`simulate_exits` ne lit que `peak_pct` et `trough_pct` — **une trajectoire est
+une trajectoire**, elle ne dépend pas du bras qui l'a achetée. `_instrumented`
+emprunte donc aux autres journaux, filtré par `_in_window` sur l'âge et la
+liquidité à l'entrée :
+
+```
+bras       propres  + pool  total   rejeu possible ? (seuil 15)
+scalp            6      20     26   OUI  (était NON)
+runner           6      20     26   OUI  (était NON)
+consensus        6      20     26   OUI  (était NON)
+quality          2       8     10   NON — sa fenêtre exclut les autres
+narrative        0       0      0   NON
+```
+
+Le filtre de fenêtre n'est pas une précaution de style : un token de `sniper`
+(âge 0-1 h, liquidité 4 K) n'a pas la forme d'un token de `quality` (âge
+4-48 h, liquidité 20 K). Sans lui on remplacerait un manque de données par un
+biais — et le manque, lui, se voit.
+
+**Les filtres d'ENTRÉE ne se mettent jamais en commun** : chaque bras a ses
+seuils, c'est toute sa raison d'être.
 
 ---
 
@@ -424,10 +469,17 @@ scripts_export_vault.py      journal -> notes Obsidian reliées
    en mémoire : un redémarrage perd tout ce qui n'a pas encore atteint ses 4 h.
    Sur une boucle relancée souvent, le shadow se remplit plus lentement que le
    nombre de rejets ne le laisse croire.
-9. **Le multi-bras divise la puissance statistique.** `MIN_TRADES_PER_ARM` = 15
-   par bras, `MIN_TRADES_FOR_WEIGHTS` = 50 : à 7 bras, environ 105 trades avant
-   que l'apprentissage complet tourne quelque part. C'est gratuit en requêtes
-   API — la collecte est partagée — et cher en inférence.
+9. **Le multi-bras coûte moins cher que je ne l'ai d'abord écrit.** Chaque bras
+   se débloque sur SES 15 trades, indépendamment des autres — il n'y a aucun
+   total de 105 à atteindre. Mesuré au 2026-08-02 : `baseline` (39 trades) et
+   `sniper` (26) ont franchi toutes leurs cadences et apprennent déjà, et la
+   cadence d'arrivée est de 8 à 32 trades/jour/bras. Le coût réel n'est pas
+   l'attente, c'est la **comparaison multiple** — traitée par
+   `verdict_vs_reference`.
+10. **Aucun bras n'est distinguable du témoin.** IC95 du P&L/trade, 2026-08-02 :
+    `sniper` [−4,74 .. +1,40], `runner` [−5,61 .. +25,00], `consensus`
+    [−5,42 .. +11,37]. Le classement par $/trade est du bruit tant que cette
+    colonne dit « indistinguable ».
 
 ---
 
@@ -437,7 +489,9 @@ scripts_export_vault.py      journal -> notes Obsidian reliées
 |---|---|
 | élargir `scalp` de 2 h à 4 h | 19 rejets d'âge le suggéraient — **le shadow dit non** : 0,6 % [0–3] des rejets `age_max` franchissent +100 %. L'entonnoir désignait le mauvais coupable |
 | baisser le plancher de liquidité | 13,6 % [9–19] des rejets `liquidity` franchissent +100 %, dont un à +3578 %. **Ne rien changer avant un devis Jupiter** sur ces carnets : c'est là que le slippage est le pire, et le shadow ne le mesure pas |
-| réduire le nombre de bras | 7 bras, ~105 trades avant apprentissage complet. Concentrer sur 2–3 accélérerait l'inférence sans rien coûter en API — non tranché |
+| réduire le nombre de bras | **écartée.** Chaque bras se débloque sur SES 15 trades, pas sur un total : `baseline` (39) et `sniper` (26) apprennent déjà, et la cadence est de 8 à 32 trades/jour/bras. Le temps n'était pas la contrainte |
+| `quality` : `max_age_hours` hors borne | config 48 h, borne globale (2, 24). Tout relâchement est refusé par `_relax_set` — **décision de propriétaire** : élargir la borne dans `bounds` du manifeste, ou ramener la config sous 24 h |
+| `narrative` et `consensus` bloqués au seuil alpha | et non sur un filtre. `_relax_from_inactivity` va descendre 70 → 67,5 et 65 → 62,5, plancher à 55. À surveiller : c'est le relâchement le plus coûteux de la table |
 | Birdeye Lite 39 $/mois | seul abonnement qui débloque quoi que ce soit |
 | suivi de wallets étape 2 | registre en place, 7 wallets, avances de +0,4 à +3,6 min — **trop faibles pour du copy-trading** si ça se confirme |
 | découpage de `main.py` | proposé, refusé pour l'instant : **1084 lignes** (+202 depuis le refus), règles encore mouvantes |
