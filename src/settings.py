@@ -20,6 +20,16 @@ WALLETS_LOG_PATH = os.path.join(BASE_DIR, "data", "wallets_log.jsonl")
 FUNNEL_LOG_PATH = os.path.join(BASE_DIR, "data", "funnel_log.jsonl")
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 
+# --- Agents de mesure (src/agents) ---
+# Ils CALCULENT et journalisent, ils n'ajustent aucun paramètre. Journaux
+# séparés : un agent qui déborde ne doit pas noyer la trace d'un autre, et
+# `_journal.append` fait tourner chaque fichier indépendamment.
+DEV_HISTORY_LOG_PATH = os.path.join(BASE_DIR, "data", "dev_history_log.jsonl")
+RSI_LOG_PATH = os.path.join(BASE_DIR, "data", "rsi_log.jsonl")
+VOLATILITY_LOG_PATH = os.path.join(BASE_DIR, "data", "volatility_log.jsonl")
+MICROSTRUCTURE_LOG_PATH = os.path.join(BASE_DIR, "data", "microstructure_log.jsonl")
+COUNTERFACTUAL_LOG_PATH = os.path.join(BASE_DIR, "data", "counterfactual_log.jsonl")
+
 # --- Multi-stratégie ---
 STRATEGIES_PATH = os.path.join(BASE_DIR, "config", "strategies.json")
 ARMS_CONFIG_DIR = os.path.join(BASE_DIR, "config", "arms")

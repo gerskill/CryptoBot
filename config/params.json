@@ -2,7 +2,7 @@
   "version": "2.0",
   "mode": "PAPER",
   "capital_total": 0,
-  "risk_per_trade": 0.025,
+  "risk_per_trade": 0.02,
   "max_concurrent_positions": 3,
   "scan": {
     "interval_seconds": 90,
@@ -55,8 +55,8 @@
     "structure_mode": "balanced"
   },
   "exit_rules": {
-    "stop_loss_pct": -10,
-    "take_profit_1": 100,
+    "stop_loss_pct": -15.0,
+    "take_profit_1": 150.0,
     "take_profit_2": 300,
     "take_profit_3": 500,
     "breakeven_trigger": 100,
@@ -76,17 +76,17 @@
     "rugcheck": 0.15
   },
   "learning": {
-    "total_trades": 39,
+    "total_trades": 40,
     "winning_trades": 4,
-    "losing_trades": 35,
+    "losing_trades": 36,
     "avg_win_pct": 79.5,
-    "avg_loss_pct": -27.17,
+    "avg_loss_pct": -26.93,
     "best_performer_filter": null,
     "worst_performer_filter": null,
     "win_rate_by_age": {
       "2-4h": {
-        "win_rate": 25.0,
-        "sample": 12
+        "win_rate": 23.1,
+        "sample": 13
       },
       "1-2h": {
         "win_rate": 0.0,
@@ -107,8 +107,8 @@
         "sample": 5
       },
       "30-50K": {
-        "win_rate": 11.1,
-        "sample": 18
+        "win_rate": 10.5,
+        "sample": 19
       },
       "10-30K": {
         "win_rate": 0.0,
@@ -387,13 +387,37 @@
         },
         "reason": "PAPER : cooldown desactive sur decision du proprietaire, coupe-circuit drawdown conserve",
         "trades_sample_size": 0
+      },
+      {
+        "timestamp": "2026-08-02T17:09:54.095481+00:00",
+        "param_name": "exit_rules.stop_loss_pct",
+        "old_value": -10,
+        "new_value": -15.0,
+        "reason": "rejeu sur 31 positions : P&L/trade 0.3143 → 1.4596 (0 ambiguës)",
+        "trades_sample_size": 31
+      },
+      {
+        "timestamp": "2026-08-02T17:09:54.096196+00:00",
+        "param_name": "exit_rules.take_profit_1",
+        "old_value": 100,
+        "new_value": 150.0,
+        "reason": "rejeu sur 31 positions : P&L/trade 0.3143 → 1.4596 (0 ambiguës)",
+        "trades_sample_size": 31
+      },
+      {
+        "timestamp": "2026-08-02T17:09:54.100522+00:00",
+        "param_name": "risk_per_trade",
+        "old_value": 0.025,
+        "new_value": 0.02,
+        "reason": "WR 10%, drawdown 18%",
+        "trades_sample_size": 40
       }
     ],
     "last_adjustment_at": {
-      "filters": 35,
-      "weights": 30,
-      "exits": 30,
-      "risk": 20
+      "filters": 40,
+      "weights": 40,
+      "exits": 40,
+      "risk": 40
     }
   },
   "risk_rules": {

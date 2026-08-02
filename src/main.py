@@ -30,6 +30,13 @@ from src.apis.gmgn import GmgnAPI
 from src.apis.helius import HeliusAPI
 from src.apis.rugcheck import RugCheckAPI
 from src.apis.twitter import TwitterAPI
+from src.agents import (
+    CounterfactualTimingAgent,
+    DevHistoryAgent,
+    MicrostructureAgent,
+    RSIAgent,
+    VolatilityAgent,
+)
 from src.core.arm import CONSENSUS, attach_portfolios, bootstrap_arms
 from src.apis.jupiter import SOL_MINT, JupiterAPI
 from src.core import economics
@@ -101,6 +108,20 @@ class AlphaLoop:
         # Le seul module qui sait ce qu'une taille coûte VRAIMENT : DexScreener
         # et Birdeye rendent un prix moyen, un devis rend le prix exécutable.
         self.jupiter = JupiterAPI(settings.JUPITER_API_KEY)
+
+        # AGENTS DE MESURE. Ils calculent et journalisent ; aucun n'écrit de
+        # paramètre ni ne refuse une entrée. Avec 93 trades clôturés, brancher
+        # une décision sur un indicateur neuf serait du surapprentissage — ils
+        # produisent d'abord l'échantillon que la couche d'apprentissage lira.
+        self.dev_history = DevHistoryAgent(log_path=settings.DEV_HISTORY_LOG_PATH)
+        self.rsi = RSIAgent(log_path=settings.RSI_LOG_PATH)
+        self.volatility = VolatilityAgent(log_path=settings.VOLATILITY_LOG_PATH)
+        self.microstructure = MicrostructureAgent(
+            jupiter=self.jupiter, log_path=settings.MICROSTRUCTURE_LOG_PATH
+        )
+        self.counterfactual = CounterfactualTimingAgent(
+            log_path=settings.COUNTERFACTUAL_LOG_PATH
+        )
         # Santé par CAPACITÉ, pas par API : ce qui compte n'est pas « Birdeye
         # est mort » mais « peut-on encore obtenir des bougies ». Publié dans
         # state.json pour que la dégradation soit visible au lieu d'être subie.
@@ -1024,6 +1045,7 @@ class AlphaLoop:
         # sont figées à l'entrée depuis le document DE CE BRAS.
         position = arm.portfolio.open(candidate, arm.params.data, size)
         self.funnel.record(*trace, "entree", True, "", {"size_usd": size})
+        self._measure_entry(position, candidate)
         cost = (verdict or {}).get("round_trip_pct")
         frais = f" | frais A/R {cost:.1f}%" if cost is not None else ""
         print(
@@ -1032,6 +1054,48 @@ class AlphaLoop:
             f"| Entry ${position.entry_price:.8f} | SL {position.stop_loss_pct}% "
             f"| TP1 +{position.take_profit_1}%{frais}"
         )
+
+    def _measure_entry(self, position, candidate: Candidate) -> None:
+        """Les quatre agents de mesure, déclenchés À L'OUVERTURE.
+
+        POURQUOI ICI ET PAS PLUS TARD. `PriceHistory` vit en MÉMOIRE : il n'est
+        écrit nulle part et disparaît à chaque redémarrage. Les snapshots
+        d'avant l'entrée n'existent donc que pendant le cycle qui ouvre la
+        position — c'est la seule fenêtre où le contrefactuel de timing peut
+        reconstituer ce que valait le token trente secondes plus tôt.
+
+        Conséquence à connaître : ces mesures ne peuvent PAS être rejouées sur
+        les 93 trades déjà clôturés. Elles partent de zéro, vers l'avant.
+
+        AUCUNE DE CES MESURES NE DÉCIDE. La position est déjà ouverte quand
+        cette méthode est appelée ; elle ne peut ni l'annuler ni la
+        redimensionner. C'est délibéré : sur 93 trades, brancher une décision
+        sur un indicateur neuf serait du surapprentissage.
+        """
+        snapshots = self.history.snapshots(position.token_address)
+        candles = self.history.candles(position.token_address)
+        essais = (
+            ("counterfactual", lambda: self.counterfactual.observe(
+                position.token_address, position.symbol,
+                position.entry_price, time.time(), snapshots,
+            )),
+            ("rsi", lambda: self.rsi.observe(
+                position.token_address, position.symbol, candles)),
+            ("volatility", lambda: self.volatility.observe(
+                position.token_address, position.symbol, snapshots)),
+            ("microstructure", lambda: self.microstructure.observe(
+                position.token_address, position.symbol, snapshots,
+                size_usd=position.size_usd)),
+            ("dev_history", lambda: self.dev_history.observe(candidate)),
+        )
+        # Un agent de mesure qui tombe ne doit pas emporter le cycle : la
+        # position est ouverte, la perdre de vue serait bien pire que perdre
+        # une mesure. Invariant « la boucle ne meurt jamais ».
+        for nom, mesure in essais:
+            try:
+                mesure()
+            except Exception as exc:  # noqa: BLE001
+                print(f"[Agents] {nom} indisponible sur {position.symbol} : {exc}")
 
     def _periodic_reports(self) -> None:
         now = time.time()

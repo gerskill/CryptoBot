@@ -17,3 +17,10 @@ data/*.pid
 .DS_Store
 # Sortie de /graphify : 4,8 Mo de HTML et de cache regenerables.
 graphify-out/
+# Journaux des agents de mesure : meme nature que data/*.jsonl, deja couverts,
+# listes ici pour que leur absence du depot soit une decision et pas un oubli.
+data/dev_history_log.jsonl
+data/rsi_log.jsonl
+data/volatility_log.jsonl
+data/microstructure_log.jsonl
+data/counterfactual_log.jsonl

@@ -284,8 +284,28 @@ frais, ils le redeviennent ; le veto mord toujours à 7,9 % et à 23,62 %.
 
 *Mis à jour le 2026-08-02.*
 
-- **361 tests verts** (`python3 -m unittest discover -s tests`)
+- **450 tests verts** (`python3 -m unittest discover -s tests`)
 - Boucle en cours, cycle 90 s, monitoring 5 s
+
+### Le panneau affichait le témoin et le présentait comme le bot
+
+Corrigé le 2026-08-02. `stats` est le portefeuille du bras témoin, qui est
+**gelé** : il montrait « 4 gagnants sur 39 », PF 0,28 et drawdown 17,4 %
+figés depuis 16 h, pendant que les six autres bras accumulaient 27 gagnants
+sur 93. Les gains étaient bien écrits dans les journaux — c'est la LECTURE qui
+regardait le mauvais portefeuille.
+
+`_aggregate_stats` rend désormais `wins`, `closed_trades`, `win_rate`,
+`profit_factor` et `worst_arm_drawdown_pct`, **recalculés sur les journaux et
+non moyennés depuis les bras** : une moyenne de taux pondérerait les 2 trades
+de `quality` comme les 39 du témoin. Le drawdown ne s'additionne pas entre
+portefeuilles — on rend le pire, et le libellé le dit.
+
+```
+FLOTTE (7 bras) — capital 6848.67 $ | P&L -151.33 $
+Win rate : 29.0% (27/93) | Profit factor : 0.68
+témoin (gelé) : 825.93 $ | -174.07 $ | WR 10.3% | PF 0.28 | 39 trades
+```
 
 ### Les bras ont commencé à trader
 
@@ -361,10 +381,63 @@ tandis que 13,6 % de ce qu'il a rejeté sur la liquidité a franchi +100 %.
 
 ---
 
+## 7 ter. Agents de mesure (`src/agents/`)
+
+Ajoutés le 2026-08-02. **Ils calculent et journalisent ; aucun n'écrit un
+paramètre ni ne refuse une entrée.**
+
+La distinction qui organise ce paquet : un agent qui APPREND réclame un
+échantillon, et le dépôt en compte 93. Greffer une douzaine d'apprenants
+là-dessus produirait douze surapprentissages parallèles. Ceux-ci produisent
+d'abord la donnée que la couche d'apprentissage lira ensuite ; l'ordre inverse
+donnerait des lecteurs de fichiers vides.
+
+| agent | ce qu'il mesure | journal |
+|---|---|---|
+| `dev_history` | score créateur 0-100 sur 6 signaux déjà collectés | `dev_history_log.jsonl` |
+| `counterfactual_timing` | prix à −1, −2, −3 cycles avant l'entrée | `counterfactual_log.jsonl` |
+| `rsi_agent` | RSI de Wilder sur bougies reconstruites | `rsi_log.jsonl` |
+| `volatility_agent` | écart-type des rendements log, base horaire | `volatility_log.jsonl` |
+| `microstructure_agent` | dérive liquidité/prix, devis A/R, profondeur | `microstructure_log.jsonl` |
+
+**Quatre décisions de conception qui viennent d'une mesure, pas d'une
+intuition :**
+
+1. **Il n'y a pas de bid-ask sur Solana.** Les memecoins se traitent sur des
+   AMM, et `Snapshot` ne porte que `(ts, price, volume_5m, liquidity)`. Le
+   spread est remplacé par `round_trip_cost_pct` de Jupiter — un devis réel —
+   et la profondeur par la liquidité du pool. Fabriquer un spread depuis ces
+   champs aurait produit un nombre plausible et faux.
+2. **Les décalages du contrefactuel sont des multiples du cycle de scan.** Les
+   −30 s / −10 s / +10 s du réflexe initial sont **plus fins que
+   l'échantillonnage** : avant l'ouverture, le seul historique vient du scan à
+   90 s. Vérifié de bout en bout — les trois décalages sortaient `null`, et un
+   journal de `null` se lit « pas d'avantage de timing » au lieu de « pas de
+   données ».
+3. **`PriceHistory` vit en mémoire, jamais sur disque.** Les snapshots
+   d'avant-entrée n'existent que pendant le cycle qui ouvre la position : c'est
+   la seule fenêtre où le contrefactuel peut reconstituer quoi que ce soit,
+   d'où l'appel dans `_open_position`. **Conséquence : ces mesures ne peuvent
+   PAS être rejouées sur les 93 trades déjà clôturés.** Elles partent de zéro,
+   vers l'avant.
+4. **Le seuil de `dev_history` est calé sur l'arithmétique des poids.** 45 est
+   la seule valeur qu'aucun signal isolé n'atteint et que deux signaux forts
+   concordants dépassent (creator_sold + serial_launcher = 46,4 %). Les trois
+   signaux faibles cumulés font 35,7 % et ne rejettent pas : ils ont déjà leurs
+   filtres au manifeste, les compter deux fois serait un doublon silencieux.
+
+Invariant commun, hérité du pipeline : **une donnée absente ne rejette jamais
+et ne s'invente pas.** Chaque agent journalise aussi ses lectures inconnues —
+sans quoi on ne saurait plus distinguer « jamais en surachat » de « jamais
+assez de bougies pour le savoir ».
+
+---
+
 ## 8. Fichiers qui comptent
 
 ```
-src/main.py              boucle, orchestration des 7 bras         1084 l
+src/main.py              boucle, orchestration des 7 bras         1252 l
+src/agents/              5 agents de mesure, aucun n'apprend
 src/pipeline.py          collect() partagé / evaluate() par bras
 src/core/arm.py          StrategyArm, manifeste, ArmNotifier
 src/core/learning.py     ajustements, simulate_exits, bornes/bras
