@@ -47,7 +47,17 @@ class ShadowVerdict:
 
 
 def reason_family(reason: str) -> str:
-    """Regroupe les motifs de rejet en familles ajustables."""
+    """Regroupe les motifs de rejet en familles ajustables.
+
+    L'ÂGE ET LE VOLUME TOMBAIENT DANS « autre ». Mesuré au 2026-08-02 sur les
+    399 rejets jugés du témoin : 175 rejets d'âge et 42 de volume, soit 54 %
+    du total, rangés dans une famille qu'aucun paramètre ne dessert. Le motif
+    de rejet DOMINANT était donc invisible à `_relax_from_shadow`.
+
+    L'âge donne DEUX familles, pas une : « âge 6.0h > 6h » et « âge 0.1h <
+    1.5h » appellent des corrections opposées (monter le plafond / baisser le
+    plancher). Les confondre relâcherait au hasard.
+    """
     text = (reason or "").lower()
     if "liquidité" in text or "liquidity" in text:
         return "liquidity"
@@ -65,6 +75,12 @@ def reason_family(reason: str) -> str:
         return "dev_wallet"
     if "authority" in text:
         return "authority"
+    if text.startswith("âge") or text.startswith("age"):
+        # « > » = trop vieux pour le plafond ; « < » = trop jeune pour le
+        # plancher. Le sens du signe EST la donnée.
+        return "age_max" if ">" in text else "age_min"
+    if "volume" in text:
+        return "volume"
     return "autre"
 
 
@@ -187,7 +203,15 @@ class ShadowTracker:
         """Taux de rejets qui auraient atteint +100%, par famille de motif."""
         grouped: dict[str, list[dict[str, Any]]] = {}
         for row in self.read_all():
-            grouped.setdefault(row.get("reason_family", "autre"), []).append(row)
+            # La famille est RECALCULÉE depuis le motif, pas relue telle
+            # quelle : les lignes déjà sur disque portent la taxonomie du jour
+            # où elles ont été écrites. Sans ce recalcul, les 175 rejets d'âge
+            # de l'historique resteraient dans « autre » et l'élargissement de
+            # la taxonomie ne servirait qu'aux rejets futurs.
+            famille = reason_family(row.get("reason", "")) or row.get(
+                "reason_family", "autre"
+            )
+            grouped.setdefault(famille, []).append(row)
 
         out = {}
         for family, rows in grouped.items():

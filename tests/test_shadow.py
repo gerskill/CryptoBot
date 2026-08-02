@@ -35,11 +35,16 @@ def rejected_candidate(symbol="REJ", reason="liquidité 12000 < 15000", price=1.
     )
 
 
-def _fake_verdict(index, family, won):
-    """Objet minimal accepté par ShadowTracker._append."""
+def _fake_verdict(index, family, won, reason=None):
+    """Objet minimal accepté par ShadowTracker._append.
+
+    `reason` est distinct de `family` : `missed_rate_by_family` RECALCULE la
+    famille depuis le motif, donc un test qui met le nom de la famille dans le
+    champ motif ne teste pas ce qu'il croit.
+    """
     return type("V", (), {
         "symbol": f"T{index}", "token_address": f"a{family}{index}",
-        "reason": family, "reason_family": family,
+        "reason": reason if reason is not None else family, "reason_family": family,
         "entry_price": 1.0, "peak_price": 3.0 if won else 1.0,
         "last_price": 1.0, "peak_gain_pct": 200.0 if won else 0.0,
         "would_have_won": won, "minutes_tracked": 60.0,
@@ -99,6 +104,54 @@ class TestShadowTracker(unittest.TestCase):
         self.assertEqual(stats["liquidity"]["missed_rate"], 50.0)
 
 
+class TestFamillesAgeEtVolume(unittest.TestCase):
+    """L'âge et le volume tombaient dans « autre », que rien ne dessert.
+
+    Mesuré au 2026-08-02 sur les 399 rejets jugés du témoin : 175 rejets
+    d'âge et 42 de volume, soit 54 % du total — dont le motif de rejet
+    DOMINANT — invisibles à `_relax_from_shadow`.
+    """
+
+    def test_trop_vieux_et_trop_jeune_sont_deux_familles(self):
+        # Corrections OPPOSÉES : monter le plafond / baisser le plancher.
+        # Les confondre relâcherait au hasard.
+        self.assertEqual(reason_family("âge 6.0h > 6h"), "age_max")
+        self.assertEqual(reason_family("âge 0.1h < 1.5h"), "age_min")
+
+    def test_le_volume_a_sa_famille(self):
+        self.assertEqual(reason_family("volume 1h 0$ < 8000$"), "volume")
+
+    def test_ni_lun_ni_lautre_ne_tombe_plus_dans_autre(self):
+        for motif in ("âge 14.1h > 6h", "âge 0.4h < 1.5h", "volume 1h 12$ < 8000$"):
+            self.assertNotEqual(reason_family(motif), "autre", motif)
+
+    def test_un_motif_inconnu_reste_dans_autre(self):
+        self.assertEqual(reason_family("chose jamais vue"), "autre")
+
+    def test_la_famille_est_recalculee_sur_lhistorique(self):
+        """Les lignes déjà sur disque portent la taxonomie de leur époque.
+        Sans recalcul, élargir la taxonomie ne servirait qu'aux rejets futurs
+        — et les 175 rejets d'âge déjà collectés resteraient inutilisables."""
+        tmp = tempfile.mkdtemp()
+        tracker = ShadowTracker(os.path.join(tmp, "shadow.jsonl"))
+
+        # Écrit avec l'ANCIENNE famille, comme les lignes historiques.
+        for index in range(15):
+            row = {
+                "timestamp": time.time(), "token": f"T{index}",
+                "token_address": f"a{index}", "reason": "âge 8.0h > 6h",
+                "reason_family": "autre", "entry_price": 1.0, "peak_price": 3.0,
+                "last_price": 1.0, "peak_gain_pct": 200.0, "would_have_won": True,
+                "minutes_tracked": 60.0,
+            }
+            with open(tracker.path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(row) + "\n")
+
+        familles = tracker.missed_rate_by_family(min_sample=15)
+        self.assertIn("age_max", familles)
+        self.assertNotIn("autre", familles)
+
+
 class TestBornesEtRelachement(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -110,10 +163,20 @@ class TestBornesEtRelachement(unittest.TestCase):
         self.tracker = ShadowTracker(os.path.join(self.tmp, "shadow.jsonl"))
         self.engine = LearningEngine(self.params, self.journal, shadow=self.tracker)
 
+    # Motifs RÉELS, tels que `pipeline._rejection_reason` les écrit. La famille
+    # est recalculée depuis le motif : un nom de famille dans ce champ ne
+    # testerait rien.
+    MOTIFS = {
+        "liquidity": "liquidité 12000$ < 15000$",
+        "age_max": "âge 8.0h > 6h",
+        "age_min": "âge 0.2h < 0.5h",
+        "volume": "volume 1h 120$ < 8000$",
+    }
+
     def _shadow_rows(self, count, family, won):
         for index in range(count):
             self.tracker._append(
-                _fake_verdict(index, family, won),
+                _fake_verdict(index, family, won, self.MOTIFS.get(family, family)),
                 {"alpha_absolute": 70, "liquidity": 12000, "age_hours": 1},
             )
 
@@ -143,6 +206,24 @@ class TestBornesEtRelachement(unittest.TestCase):
         self._shadow_rows(5, "liquidity", won=True)
         self.assertEqual(self.engine._relax_from_shadow(), [])
         self.assertEqual(self.params.get("filters.min_liquidity_usd"), 15000)
+
+    def test_relache_le_plafond_dage_dans_le_bon_sens(self):
+        self._shadow_rows(15, "age_max", won=True)
+        self.engine._relax_from_shadow()
+        # Trop vieux -> le plafond MONTE. L'abaisser rejetterait encore plus.
+        self.assertEqual(self.params.get("filters.max_age_hours"), 8)
+
+    def test_relache_le_plancher_dage_dans_le_bon_sens(self):
+        self._shadow_rows(15, "age_min", won=True)
+        self.engine._relax_from_shadow()
+        # Trop jeune -> le plancher DESCEND.
+        self.assertEqual(self.params.get("filters.min_age_hours"), 0.0)
+
+    def test_relache_le_volume(self):
+        self.params.set("filters.min_volume_1h", 8000, log=False)
+        self._shadow_rows(15, "volume", won=True)
+        self.engine._relax_from_shadow()
+        self.assertEqual(self.params.get("filters.min_volume_1h"), 6000)
 
     def test_relachement_atteignable_avec_zero_trade(self):
         """LA POULE ET L'ŒUF VERROUILLÉE ICI.

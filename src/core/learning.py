@@ -399,6 +399,16 @@ class LearningEngine:
             "social": ("filters.min_social_mentions_1h", -5),
             "smart_money": ("filters.min_smart_money_buys_30min", -1),
             "concentration": ("filters.max_top_wallet_concentration", +5),
+            # L'ÂGE ET LE VOLUME MANQUAIENT. Ils tombaient dans la famille
+            # « autre », que rien ne dessert — alors que l'âge est le motif de
+            # rejet DOMINANT : 175 des 399 rejets jugés du témoin au
+            # 2026-08-02, contre 176 pour la liquidité.
+            #
+            # Deux entrées pour l'âge, pas une : trop vieux et trop jeune
+            # appellent des corrections opposées.
+            "age_max": ("filters.max_age_hours", +2),
+            "age_min": ("filters.min_age_hours", -0.5),
+            "volume": ("filters.min_volume_1h", -2000),
         }
 
         changes = []
