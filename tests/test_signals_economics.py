@@ -149,6 +149,95 @@ class TestEconomie(unittest.TestCase):
         )
 
 
+class TestVetoSurIntervalle(unittest.TestCase):
+    """Le veto économique porte sur l'intervalle, pas sur le point.
+
+    LE PROBLÈME VERROUILLÉ ICI. `TAUX_ATTEINTE_MESURES` était un dictionnaire
+    de taux nus. La ligne « 15 % atteignent +100 % » vient de 4 succès sur 26
+    positions instrumentées — IC95 ≈ 6–34 %. `evaluate()` s'en servait pour
+    REFUSER des entrées, sans jamais dire combien d'observations portaient le
+    chiffre. C'était le seul endroit du dépôt où une estimation à n=4 avait un
+    pouvoir de veto, alors que `MIN_SEGMENT_SAMPLE`, `Interval.conclusive` et
+    `live_mode_allowed` interdisent exactement ça partout ailleurs.
+    """
+
+    def test_les_taux_dautteinte_correspondent_aux_mesures_documentees(self):
+        # Les pourcentages de docs/ETAT_DU_PROJET.md §3.5, reconstruits depuis
+        # les succès. Si quelqu'un change un numérateur, le doc ment.
+        attendus = {10: 0.42, 25: 0.31, 50: 0.23, 100: 0.15, 150: 0.04}
+        for tp, taux in attendus.items():
+            self.assertAlmostEqual(economics.expected_hit_rate(tp), taux, places=2)
+
+    def test_lintervalle_porte_le_nombre_dobservations(self):
+        interval = economics.hit_rate_interval(100)
+        self.assertEqual(interval.n, economics.OBSERVATIONS_INSTRUMENTEES)
+        self.assertLess(interval.low, 15.4)
+        self.assertGreater(interval.high, 15.4)
+
+    def test_aucun_taux_datteinte_nest_concluant_a_n_egal_26(self):
+        # C'est le fait qui justifie tout ce module : à 26 positions, AUCUNE
+        # ligne du tableau ne distingue quoi que ce soit.
+        for tp in (10, 25, 50, 100, 150):
+            self.assertFalse(economics.hit_rate_interval(tp).conclusive)
+
+    def test_le_veto_ne_mord_plus_quand_lechantillon_ne_tranche_pas(self):
+        # scalp : TP1 +25 %, frais médians 3,06 %. Refusé sur le point (30,8 %),
+        # accepté à la borne haute (50 %). L'échantillon ne permet pas de dire
+        # que ce TP est perdant.
+        taux, _, haut = economics.win_rate_for(25, 0.0, 0)
+
+        sans_borne = economics.evaluate(3.06, 25, taux, loss_pct=-25)
+        avec_borne = economics.evaluate(3.06, 25, taux, loss_pct=-25, win_rate_high=haut)
+
+        self.assertFalse(sans_borne.viable)
+        self.assertTrue(avec_borne.viable, avec_borne.reason)
+        self.assertIn("ne tranche pas", avec_borne.reason)
+
+    def test_le_plancher_affiche_reste_celui_du_point(self):
+        """Le chiffre montré décrit la situation attendue ; seul le REFUS
+        bouge. Confondre les deux ferait croire que les frais ont baissé."""
+        taux, _, haut = economics.win_rate_for(25, 0.0, 0)
+        verdict = economics.evaluate(3.06, 25, taux, loss_pct=-25, win_rate_high=haut)
+
+        self.assertAlmostEqual(
+            verdict.minimum_tp_pct,
+            economics.minimum_viable_tp(3.06, taux),
+            places=1,
+        )
+        self.assertGreater(verdict.minimum_tp_pct, 25)
+
+    def test_le_veto_mord_encore_quand_les_frais_sont_reellement_prohibitifs(self):
+        """Le garde-fou n'est pas désactivé : sur un carnet mince, aucun taux
+        de réussite compatible avec les données ne sauve un petit TP."""
+        taux, _, haut = economics.win_rate_for(25, 0.0, 0)
+        verdict = economics.evaluate(
+            23.62, 25, taux, loss_pct=-25, win_rate_high=haut, max_round_trip_pct=30
+        )
+        self.assertFalse(verdict.viable)
+
+    def test_une_borne_haute_absente_garde_le_comportement_dorigine(self):
+        taux, _, _ = economics.win_rate_for(25, 0.0, 0)
+        self.assertEqual(
+            economics.evaluate(3.06, 25, taux, loss_pct=-25).viable,
+            economics.evaluate(
+                3.06, 25, taux, loss_pct=-25, win_rate_high=None
+            ).viable,
+        )
+
+    def test_le_vecu_du_bras_lemporte_et_porte_sa_propre_borne(self):
+        taux, source, haut = economics.win_rate_for(100, 0.40, 25)
+        self.assertEqual(taux, 0.40)
+        self.assertIn("25 trades", source)
+        self.assertGreater(haut, 0.40)
+
+    def test_la_source_dit_combien_dobservations_la_portent(self):
+        """« a priori mesuré (15 %) » se lisait comme une mesure solide.
+        La source doit porter n et l'intervalle."""
+        _, source, _ = economics.win_rate_for(100, 0.0, 0)
+        self.assertIn("n=26", source)
+        self.assertIn("IC95", source)
+
+
 class FakeJupiter:
     """Coût qui décroît quand la taille baisse — comportement réel d'un carnet."""
 

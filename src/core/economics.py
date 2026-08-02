@@ -29,7 +29,10 @@ deux sont valides, mais le coût mesuré du token décide lequel est ACCESSIBLE.
 """
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from src.core.stats import Interval
 
 # Marge exigée au-dessus du seuil de rentabilité. Un TP qui rembourse
 # exactement les frais n'est pas un gain, c'est du travail gratuit.
@@ -37,9 +40,15 @@ DEFAULT_EDGE_MARGIN = 1.5
 # Au-delà, la position est ingérable quelle que soit la stratégie.
 MAX_ACCEPTABLE_ROUND_TRIP_PCT = 8.0
 
-# TAUX D'ATTEINTE MESURÉS sur les 26 positions instrumentées : proportion des
-# trades dont le pic a franchi ce niveau. C'est l'a priori à utiliser tant
+# TAUX D'ATTEINTE MESURÉS sur les 26 positions instrumentées : combien de
+# trades ont vu leur pic franchir ce niveau. C'est l'a priori à utiliser tant
 # qu'un bras n'a pas d'historique à lui.
+#
+# STOCKÉ EN NOMBRE DE SUCCÈS, PAS EN TAUX. Un taux nu ment sur ce qu'il vaut :
+# « 15 % atteignent +100 % » et « 4 trades sur 26 ont atteint +100 % » sont le
+# même nombre et deux niveaux de certitude très différents. Le dénominateur est
+# commun (26 positions instrumentées), le numérateur est ce qui distingue une
+# ligne solide d'une ligne anecdotique.
 #
 # LE PIÈGE QUE ÇA ÉVITE. La garde économique demandait le win rate DU BRAS.
 # Un bras neuf en a zéro, clampé à un plancher arbitraire de 10%, ce qui
@@ -49,45 +58,80 @@ MAX_ACCEPTABLE_ROUND_TRIP_PCT = 8.0
 # Un a priori mesuré sur l'historique global est un bien meilleur point de
 # départ qu'une constante inventée, et il est remplacé par le vécu du bras
 # dès qu'il en a un.
-TAUX_ATTEINTE_MESURES = {
-    10: 0.42,
-    25: 0.31,
-    50: 0.23,
-    100: 0.15,
-    150: 0.04,
+OBSERVATIONS_INSTRUMENTEES = 26
+SUCCES_ATTEINTE_MESURES = {
+    10: 11,   # 42 %
+    25: 8,    # 31 %
+    50: 6,    # 23 %
+    100: 4,   # 15 %  <- quatre observations
+    150: 1,   # 4 %   <- une
 }
 MIN_TRADES_POUR_WIN_RATE_PROPRE = 10
 
 
-def expected_hit_rate(take_profit_pct: float) -> float:
-    """A priori de réussite pour ce niveau de TP, interpolé sur la mesure."""
-    niveaux = sorted(TAUX_ATTEINTE_MESURES)
+def _succes_interpoles(take_profit_pct: float) -> float:
+    niveaux = sorted(SUCCES_ATTEINTE_MESURES)
     if take_profit_pct <= niveaux[0]:
-        return TAUX_ATTEINTE_MESURES[niveaux[0]]
+        return float(SUCCES_ATTEINTE_MESURES[niveaux[0]])
     if take_profit_pct >= niveaux[-1]:
-        return TAUX_ATTEINTE_MESURES[niveaux[-1]]
+        return float(SUCCES_ATTEINTE_MESURES[niveaux[-1]])
     for bas, haut in zip(niveaux, niveaux[1:]):
         if bas <= take_profit_pct <= haut:
             ratio = (take_profit_pct - bas) / (haut - bas)
-            return TAUX_ATTEINTE_MESURES[bas] + ratio * (
-                TAUX_ATTEINTE_MESURES[haut] - TAUX_ATTEINTE_MESURES[bas]
+            return SUCCES_ATTEINTE_MESURES[bas] + ratio * (
+                SUCCES_ATTEINTE_MESURES[haut] - SUCCES_ATTEINTE_MESURES[bas]
             )
-    return TAUX_ATTEINTE_MESURES[niveaux[-1]]
+    return float(SUCCES_ATTEINTE_MESURES[niveaux[-1]])
+
+
+def expected_hit_rate(take_profit_pct: float) -> float:
+    """A priori de réussite pour ce niveau de TP, interpolé sur la mesure."""
+    return _succes_interpoles(take_profit_pct) / OBSERVATIONS_INSTRUMENTEES
+
+
+def hit_rate_interval(take_profit_pct: float) -> "Interval":
+    """L'a priori AVEC son incertitude, en pourcentage.
+
+    Wilson plutôt que Wald : à 1 succès sur 26, Wald rend une borne basse
+    négative. Voir `src/core/stats.wilson`.
+    """
+    from src.core.stats import wilson
+
+    return wilson(round(_succes_interpoles(take_profit_pct)), OBSERVATIONS_INSTRUMENTEES)
 
 
 def win_rate_for(
     take_profit_pct: float, arm_win_rate: float, arm_trades: int
-) -> tuple[float, str]:
-    """Win rate à utiliser, et d'où il vient.
+) -> tuple[float, str, float]:
+    """Win rate à utiliser, d'où il vient, et sa borne HAUTE à 95 %.
 
     Le vécu du bras l'emporte dès qu'il est significatif ; sinon l'a priori
     mesuré. Retourner la SOURCE permet de le dire dans le log plutôt que de
     faire passer une estimation pour une mesure.
+
+    La borne haute sert à `evaluate` : refuser une entrée sur une estimation
+    ponctuelle tirée de 4 observations, c'est la fausse précision que le reste
+    du dépôt combat. Voir `evaluate`.
     """
+    from src.core.stats import wilson
+
     if arm_trades >= MIN_TRADES_POUR_WIN_RATE_PROPRE:
-        return arm_win_rate, f"vécu du bras sur {arm_trades} trades"
+        interval = wilson(round(arm_win_rate * arm_trades), arm_trades)
+        return (
+            arm_win_rate,
+            f"vécu du bras sur {arm_trades} trades",
+            interval.high / 100,
+        )
     attendu = expected_hit_rate(take_profit_pct)
-    return attendu, f"a priori mesuré ({attendu:.0%} atteignent +{take_profit_pct:.0f}%)"
+    interval = hit_rate_interval(take_profit_pct)
+    return (
+        attendu,
+        (
+            f"a priori mesuré ({attendu:.0%} atteignent +{take_profit_pct:.0f}%, "
+            f"IC95 {interval.low:.0f}–{interval.high:.0f}% sur n={interval.n})"
+        ),
+        interval.high / 100,
+    )
 
 
 @dataclass(frozen=True)
@@ -161,12 +205,31 @@ def evaluate(
     loss_pct: Optional[float] = None,
     max_round_trip_pct: float = MAX_ACCEPTABLE_ROUND_TRIP_PCT,
     margin: float = DEFAULT_EDGE_MARGIN,
+    win_rate_high: Optional[float] = None,
 ) -> TradeEconomics:
     """Ce trade peut-il gagner de l'argent, indépendamment du signal ?
 
     `round_trip_pct = None` (pas de devis) ne bloque PAS : même invariant que
     le reste du pipeline, une donnée absente ne rejette jamais. Mais le dire,
     pour que « non mesuré » ne se confonde pas avec « gratuit ».
+
+    LE VETO PORTE SUR L'INTERVALLE, PAS SUR LE POINT. `win_rate_high` est la
+    borne haute à 95 % du taux de réussite. Le plancher de TP est calculé deux
+    fois : au point (c'est le chiffre AFFICHÉ, celui qui décrit la situation
+    attendue) et à la borne haute (c'est le chiffre qui REFUSE). Un TP n'est
+    rejeté que s'il reste sous le plancher même dans l'hypothèse la plus
+    favorable compatible avec les données.
+
+    POURQUOI. Le taux « 15 % atteignent +100 % » vient de 4 succès sur 26
+    positions : IC95 ≈ 6–34 %. Bloquer une entrée sur les 15 % nus, c'est
+    exactement la fausse précision que `Interval.conclusive`,
+    `MIN_SEGMENT_SAMPLE` et `live_mode_allowed` combattent partout ailleurs.
+    Même logique que `live_mode_allowed`, en miroir : là-bas on n'AUTORISE que
+    si la borne défavorable est bonne, ici on ne REFUSE que si la borne
+    favorable est mauvaise. Dans les deux cas la décision doit survivre à
+    l'intervalle entier.
+
+    `win_rate_high = None` retombe sur le point — comportement d'origine.
     """
     if round_trip_pct is None:
         return TradeEconomics(
@@ -193,12 +256,35 @@ def evaluate(
         take_profit_pct, win_rate, round_trip_pct, partial_fraction, rest_pct, loss_pct
     )
 
-    if take_profit_pct < plancher:
+    # Le plancher qui REFUSE : calculé au meilleur taux de réussite compatible
+    # avec les données. Un win rate plus haut abaisse le plancher, donc ce
+    # seuil-ci est toujours ≤ celui affiché.
+    haut = win_rate if win_rate_high is None else max(win_rate, win_rate_high)
+    plancher_veto = minimum_viable_tp(
+        round_trip_pct, haut, partial_fraction, rest_pct, margin
+    )
+
+    if take_profit_pct < plancher_veto:
         return TradeEconomics(
             viable=False,
             reason=(
-                f"TP +{take_profit_pct:.0f}% sous le plancher +{plancher:.0f}% "
-                f"imposé par {round_trip_pct:.1f}% de frais à {win_rate:.0%} de réussite"
+                f"TP +{take_profit_pct:.0f}% sous le plancher +{plancher_veto:.0f}% "
+                f"imposé par {round_trip_pct:.1f}% de frais, même à {haut:.0%} de "
+                f"réussite (borne haute)"
+            ),
+            round_trip_pct=round_trip_pct,
+            expected_net_pct=net,
+            minimum_tp_pct=plancher,
+            configured_tp_pct=take_profit_pct,
+        )
+
+    if take_profit_pct < plancher:
+        return TradeEconomics(
+            viable=True,
+            reason=(
+                f"TP +{take_profit_pct:.0f}% sous le plancher attendu +{plancher:.0f}% "
+                f"mais au-dessus de +{plancher_veto:.0f}% à {haut:.0%} de réussite — "
+                f"l'échantillon ne tranche pas, entrée non bloquée"
             ),
             round_trip_pct=round_trip_pct,
             expected_net_pct=net,

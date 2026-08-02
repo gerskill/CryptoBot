@@ -823,7 +823,7 @@ class AlphaLoop:
         # Le vécu du bras s'il est significatif, sinon l'a priori mesuré sur
         # l'historique global : un bras neuf a un win rate de 0 %, ce qui
         # exigeait un TP de +60% et l'empêchait de jamais démarrer.
-        win_rate, source = economics.win_rate_for(
+        win_rate, source, win_rate_high = economics.win_rate_for(
             tp1, stats["win_rate"] / 100, stats["total_trades"]
         )
         verdict = economics.evaluate(
@@ -833,6 +833,10 @@ class AlphaLoop:
             partial_fraction=exits.get("partial_sell_tp1_pct", 0.5),
             loss_pct=exits.get("stop_loss_pct", -25),
             max_round_trip_pct=max_cost,
+            # Le veto se juge sur la borne haute : le taux d'atteinte vient de
+            # 4 succès sur 26 positions, refuser une entrée sur les 15 % nus
+            # serait de la fausse précision.
+            win_rate_high=win_rate_high,
         )
         print(f"     💸 {verdict.reason} ({source})")
         return (sized if verdict.viable else 0.0), verdict.as_dict()
