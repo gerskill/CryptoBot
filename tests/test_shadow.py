@@ -285,7 +285,7 @@ class TestRelachementSurInactivite(unittest.TestCase):
     def _engine(self, cycles, motif, frozen=False):
         return LearningEngine(
             self.params, self.journal,
-            inactivity=lambda: (cycles, motif),
+            inactivity=lambda: (cycles, list(motif) if isinstance(motif, list) else ([motif] if motif else [])),
             frozen=frozen,
         )
 
@@ -368,6 +368,39 @@ class TestRelachementSurInactivite(unittest.TestCase):
         engine = LearningEngine(self.params, self.journal)
         self.assertIsNotNone(engine._relax_set("filters.max_age_hours", 2, "test", 20))
         self.assertEqual(self.params.get("filters.max_age_hours"), 8.0)
+
+    def test_descend_la_liste_quand_le_motif_dominant_est_a_sa_borne(self):
+        """LE CAS `quality` : bloqué sur l'âge à 24 h, son plafond. S'arrêter
+        au motif dominant laisserait le bras inactif indéfiniment sans rien
+        tenter, ce qui viderait ce mécanisme de son sens."""
+        self.params.set("filters.max_age_hours", 24.0, log=False)
+        engine = self._engine(
+            INACTIVITY_CYCLES,
+            ["âge 30.0h > 24.0h", "liquidité 9000$ < 15000$"],
+        )
+
+        changes = engine._relax_from_inactivity()
+
+        self.assertEqual(self.params.get("filters.max_age_hours"), 24.0)
+        self.assertEqual(self.params.get("filters.min_liquidity_usd"), 10000)
+        self.assertEqual(len(changes), 1)
+
+    def test_un_seul_changement_meme_avec_plusieurs_motifs_desserrables(self):
+        engine = self._engine(
+            INACTIVITY_CYCLES,
+            ["liquidité 9000$ < 15000$", "âge 8.0h > 6h"],
+        )
+        self.assertEqual(len(engine._relax_from_inactivity()), 1)
+        self.assertEqual(self.params.get("filters.max_age_hours"), 6)
+
+    def test_tous_les_motifs_bloques_ne_change_rien(self):
+        self.params.set("filters.max_age_hours", 24.0, log=False)
+        self.params.set("filters.min_liquidity_usd", 5000, log=False)
+        engine = self._engine(
+            INACTIVITY_CYCLES,
+            ["âge 30.0h > 24.0h", "liquidité 1$ < 5000$", "chose inconnue"],
+        )
+        self.assertEqual(engine._relax_from_inactivity(), [])
 
     def test_sans_lecteur_dinactivite_rien_ne_bouge(self):
         engine = LearningEngine(self.params, self.journal)

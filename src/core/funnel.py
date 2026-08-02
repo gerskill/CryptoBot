@@ -359,16 +359,21 @@ def recent_flow(path: str, arm: str, cycles: int = 20) -> Optional[float]:
 
 
 def inactivity_snapshot(
-    path: str, arm: str, tail: Optional[int] = None
-) -> tuple[Optional[int], Optional[str]]:
-    """(cycles depuis la dernière entrée, motif de rejet dominant).
+    path: str, arm: str, tail: Optional[int] = None, motifs: int = 5
+) -> tuple[Optional[int], list[str]]:
+    """(cycles depuis la dernière entrée, motifs de rejet par ordre de poids).
+
+    PLUSIEURS MOTIFS, PAS UN SEUL. Le motif dominant peut être déjà à sa borne
+    — c'est le cas de `quality`, bloqué sur l'âge à 24 h, son plafond. S'en
+    tenir au premier laisserait un bras inactif indéfiniment sans rien tenter,
+    alors qu'un autre de ses seuils a peut-être encore de la marge.
 
     COMPTÉ EN CYCLES, PAS EN HEURES, et c'est la seule mesure honnête ici : le
     bot est arrêté et relancé. « 12 h sans entrée » confond une stratégie qui
     ne trouve rien avec un processus qui ne tournait pas. Un cycle évalué est
     une occasion réellement offerte au bras, et refusée par lui.
 
-    `(None, None)` = ce bras n'a jamais été évalué. Un bras qui n'est JAMAIS
+    `(None, [])` = ce bras n'a jamais été évalué. Un bras qui n'est JAMAIS
     entré rend son nombre de cycles vus : c'est une borne inférieure, et c'est
     exactement le cas qui doit déclencher un relâchement.
 
@@ -380,7 +385,7 @@ def inactivity_snapshot(
     rows = read_funnel(path, tail=tail)
     cycles = [r for r in rows if r.get("gate") == "filtres_total" and r.get("arm") == arm]
     if not cycles:
-        return None, None
+        return None, []
 
     entrees = [
         r for r in rows
@@ -392,8 +397,7 @@ def inactivity_snapshot(
     else:
         depuis = len(cycles)
 
-    motifs = top_reasons(rows, arm=arm, limit=1)
-    return depuis, (motifs[0][0] if motifs else None)
+    return depuis, [motif for motif, _ in top_reasons(rows, arm=arm, limit=motifs)]
 
 
 def blocking_gate(counts: dict[str, dict[str, int]]) -> Optional[tuple[str, int, int]]:

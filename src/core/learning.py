@@ -552,10 +552,10 @@ class LearningEngine:
         if self.frozen or self.inactivity is None:
             return []
 
-        cycles, motif = self.inactivity()
+        cycles, motifs = self.inactivity()
         if cycles is None or cycles < INACTIVITY_CYCLES:
             return []
-        if not motif:
+        if not motifs:
             # Aucun rejet enregistré : le bras ne voit rien passer du tout.
             # Ce n'est pas un seuil trop strict, c'est la fenêtre de
             # découverte — desserrer un filtre au hasard n'y changerait rien.
@@ -567,24 +567,38 @@ class LearningEngine:
 
         from src.core.shadow import reason_family
 
-        famille = reason_family(motif)
-        target = RELAXATIONS.get(famille)
-        if target is None:
-            print(
-                f"🧠 inactif depuis {cycles} cycles, motif dominant « {motif} » "
-                f"(famille {famille}) — aucun paramètre associé, rien à desserrer"
+        # ON DESCEND LA LISTE JUSQU'AU PREMIER QUI BOUGE. Le motif dominant
+        # peut être déjà à sa borne : `quality` est bloqué sur l'âge à 24 h,
+        # son plafond. S'arrêter au premier laisserait un bras inactif
+        # indéfiniment sans rien tenter, ce qui viderait ce mécanisme de son
+        # sens. Un seul changement est appliqué — desserrer plusieurs seuils
+        # d'un coup rendrait l'effet illisible.
+        essayes = []
+        for motif in motifs:
+            famille = reason_family(motif)
+            target = RELAXATIONS.get(famille)
+            if target is None:
+                essayes.append(f"{motif} (famille {famille}, aucun paramètre)")
+                continue
+            path, step = target
+            change = self._relax_set(
+                path,
+                step,
+                f"inactif depuis {cycles} cycles sans entrée "
+                f"(seuil {INACTIVITY_CYCLES}) — motif « {motif} »",
+                cycles,
             )
-            return []
+            if change:
+                return [change]
+            essayes.append(f"{motif} -> {path} (sans effet)")
 
-        path, step = target
-        change = self._relax_set(
-            path,
-            step,
-            f"inactif depuis {cycles} cycles sans entrée (seuil {INACTIVITY_CYCLES}) — "
-            f"motif dominant « {motif} »",
-            cycles,
+        print(
+            f"🧠 inactif depuis {cycles} cycles, AUCUN seuil desserrable : "
+            + " | ".join(essayes)
+            + ". Le blocage n'est plus dans les filtres — voir les bornes du "
+            "manifeste ou la fenêtre de découverte."
         )
-        return [change] if change else []
+        return []
 
     def _adjust_weights(self, learning: dict) -> list[str]:
         """Étape 6.3.B — renforce le critère du meilleur segment social."""
