@@ -334,6 +334,86 @@ class TestShadowParBras(ArmsTestCase):
         self.assertEqual(baseline.shadow.path, settings.SHADOW_LOG_PATH)
 
 
+class TestRelachementDepuisLeCycle(ArmsTestCase):
+    """Le relâchement sur inactivité doit partir du CYCLE, pas d'un trade.
+
+    LA POULE ET L'ŒUF VERROUILLÉE ICI. `learning.run` n'est appelé que par
+    `_after_trade_closed`. Un bras qui n'ouvre jamais de position n'en ferme
+    jamais, donc `run` n'est jamais appelé, donc le relâchement sur inactivité
+    serait inatteignable EXACTEMENT pour les bras qu'il doit débloquer.
+    `narrative` était à 0 entrée sur 927 cycles.
+
+    Même famille que les poules-et-œufs corrigées dans `economics` et dans la
+    porte des 15 trades, un cran plus haut : cette fois ce n'est pas un seuil
+    qui bloque, c'est le point d'appel.
+    """
+
+    def _loop(self, arms, cycle):
+        from src.main import AlphaLoop
+
+        faux = type("L", (), {})()
+        faux.arms = arms
+        faux.paused = False
+        faux.cycle_count = cycle
+        AlphaLoop._relax_inactive_arms(faux)
+        return faux
+
+    def _bras_inactif(self):
+        baseline, runner = self._deux_bras()
+        for arm in (baseline, runner):
+            arm.learning.inactivity = lambda: (10_000, ["liquidité 9000$ < 40000$"])
+        return baseline, runner
+
+    def test_un_bras_a_zero_trade_est_bien_atteint(self):
+        baseline, runner = self._bras_inactif()
+        from src.main import INACTIVITY_CHECK_EVERY
+
+        self.assertEqual(len(runner.journal.read_positions()), 0)
+        self._loop([baseline, runner], cycle=INACTIVITY_CHECK_EVERY)
+
+        self.assertEqual(runner.params.get("filters.min_liquidity_usd"), 35000)
+
+    def test_le_temoin_reste_gele(self):
+        baseline, runner = self._bras_inactif()
+        from src.main import INACTIVITY_CHECK_EVERY
+
+        avant = baseline.params.get("filters.min_liquidity_usd")
+        self._loop([baseline, runner], cycle=INACTIVITY_CHECK_EVERY)
+
+        self.assertEqual(baseline.params.get("filters.min_liquidity_usd"), avant)
+
+    def test_hors_cadence_rien_ne_bouge(self):
+        baseline, runner = self._bras_inactif()
+        from src.main import INACTIVITY_CHECK_EVERY
+
+        avant = runner.params.get("filters.min_liquidity_usd")
+        self._loop([baseline, runner], cycle=INACTIVITY_CHECK_EVERY + 1)
+
+        self.assertEqual(runner.params.get("filters.min_liquidity_usd"), avant)
+
+    def test_en_pause_rien_ne_bouge(self):
+        from src.main import AlphaLoop, INACTIVITY_CHECK_EVERY
+
+        baseline, runner = self._bras_inactif()
+        avant = runner.params.get("filters.min_liquidity_usd")
+
+        faux = type("L", (), {})()
+        faux.arms = [baseline, runner]
+        faux.paused = True
+        faux.cycle_count = INACTIVITY_CHECK_EVERY
+        AlphaLoop._relax_inactive_arms(faux)
+
+        self.assertEqual(runner.params.get("filters.min_liquidity_usd"), avant)
+
+    def test_la_cadence_ne_peut_pas_manquer_un_declenchement(self):
+        """Il faut 300 cycles sans entrée pour déclencher ; contrôler tous les
+        50 cycles ne peut donc rien rater."""
+        from src.core.learning import INACTIVITY_CYCLES
+        from src.main import INACTIVITY_CHECK_EVERY
+
+        self.assertLess(INACTIVITY_CHECK_EVERY, INACTIVITY_CYCLES)
+
+
 class TestManifesteLivre(unittest.TestCase):
     """Le manifeste réellement livré doit être cohérent."""
 

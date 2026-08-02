@@ -73,6 +73,11 @@ LIQUIDITY_ALERT_PCT = -25.0
 # non un compte : « 2 sur 5 » se casse dès qu'un bras s'abstient, « 60% des
 # présents » survit à des fenêtres disjointes en gardant la même exigence.
 CONSENSUS_MIN_RATIO = 0.6
+# Cadence du contrôle d'inactivité, en cycles. Il faut `INACTIVITY_CYCLES` =
+# 300 cycles sans entrée pour qu'un relâchement se déclenche : contrôler tous
+# les 50 cycles (~1 h 15 à 90 s) ne peut donc rien manquer, et évite de lire la
+# queue de l'entonnoir pour 7 bras à chaque tour.
+INACTIVITY_CHECK_EVERY = 50
 
 _running = True
 
@@ -289,9 +294,39 @@ class AlphaLoop:
                     self._try_entries(evaluation, arm, self._last_confluence)
         self.funnel.flush()
 
+        # APRÈS le flush : le relâchement lit l'entonnoir, y compris les lignes
+        # de ce cycle-ci.
+        self._relax_inactive_arms()
         self.cache.purge()
         self._publish_state(result)
         self._periodic_reports()
+
+    def _relax_inactive_arms(self) -> None:
+        """Desserre les bras qui n'entrent plus, depuis le CYCLE.
+
+        POURQUOI PAS DEPUIS `_after_trade_closed` COMME LE RESTE. `learning.run`
+        n'est appelé qu'à la fermeture d'une position. Un bras qui n'ouvre
+        jamais rien n'en ferme jamais, donc `run` n'est jamais appelé, donc le
+        relâchement sur inactivité serait inatteignable **exactement pour les
+        bras qu'il doit débloquer**. `narrative` : 0 entrée sur 927 cycles.
+
+        C'est la même poule-et-œuf que celles corrigées dans `economics` et
+        dans la porte des 15 trades, un cran plus haut : cette fois ce n'est
+        pas le seuil qui bloque, c'est le point d'appel.
+
+        Cadencé, pas à chaque cycle : la mesure lit la queue de l'entonnoir
+        pour chacun des 7 bras. À 90 s par cycle, `INACTIVITY_CHECK_EVERY`
+        cadence le contrôle à un peu plus d'une heure — très en dessous des
+        `INACTIVITY_CYCLES` = 300 cycles qu'il faut pour déclencher, donc aucun
+        déclenchement n'est manqué.
+        """
+        if self.paused or self.cycle_count % INACTIVITY_CHECK_EVERY != 0:
+            return
+        for arm in self.arms:
+            if arm.learning is None:
+                continue
+            for change in arm.learning._relax_from_inactivity():
+                print(f"🧠{arm.label} {change}")
 
     def _scan_all_arms(self) -> ScanResult:
         """Une collecte, N évaluations. Retourne celle du bras témoin.

@@ -202,10 +202,13 @@ def _flow_reader(arm_name: str):
 
 # Lignes d'entonnoir à remonter pour juger l'inactivité. Mesuré au 2026-08-02 :
 # 68 lignes par cycle tous bras confondus, et `INACTIVITY_CYCLES` vaut 300 —
-# il faut donc voir bien au-delà de 300 cycles pour situer la dernière entrée.
-# 60 000 lignes ≈ 880 cycles, soit près de trois fois le seuil, et ça reste
-# borné par la rotation du journal.
-INACTIVITY_TAIL_LINES = 60_000
+# il faut donc voir au-delà de 300 cycles pour situer la dernière entrée.
+# 30 000 lignes ≈ 440 cycles, soit 1,5 fois le seuil.
+#
+# Un bras qui n'est PAS entré depuis plus longtemps que cette fenêtre rend
+# simplement le nombre de cycles qu'elle contient : une borne inférieure, déjà
+# au-dessus du seuil. Aucune raison de lire plus.
+INACTIVITY_TAIL_LINES = 30_000
 
 
 def _pool_reader(arm_name: str, manifest_names: list[str]):
