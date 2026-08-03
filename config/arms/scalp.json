@@ -39,7 +39,7 @@
     "min_smart_money_buys_30min": 0,
     "max_tax_buy": 5,
     "max_tax_sell": 5,
-    "max_age_hours": 4.0,
+    "max_age_hours": 6.0,
     "min_age_hours": 0.5,
     "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose.",
     "max_bundler_rate": 0.4,
@@ -96,17 +96,25 @@
         "new_value": 4.0,
         "reason": "elargissement mesure : 200 rejets sur « age > 2h ». Mesure : age<=4h liq>=5000 rend 57 tokens contre 22 a 2h",
         "trades_sample_size": 0
+      },
+      {
+        "timestamp": "2026-08-03T02:59:53.396659+00:00",
+        "param_name": "filters.max_age_hours",
+        "old_value": 4.0,
+        "new_value": 6.0,
+        "reason": "inactif depuis 313 cycles sans entrée (seuil 300) — motif « âge Nh > Nh »",
+        "trades_sample_size": 313
       }
     ],
-    "total_trades": 8,
+    "total_trades": 9,
     "winning_trades": 4,
-    "losing_trades": 4,
+    "losing_trades": 5,
     "avg_win_pct": 30.93,
-    "avg_loss_pct": -31.1,
+    "avg_loss_pct": -30.18,
     "win_rate_by_age": {
       "2-4h": {
-        "win_rate": 25.0,
-        "sample": 4
+        "win_rate": 20.0,
+        "sample": 5
       },
       "1-2h": {
         "win_rate": 66.7,
@@ -119,8 +127,8 @@
     },
     "win_rate_by_liquidity": {
       "10-30K": {
-        "win_rate": 60.0,
-        "sample": 5
+        "win_rate": 50.0,
+        "sample": 6
       },
       "30-50K": {
         "win_rate": 33.3,

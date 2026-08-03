@@ -52,12 +52,22 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const mode = useStore((s) => s.state.mode ?? 'PAPER')
   const paused = useStore((s) => s.state.paused)
   const cycle = useStore((s) => s.state.cycle)
-  const equityPulse = usePulse(stats?.equity)
+  const agg = useStore((s) => s.state.aggregate)
 
-  const equity = stats?.equity ?? 0
-  const pnl = stats?.total_pnl_usd ?? 0
-  // Rendement rapporté à la mise de départ, pas à une valeur dérivée.
-  const baseline = stats?.baseline ?? 0
+  // LE CHIFFRE HÉROÏQUE EST CELUI DE LA FLOTTE, PAS DU TÉMOIN.
+  // `stats` décrit le seul bras `baseline`, qui est GELÉ : il affichait 822 $
+  // figés pendant que les sept portefeuilles totalisaient 6 926 $. Les gains
+  // étaient bien comptés — c'est cette lecture qui regardait le mauvais
+  // portefeuille. `TheBrain` avait déjà basculé sur `aggregate`, l'en-tête
+  // était restée en arrière.
+  const equity = agg?.equity ?? stats?.equity ?? 0
+  const pnl = agg?.total_pnl_usd ?? stats?.total_pnl_usd ?? 0
+  const equityPulse = usePulse(equity)
+
+  // Rendement rapporté à la mise de départ, pas à une valeur dérivée. En
+  // PAPER chaque bras a la MÊME mise indépendante : la mise de la flotte est
+  // donc celle du témoin multipliée par le nombre de bras.
+  const baseline = (stats?.baseline ?? 0) * (agg?.arms ?? 1)
   const pnlPct = baseline > 0 ? (100 * pnl) / baseline : 0
 
   // Night watch : entre 00h et 06h, le marché est creux.

@@ -29,7 +29,7 @@
     "_note_gmgn": "Decouverte GMGN filtree cote serveur. Mesure 2026-08-01 : le flux DexScreener /token-profiles est de la promo payante, liquidite mediane 1634$. GMGN rend liquidite + holders + top10 + smart money en UN appel deja filtre, donc on n enrichit plus du dechet. 3 intervalles = 3 appels par cycle."
   },
   "filters": {
-    "min_liquidity_usd": 15000,
+    "min_liquidity_usd": 10000,
     "min_holders": 200,
     "min_volume_1h": 18000,
     "max_dev_wallet_pct": 10,
@@ -40,7 +40,7 @@
     "max_tax_buy": 5,
     "max_tax_sell": 5,
     "max_age_hours": 24.0,
-    "min_age_hours": 4.0,
+    "min_age_hours": 1.0,
     "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose.",
     "max_bundler_rate": 0.2,
     "max_insider_rate": 0.1,
@@ -168,6 +168,54 @@
         "new_value": 15000,
         "reason": "inactif depuis 440 cycles sans entrée (seuil 300) — motif « liquidité N < N »",
         "trades_sample_size": 440
+      },
+      {
+        "timestamp": "2026-08-02T20:44:52.010352+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 15000,
+        "new_value": 10000,
+        "reason": "inactif depuis 423 cycles sans entrée (seuil 300) — motif « liquidité N < N »",
+        "trades_sample_size": 423
+      },
+      {
+        "timestamp": "2026-08-02T21:59:55.792880+00:00",
+        "param_name": "filters.min_age_hours",
+        "old_value": 4.0,
+        "new_value": 3.0,
+        "reason": "inactif depuis 429 cycles sans entrée (seuil 300) — motif « âge Nh < Nh »",
+        "trades_sample_size": 429
+      },
+      {
+        "timestamp": "2026-08-02T23:14:54.258929+00:00",
+        "param_name": "filters.min_age_hours",
+        "old_value": 3.0,
+        "new_value": 2.5,
+        "reason": "inactif depuis 432 cycles sans entrée (seuil 300) — motif « âge Nh < Nh »",
+        "trades_sample_size": 432
+      },
+      {
+        "timestamp": "2026-08-03T00:29:57.978712+00:00",
+        "param_name": "filters.min_age_hours",
+        "old_value": 2.5,
+        "new_value": 2.0,
+        "reason": "inactif depuis 431 cycles sans entrée (seuil 300) — motif « âge Nh < Nh »",
+        "trades_sample_size": 431
+      },
+      {
+        "timestamp": "2026-08-03T01:44:53.801583+00:00",
+        "param_name": "filters.min_age_hours",
+        "old_value": 2.0,
+        "new_value": 1.5,
+        "reason": "inactif depuis 435 cycles sans entrée (seuil 300) — motif « âge Nh < Nh »",
+        "trades_sample_size": 435
+      },
+      {
+        "timestamp": "2026-08-03T02:59:53.611695+00:00",
+        "param_name": "filters.min_age_hours",
+        "old_value": 1.5,
+        "new_value": 1.0,
+        "reason": "inactif depuis 443 cycles sans entrée (seuil 300) — motif « âge Nh < Nh »",
+        "trades_sample_size": 443
       }
     ],
     "total_trades": 2,
