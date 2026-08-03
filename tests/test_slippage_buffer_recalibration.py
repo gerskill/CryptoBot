@@ -149,5 +149,86 @@ class TestRecalibration(Base):
         )
 
 
+class TestValidationParBacktest(Base):
+    """LE « MIX » DEMANDÉ : mesure empirique pour PROPOSER, rejeu pour VALIDER.
+
+    `_recalibrate_slippage_buffer` ne décide jamais seule — elle tourne
+    depuis `_adjust_exits`, dont chaque changement passe déjà par
+    `validate_exit_changes` dans `run()`. Ce fichier construit un cas où la
+    mesure empirique (résidu réel sur des sorties stop loss) propose un
+    tampon que le rejeu (sur des trajectoires DIFFÉRENTES, où ce tampon
+    aurait converti une remontée réelle en perte simulée) désapprouve — et
+    vérifie que le tout est bien annulé, pas juste l'un des deux.
+    """
+
+    def test_un_tampon_mesure_mais_nefaste_est_annule_par_le_backtest(self):
+        # 10 sorties STOP_LOSS réelles : trigger -25 (tampon 0 actif),
+        # réalisé -33 -> résidu 8 -> candidat 0 + 8 = 8.0. trough assez
+        # profond pour rester stoppé quel que soit le tampon : ces lignes ne
+        # doivent RIEN changer au rejeu, seulement proposer le candidat.
+        sl_rows = [
+            {**_sl_row(f"sl{i}", -25.0, -33.0),
+             "peak_pct": 5.0, "trough_pct": -33.0, "position_size": 20.0}
+            for i in range(MIN_SEGMENT_SAMPLE)
+        ]
+        # 8 positions qui ont RÉELLEMENT remonté (TIME_STOP à +8%), avec un
+        # creux à -18 : hors de portée du seuil actuel (-25), mais À portée
+        # du seuil élargi par le candidat (-25+8 = -17). Le rejeu doit noter
+        # cette conversion remontée -> perte, sans que rien ne fuite depuis
+        # la raison de sortie historique.
+        recovery_rows = [
+            {"position_id": f"rec{i}", "token": f"rec{i}",
+             "exit_reason": "TIME_STOP", "pnl_pct": 8.0, "pnl_usd": 1.6,
+             "peak_pct": 5.0, "trough_pct": -18.0, "position_size": 20.0,
+             "is_final_exit": True}
+            for i in range(8)
+        ]
+        self._ecrire(sl_rows + recovery_rows)
+
+        previous_exits = dict(self.params.get("exit_rules", {}))
+        change = self.engine._recalibrate_slippage_buffer(
+            self.journal.read_positions()
+        )
+        self.assertIsNotNone(change, "le candidat doit être proposé")
+        self.assertEqual(
+            self.params.get("exit_rules.stop_loss_slippage_buffer_pct"), 8.0
+        )
+
+        verdict = self.engine.validate_exit_changes(previous_exits)
+
+        self.assertIn("annulées", verdict or "")
+        self.assertEqual(
+            self.params.get("exit_rules.stop_loss_slippage_buffer_pct"), 0.0,
+            "le backtest doit revenir au tampon d'avant, pas garder le "
+            "candidat mesuré seul",
+        )
+
+    def test_un_tampon_mesure_et_confirme_par_le_backtest_est_garde(self):
+        # Même mesure empirique, mais aucune position ne bascule d'une
+        # remontée réelle vers une perte simulée : le candidat doit survivre.
+        sl_rows = [
+            {**_sl_row(f"sl{i}", -25.0, -33.0),
+             "peak_pct": 5.0, "trough_pct": -33.0, "position_size": 20.0}
+            for i in range(MIN_SEGMENT_SAMPLE)
+        ]
+        neutral_rows = [
+            {"position_id": f"n{i}", "token": f"n{i}",
+             "exit_reason": "TIME_STOP", "pnl_pct": 2.0, "pnl_usd": 0.4,
+             "peak_pct": 5.0, "trough_pct": -2.0, "position_size": 20.0,
+             "is_final_exit": True}
+            for i in range(8)
+        ]
+        self._ecrire(sl_rows + neutral_rows)
+
+        previous_exits = dict(self.params.get("exit_rules", {}))
+        self.engine._recalibrate_slippage_buffer(self.journal.read_positions())
+        verdict = self.engine.validate_exit_changes(previous_exits)
+
+        self.assertNotIn("annulées", verdict or "")
+        self.assertEqual(
+            self.params.get("exit_rules.stop_loss_slippage_buffer_pct"), 8.0
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

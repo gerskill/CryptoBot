@@ -591,7 +591,7 @@ class AlphaLoop:
         # témoin.
         #
         # POURQUOI CE BLOC EXISTE. Le panneau n'affichait que `stats`, c'est-à-
-        # dire le TÉMOIN — gelé, sans trade depuis 16 h. Il montrait « 4
+        # dire le TÉMOIN — sans trade depuis 16 h ce jour-là. Il montrait « 4
         # gagnants sur 39 » pendant que la flotte en comptait 27 sur 93. Les
         # gains étaient bien enregistrés ; c'est la lecture qui regardait le
         # mauvais portefeuille.
@@ -921,7 +921,7 @@ class AlphaLoop:
         # est une information de log, pas une alerte.
         #
         # TOUS LES BRAS, PAS SEULEMENT LE TÉMOIN. `arm.is_baseline` limitait
-        # cette notification au seul bras gelé — les cinq autres ajustaient
+        # cette notification au seul témoin — les cinq autres ajustaient
         # leurs paramètres sans que rien n'en sorte sur Telegram. Même défaut
         # que les 16 sorties jamais notifiées, une couche plus profonde :
         # passe par `arm.portfolio.notifier` (donc par le reporter unique),
@@ -1241,14 +1241,17 @@ class AlphaLoop:
     def _print_dashboard(self) -> None:
         """Deux blocs, et l'ordre compte.
 
-        LA FLOTTE D'ABORD. Ce panneau n'affichait que le témoin, gelé et sans
+        LA FLOTTE D'ABORD. Ce panneau n'affichait que le témoin, alors sans
         trade depuis des heures : il montrait « 4 gagnants sur 39 » pendant que
         les six autres bras en accumulaient 27 sur 93. Les gains étaient
         enregistrés — c'est la lecture qui regardait le mauvais portefeuille.
 
-        LE TÉMOIN QUAND MÊME, en dessous et étiqueté. C'est la seule référence
-        comparable aux trades historiques : le sortir du panneau ferait perdre
-        le point de comparaison qui donne un sens aux chiffres de la flotte.
+        LE TÉMOIN QUAND MÊME, en dessous et étiqueté. C'est la référence
+        historique pour `verdict_vs_reference` (sa série de trades est
+        continue depuis avant le multi-bras) — pas un bras figé : depuis le
+        2026-08-03 il apprend comme les six autres. Le sortir du panneau
+        ferait perdre le point de comparaison qui donne un sens aux chiffres
+        de la flotte.
         """
         stats = self.portfolio.stats()
         agg = self._aggregate_stats()
@@ -1274,7 +1277,7 @@ class AlphaLoop:
         )
         print(f"├{'─' * 60}┤")
         print(
-            f"│ témoin (gelé) : {stats['equity']:.2f} $ | "
+            f"│ témoin : {stats['equity']:.2f} $ | "
             f"{stats['total_pnl_usd']:+.2f} $ | WR {stats['win_rate']}% | "
             f"PF {stats['profit_factor']} | {stats['total_trades']} trades".ljust(61)
             + "│"

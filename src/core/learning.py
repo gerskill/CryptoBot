@@ -245,9 +245,9 @@ class LearningEngine:
         # qui n'entre plus est bloqué par ses propres seuils, et il n'a aucun
         # trade neuf pour s'en apercevoir.
         self.inactivity = inactivity
-        # Le bras témoin est GELÉ : c'est la seule référence comparable aux
-        # trades historiques. Un relâchement automatique la détruirait, et la
-        # comparaison entre bras avec elle.
+        # Un bras GELÉ n'obtient jamais le relâchement sur inactivité —
+        # aucun bras du manifeste actuel, témoin compris depuis le 2026-08-03.
+        # Réservé à un futur bras référence réellement immuable.
         self.frozen = frozen
         # Trajectoires des AUTRES bras, pour le rejeu des sorties uniquement.
         # `simulate_exits` ne lit que pic et creux : une trajectoire ne dépend
@@ -551,8 +551,8 @@ class LearningEngine:
         candidats. Un seul par passage : desserrer cinq seuils d'un coup rend
         l'effet du changement illisible.
 
-        NE S'APPLIQUE PAS AU BRAS TÉMOIN, gelé par construction, ni aux
-        familles de sécurité, absentes de `RELAXATIONS`.
+        NE S'APPLIQUE PAS À UN BRAS GELÉ (`self.frozen`, aucun aujourd'hui) ni
+        aux familles de sécurité, absentes de `RELAXATIONS`.
         """
         if self.frozen or self.inactivity is None:
             return []

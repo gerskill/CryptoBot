@@ -402,9 +402,20 @@ def bootstrap_arms(
                         # par ses propres seuils, et n'a aucun trade neuf pour
                         # s'en apercevoir.
                         inactivity=_inactivity_reader(name),
-                        # Le témoin est gelé : seule référence comparable aux
-                        # trades historiques, aucun relâchement automatique.
-                        frozen=(name == settings.BASELINE_ARM),
+                        # AUCUN BRAS GELÉ, TÉMOIN COMPRIS — décision du
+                        # propriétaire du 2026-08-03. Le témoin doit pouvoir
+                        # devenir une bonne stratégie à part entière, jusqu'au
+                        # passage en réel, pas rester un point de comparaison
+                        # figé. Il garde son rôle de référence pour
+                        # `verdict_vs_reference` (sa PROPRE série de trades,
+                        # continue depuis avant le multi-bras), mais ses
+                        # paramètres s'ajustent désormais comme ceux des six
+                        # autres — filtres, sorties, risque, tampon de
+                        # glissement, et relâchement sur inactivité. `frozen`
+                        # reste un flag disponible pour un futur bras
+                        # référence réellement immuable ; personne ne l'utilise
+                        # aujourd'hui.
+                        frozen=False,
                         # Rejeu des SORTIES seulement : une trajectoire ne
                         # dépend pas du bras qui l'a achetée. 6 positions
                         # instrumentées par bras contre 75 mises en commun.

@@ -378,14 +378,17 @@ class TestRelachementDepuisLeCycle(ArmsTestCase):
 
         self.assertEqual(runner.params.get("filters.min_liquidity_usd"), 35000)
 
-    def test_le_temoin_reste_gele(self):
+    def test_le_temoin_est_relache_comme_les_autres(self):
+        """Décision du propriétaire, 2026-08-03 : le témoin n'est plus gelé.
+        Il doit pouvoir devenir une bonne stratégie à part entière, jusqu'au
+        passage en réel — pas rester un point de comparaison figé."""
         baseline, runner = self._bras_inactif()
         from src.main import INACTIVITY_CHECK_EVERY
 
         avant = baseline.params.get("filters.min_liquidity_usd")
         self._loop([baseline, runner], cycle=INACTIVITY_CHECK_EVERY)
 
-        self.assertEqual(baseline.params.get("filters.min_liquidity_usd"), avant)
+        self.assertNotEqual(baseline.params.get("filters.min_liquidity_usd"), avant)
 
     def test_hors_cadence_rien_ne_bouge(self):
         baseline, runner = self._bras_inactif()
@@ -496,6 +499,27 @@ class TestStatsDeLaFlotte(ArmsTestCase):
         self.assertEqual(agg["closed_trades"], 0)
         self.assertEqual(agg["win_rate"], 0.0)
         self.assertEqual(agg["profit_factor"], 0.0)
+
+
+class TestAucunBrasGele(ArmsTestCase):
+    """Décision du propriétaire, 2026-08-03 : le témoin doit pouvoir devenir
+    une bonne stratégie à part entière, jusqu'au passage en réel — pas rester
+    un point de comparaison figé. `bootstrap_arms` ne doit donc plus gelé
+    aucun bras, baseline compris."""
+
+    def test_bootstrap_arms_ne_gele_aucun_bras(self):
+        baseline, runner = self._deux_bras()
+        self.assertFalse(baseline.learning.frozen)
+        self.assertFalse(runner.learning.frozen)
+
+    def test_le_temoin_beneficie_du_relachement_sur_inactivite(self):
+        """Avant cette décision, `_relax_from_inactivity` retournait
+        systématiquement [] pour baseline. Ce n'est plus le cas."""
+        baseline, _ = self._deux_bras()
+        baseline.learning.inactivity = lambda: (
+            999999, ["liquidité 9000$ < 40000$"]
+        )
+        self.assertNotEqual(baseline.learning._relax_from_inactivity(), [])
 
 
 class TestManifesteLivre(unittest.TestCase):

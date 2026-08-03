@@ -10,7 +10,7 @@
       "enabled": true,
       "capital_pct": 0.158,
       "notify": "all",
-      "description": "Temoin GELE. params.json actuel, fichiers data/ historiques, tampon de glissement a 0. Ne pas toucher : c'est la seule reference comparable aux 36 trades deja collectes."
+      "description": "Temoin. params.json actuel, fichiers data/ historiques continus depuis avant le multi-bras -- c'est la reference pour verdict_vs_reference. Depuis 2026-08-03 il apprend comme les six autres bras (filtres, sorties, tampon de glissement, relachement sur inactivite) : l'objectif est qu'il devienne lui-meme une bonne strategie, candidate au passage en reel, pas qu'il reste fige."
     },
     {
       "name": "sniper",

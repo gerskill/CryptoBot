@@ -299,9 +299,10 @@ class TestRelachementSurInactivite(unittest.TestCase):
         self.assertEqual(engine._relax_from_inactivity(), [])
         self.assertEqual(self.params.get("filters.min_liquidity_usd"), 15000)
 
-    def test_le_temoin_gele_nest_jamais_relache(self):
-        """Le témoin est la seule référence comparable aux trades historiques.
-        Un relâchement automatique la détruirait, et la comparaison avec."""
+    def test_un_bras_gele_nest_jamais_relache(self):
+        """`frozen` reste un mécanisme générique, réservé à un futur bras
+        référence réellement immuable — aucun bras du manifeste actuel ne
+        l'utilise depuis que le témoin a cessé d'être gelé (2026-08-03)."""
         engine = self._engine(INACTIVITY_CYCLES * 3, "liquidité 12000$ < 15000$",
                               frozen=True)
         self.assertEqual(engine._relax_from_inactivity(), [])

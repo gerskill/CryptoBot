@@ -176,7 +176,12 @@ appliqué : découper rétroactivement faisait démarrer `baseline` à −16,46 
 (mise 150 $, journal −166 $), et un bras à 5 % prendrait des positions dix fois
 plus petites, affichant un P&L moindre pour une raison d'allocation.
 
-`baseline` est **gelé** — c'est la seule référence comparable aux trades historiques.
+`baseline` est la référence pour `verdict_vs_reference` — sa série de trades
+est continue depuis avant le multi-bras. **Il n'est plus gelé depuis le
+2026-08-03** : il apprend comme les six autres (filtres, sorties, tampon de
+glissement, relâchement sur inactivité), décision du propriétaire — l'objectif
+est qu'il devienne lui-même une bonne stratégie, candidate au passage en réel,
+plutôt qu'un point de comparaison figé.
 
 ### 4.2 Les six portes d'entrée
 
@@ -583,9 +588,13 @@ Le troisième existe parce que les deux premiers sont inatteignables pour un
 bras qui n'entre jamais : pas de trades, et pas assez de rejets jugés par
 famille. `narrative` était dans ce cas — 0 entrée sur 927 cycles.
 
-**Le témoin est exclu des trois.** Il est gelé (`frozen=True`) : c'est la seule
-référence comparable aux trades historiques, et un relâchement automatique la
-détruirait, la comparaison entre bras avec elle.
+**Précision a posteriori, 2026-08-03 : `frozen` n'a jamais couvert les trois.**
+Il ne gate que `_relax_from_inactivity` — `_adjust_filters` et
+`_relax_from_shadow` ont toujours tourné sur le témoin comme sur les autres
+bras, y compris avant cette date. Le témoin bénéficie désormais des trois,
+`frozen=False` comme tout le monde : décision explicite du propriétaire pour
+qu'il devienne lui-même une bonne stratégie plutôt qu'un point de comparaison
+figé.
 
 ### Mise en commun des trajectoires
 
