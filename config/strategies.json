@@ -8,7 +8,7 @@
       "name": "baseline",
       "role": "voter",
       "enabled": true,
-      "capital_pct": 0.15,
+      "capital_pct": 0.158,
       "notify": "all",
       "description": "Temoin GELE. params.json actuel, fichiers data/ historiques, tampon de glissement a 0. Ne pas toucher : c'est la seule reference comparable aux 36 trades deja collectes."
     },
@@ -16,7 +16,7 @@
       "name": "sniper",
       "role": "voter",
       "enabled": true,
-      "capital_pct": 0.2,
+      "capital_pct": 0.2105,
       "notify": "none",
       "description": "1m30 a 30 min. Teste l'hypothese que la tranche 0-1h (1 gagnant sur 22) echouait a cause du stop a -10, pas de son age : creux median -22.8% contre -11.6% a 2-4h. Liquidite 4000 car au-dessus il n'y a litteralement aucun token de moins de 30 min.",
       "bounds": {
@@ -65,7 +65,7 @@
       "name": "scalp",
       "role": "voter",
       "enabled": true,
-      "capital_pct": 0.2,
+      "capital_pct": 0.2105,
       "notify": "none",
       "description": "30 min a 2h, petits gains. 31% des trades instrumentes touchent +25%, seulement 15% touchent +100%.",
       "bounds": {
@@ -108,7 +108,7 @@
       "name": "runner",
       "role": "voter",
       "enabled": true,
-      "capital_pct": 0.2,
+      "capital_pct": 0.2105,
       "notify": "none",
       "description": "1h a 6h, laisser courir. Creux median -20.9% : un stop a -10 est dans le bruit et coupe 96% des trades. Supprime aussi le breakeven apres TP1, qui a rendu la seconde moitie de 3 des 4 gagnants a environ -3%.",
       "bounds": {
@@ -149,7 +149,7 @@
       "name": "quality",
       "role": "voter",
       "enabled": true,
-      "capital_pct": 0.05,
+      "capital_pct": 0.0526,
       "notify": "none",
       "description": "4h a 24h, selection stricte. La tranche 2-4h est la SEULE rentable du journal (+2.95 $/trade, WR 33%, pic median +28%). Ce bras teste si aller plus loin dans l'age garde cet avantage, avec la liquidite que seul l'age permet.",
       "overrides": {
@@ -195,7 +195,7 @@
     {
       "name": "narrative",
       "role": "voter",
-      "enabled": true,
+      "enabled": false,
       "capital_pct": 0.05,
       "notify": "none",
       "description": "Memecoins ETABLIS, aucun plafond d'age. MESURE 2026-08-01 : les seuils du guide (MCAP>=500K, liq>=100K, swaps>=150, top10<18%) rendent 26 tokens SANS contrainte d'age, 1 seul a moins de 24h, 0 a moins de 6h. Ce n'est pas du sniping de lancement, c'est du suivi de narratif : on achete une communaute qui monte et on tient. Hold en heures, pas en minutes, et stop large car ces tokens respirent.",
@@ -235,13 +235,14 @@
         "exit_rules.trailing_stop_distance_pct": 40,
         "exit_rules.max_hold_time_minutes": 1440,
         "risk_rules.max_concurrent_positions": 1
-      }
+      },
+      "disabled_reason": "2026-08-03 : seul bras dont l IC95 du P&L/trade exclut zero, du mauvais cote. 4 trades, WR 0 %, PF 0.00, -8.94 $/trade, IC95 [-11.54 .. -7.56] vs temoin -> verdict « inferieur ». Les six autres bras sont indistinguables du temoin ; celui-ci est le seul sur lequel les donnees autorisent une decision."
     },
     {
       "name": "consensus",
       "role": "consensus",
       "enabled": true,
-      "capital_pct": 0.15,
+      "capital_pct": 0.1579,
       "notify": "exits",
       "description": "N'entre que si au moins min_confluence bras VOTERS acceptent le token. Son propre vote ne compte pas, sinon la regle est auto-referentielle. Fenetre large expres : il doit pouvoir suivre n'importe quel bras.",
       "min_confluence": 2,

@@ -76,10 +76,10 @@
     "rugcheck": 0.15
   },
   "learning": {
-    "total_trades": 40,
-    "winning_trades": 4,
+    "total_trades": 41,
+    "winning_trades": 5,
     "losing_trades": 36,
-    "avg_win_pct": 79.5,
+    "avg_win_pct": 78.79,
     "avg_loss_pct": -26.93,
     "best_performer_filter": null,
     "worst_performer_filter": null,
@@ -89,8 +89,8 @@
         "sample": 13
       },
       "1-2h": {
-        "win_rate": 0.0,
-        "sample": 9
+        "win_rate": 10.0,
+        "sample": 10
       },
       "0-1h": {
         "win_rate": 7.7,
@@ -111,8 +111,8 @@
         "sample": 19
       },
       "10-30K": {
-        "win_rate": 0.0,
-        "sample": 16
+        "win_rate": 5.9,
+        "sample": 17
       }
     },
     "win_rate_by_social_score": {
