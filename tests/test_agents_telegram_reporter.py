@@ -131,6 +131,23 @@ class TestSorties(unittest.TestCase):
         )
         self.assertIn("+100%", self.tg.sent[0])
 
+    def test_un_ajustement_de_parametre_est_toujours_groupe(self):
+        """`report_note` : une recalibration de tampon n'est pas urgente au
+        sens d'`is_notable`. Elle attend le lot, comme une entrée."""
+        self.agent.report_note("scalp", "exit_rules.stop_loss_slippage_buffer_pct -> 9.8")
+        self.assertEqual(self.tg.sent, [])
+        self.assertEqual(len(self.agent._batch), 1)
+
+    def test_un_ajustement_ne_partage_pas_le_cooldown_dune_alerte(self):
+        """`report_note` n'est PAS dédupliquée par `kind` comme `report_alert`.
+        Un ajustement et une alerte de cooldown du même bras dans la même
+        heure ne doivent pas s'écraser l'un l'autre."""
+        self.agent.report_alert("sniper", "COOLDOWN 2h")
+        self.agent.report_note("sniper", "buffer -> 9.8")
+        self.agent.report_note("sniper", "buffer -> 11.2")
+        self.assertEqual(len(self.tg.sent), 1)  # l'alerte, immédiate
+        self.assertEqual(len(self.agent._batch), 2)  # les deux notes, groupées
+
 
 class TestSaturation(unittest.TestCase):
     def setUp(self):

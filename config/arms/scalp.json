@@ -40,7 +40,7 @@
     "max_tax_buy": 5,
     "max_tax_sell": 5,
     "max_age_hours": 6.0,
-    "min_age_hours": 0.5,
+    "min_age_hours": 0.0,
     "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose.",
     "max_bundler_rate": 0.4,
     "max_insider_rate": 0.2,
@@ -67,8 +67,8 @@
     "structure_mode": "balanced"
   },
   "exit_rules": {
-    "stop_loss_pct": -25,
-    "take_profit_1": 25,
+    "stop_loss_pct": -20.0,
+    "take_profit_1": 75.0,
     "take_profit_2": 60,
     "take_profit_3": 150,
     "breakeven_trigger": 100,
@@ -112,21 +112,45 @@
         "new_value": 6.6,
         "reason": "TAMPON DE GLISSEMENT CALIBRE SUR MESURE, 2026-08-03. Le stop loss depasse son seuil de 6.61 points en MEDIANE sur 95 declenchements reels sous monitoring 5 s (un SL a -25 sort a -34.75). Le doc annoncait 2.2 points : il etait trois fois trop optimiste. Rejeu des sorties sur les trajectoires mises en commun : ce tampon ameliore le $/trade de ce bras. NON applique a baseline (gele, et mesure PIRE) ni a sniper (seul bras rentable, et mesure pire aussi). RESERVE : le rejeu fait sortir EXACTEMENT au seuil alors que c est le depassement qu on compense — le gain mesure est une borne haute.",
         "trades_sample_size": 95
+      },
+      {
+        "timestamp": "2026-08-03T13:40:14.403951+00:00",
+        "param_name": "filters.min_age_hours",
+        "old_value": 0.5,
+        "new_value": 0.0,
+        "reason": "26.6% des rejets 'age_min' auraient fait +100% (pic moyen 118.0%)",
+        "trades_sample_size": 64
+      },
+      {
+        "timestamp": "2026-08-03T15:42:38.431400+00:00",
+        "param_name": "exit_rules.stop_loss_pct",
+        "old_value": -25,
+        "new_value": -20.0,
+        "reason": "rejeu sur 35 positions : P&L/trade -0.3132 → 0.4762 (0 ambiguës)",
+        "trades_sample_size": 35
+      },
+      {
+        "timestamp": "2026-08-03T15:42:38.431833+00:00",
+        "param_name": "exit_rules.take_profit_1",
+        "old_value": 25,
+        "new_value": 75.0,
+        "reason": "rejeu sur 35 positions : P&L/trade -0.3132 → 0.4762 (0 ambiguës)",
+        "trades_sample_size": 35
       }
     ],
-    "total_trades": 10,
-    "winning_trades": 5,
-    "losing_trades": 5,
-    "avg_win_pct": 29.55,
-    "avg_loss_pct": -30.18,
+    "total_trades": 17,
+    "winning_trades": 9,
+    "losing_trades": 8,
+    "avg_win_pct": 36.61,
+    "avg_loss_pct": -27.6,
     "win_rate_by_age": {
       "2-4h": {
-        "win_rate": 20.0,
-        "sample": 5
+        "win_rate": 37.5,
+        "sample": 8
       },
       "1-2h": {
-        "win_rate": 75.0,
-        "sample": 4
+        "win_rate": 62.5,
+        "sample": 8
       },
       "0-1h": {
         "win_rate": 100.0,
@@ -135,15 +159,24 @@
     },
     "win_rate_by_liquidity": {
       "10-30K": {
-        "win_rate": 57.1,
-        "sample": 7
+        "win_rate": 55.6,
+        "sample": 9
       },
       "30-50K": {
-        "win_rate": 33.3,
-        "sample": 3
+        "win_rate": 42.9,
+        "sample": 7
+      },
+      ">50K": {
+        "win_rate": 100.0,
+        "sample": 1
       }
     },
-    "win_rate_by_social_score": {}
+    "win_rate_by_social_score": {},
+    "last_adjustment_at": {
+      "filters": 15,
+      "weights": 15,
+      "exits": 15
+    }
   },
   "risk_rules": {
     "cooldown_hours": 0,

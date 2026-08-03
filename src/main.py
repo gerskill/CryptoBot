@@ -919,9 +919,17 @@ class AlphaLoop:
             print(f"🧠{arm.label} {change}")
         # Seules les vraies décisions partent en notification : « en attente »
         # est une information de log, pas une alerte.
+        #
+        # TOUS LES BRAS, PAS SEULEMENT LE TÉMOIN. `arm.is_baseline` limitait
+        # cette notification au seul bras gelé — les cinq autres ajustaient
+        # leurs paramètres sans que rien n'en sorte sur Telegram. Même défaut
+        # que les 16 sorties jamais notifiées, une couche plus profonde :
+        # passe par `arm.portfolio.notifier` (donc par le reporter unique),
+        # jamais par `self.telegram` en direct.
         decisions = [c for c in changes if not c.startswith("(en attente)")]
-        if decisions and arm.is_baseline:
-            self.telegram.send("🧠 <b>Paramètres ajustés</b>\n" + "\n".join(decisions))
+        notifier = getattr(arm.portfolio, "notifier", None)
+        if decisions and notifier is not None:
+            notifier.send_learning("\n".join(decisions))
 
     def _try_entries(self, evaluation, arm, confluence: dict) -> None:
         threshold = arm.entry_threshold

@@ -102,6 +102,23 @@ class ArmNotifier:
             return
         self.inner.report_milestone(self.arm_name, position, pnl_pct, palier)
 
+    def send_learning(self, message: str) -> None:
+        """Un ajustement de paramètre. Routine — jamais l'alerte de cooldown.
+
+        LE BUG CORRIGÉ ICI. `_after_trade_closed` n'envoyait les décisions
+        d'apprentissage QUE pour le bras témoin (`arm.is_baseline`), en
+        contournant en plus le reporter via `self.telegram.send()` direct.
+        Même classe de défaut que les 16 sorties jamais notifiées : cinq bras
+        sur six ajustaient leurs paramètres en silence.
+
+        Distinct de `send()` (cooldown, dédupliqué par `kind=arm_name`) :
+        un ajustement de tampon et une alerte de cooldown du même bras dans la
+        même heure s'écraseraient sinon l'une l'autre.
+        """
+        if self.inner is None:
+            return
+        self.inner.report_note(self.arm_name, message)
+
     def drain_digest(self) -> list[str]:
         messages, self.digest = self.digest, []
         return messages

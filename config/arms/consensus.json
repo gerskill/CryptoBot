@@ -60,8 +60,8 @@
     "structure_mode": "balanced"
   },
   "exit_rules": {
-    "stop_loss_pct": -25,
-    "take_profit_1": 50,
+    "stop_loss_pct": -20,
+    "take_profit_1": 150.0,
     "take_profit_2": 150,
     "take_profit_3": 400,
     "breakeven_trigger": 100,
@@ -70,7 +70,7 @@
     "trailing_stop_activation": 100,
     "trailing_stop_distance_pct": 35,
     "max_hold_time_minutes": 180,
-    "stop_loss_slippage_buffer_pct": 6.6,
+    "stop_loss_slippage_buffer_pct": 9.4,
     "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
   },
   "scoring_weights": {
@@ -81,23 +81,23 @@
     "rugcheck": 0.15
   },
   "learning": {
-    "total_trades": 14,
-    "winning_trades": 4,
-    "losing_trades": 10,
-    "avg_win_pct": 54.99,
-    "avg_loss_pct": -39.5,
+    "total_trades": 19,
+    "winning_trades": 5,
+    "losing_trades": 14,
+    "avg_win_pct": 48.16,
+    "avg_loss_pct": -34.13,
     "win_rate_by_age": {
       "2-4h": {
-        "win_rate": 16.7,
-        "sample": 6
+        "win_rate": 14.3,
+        "sample": 7
       },
       "4h+": {
         "win_rate": 0.0,
-        "sample": 1
+        "sample": 2
       },
       "1-2h": {
-        "win_rate": 50.0,
-        "sample": 6
+        "win_rate": 44.4,
+        "sample": 9
       },
       "0-1h": {
         "win_rate": 0.0,
@@ -106,16 +106,16 @@
     },
     "win_rate_by_liquidity": {
       "10-30K": {
-        "win_rate": 33.3,
-        "sample": 9
+        "win_rate": 40.0,
+        "sample": 10
       },
       "30-50K": {
-        "win_rate": 25.0,
-        "sample": 4
+        "win_rate": 14.3,
+        "sample": 7
       },
       ">50K": {
         "win_rate": 0.0,
-        "sample": 1
+        "sample": 2
       }
     },
     "win_rate_by_social_score": {},
@@ -143,8 +143,37 @@
         "new_value": 6.6,
         "reason": "TAMPON DE GLISSEMENT CALIBRE SUR MESURE, 2026-08-03. Le stop loss depasse son seuil de 6.61 points en MEDIANE sur 95 declenchements reels sous monitoring 5 s (un SL a -25 sort a -34.75). Le doc annoncait 2.2 points : il etait trois fois trop optimiste. Rejeu des sorties sur les trajectoires mises en commun : ce tampon ameliore le $/trade de ce bras. NON applique a baseline (gele, et mesure PIRE) ni a sniper (seul bras rentable, et mesure pire aussi). RESERVE : le rejeu fait sortir EXACTEMENT au seuil alors que c est le depassement qu on compense — le gain mesure est une borne haute.",
         "trades_sample_size": 95
+      },
+      {
+        "timestamp": "2026-08-03T04:44:34.112297+00:00",
+        "param_name": "exit_rules.stop_loss_pct",
+        "old_value": -25,
+        "new_value": -20,
+        "reason": "perte moyenne -39.5% bien au-delà du SL -25%",
+        "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-08-03T04:44:34.122524+00:00",
+        "param_name": "exit_rules.take_profit_1",
+        "old_value": 50,
+        "new_value": 150.0,
+        "reason": "rejeu sur 35 positions : P&L/trade 0.1192 → 0.7485 (0 ambiguës)",
+        "trades_sample_size": 35
+      },
+      {
+        "timestamp": "2026-08-03T17:02:19.523857+00:00",
+        "param_name": "exit_rules.stop_loss_slippage_buffer_pct",
+        "old_value": 6.6,
+        "new_value": 9.4,
+        "reason": "tampon augmenté : 13 sorties stop loss dépassent encore leur seuil effectif de 2.79 pts (médiane) même avec le tampon actuel de 6.6",
+        "trades_sample_size": 13
       }
-    ]
+    ],
+    "last_adjustment_at": {
+      "filters": 15,
+      "weights": 15,
+      "exits": 15
+    }
   },
   "risk_rules": {
     "cooldown_hours": 0,

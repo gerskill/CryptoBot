@@ -108,6 +108,11 @@ PARAM_BOUNDS: dict[str, tuple[float, float]] = {
     "exit_rules.take_profit_1": (30, 300),
     "exit_rules.trailing_stop_distance_pct": (20, 80),
     "exit_rules.max_hold_time_minutes": (30, 1440),
+    # Mesuré le 2026-08-03 sur 95 déclenchements réels : dépassement médian
+    # +6,61 pts, p75 +14,73. Le plafond reste sous le p75 pour ne pas courir
+    # après les rugs (p90 +21,74), qui ne sont pas du glissement mais un
+    # incident distinct — voir `_recalibrate_slippage_buffer`.
+    "exit_rules.stop_loss_slippage_buffer_pct": (0.0, 15.0),
     # Le seuil d'entrée est relâchable (famille `alpha` de RELAXATIONS), donc
     # il LUI FAUT une borne. Sans elle, un bras durablement inactif descendrait
     # vers zéro et finirait par acheter n'importe quoi — le relâchement
@@ -633,12 +638,58 @@ class LearningEngine:
         self.params.set("scoring_weights", new_weights, reason, MIN_SEGMENT_SAMPLE)
         return [f"scoring_weights.social_sentiment -> {target:.2f}"]
 
+    def _recalibrate_slippage_buffer(self, rows: list[dict[str, Any]]) -> Optional[str]:
+        """Augmente le tampon si le stop dépasse ENCORE son seuil effectif.
+
+        LE TAMPON POSÉ LE 2026-08-03 ÉTAIT UN INSTANTANÉ FIGÉ, calé une fois
+        sur un rejeu manuel. Rien ne le remettait à jour. Cette méthode ferme
+        ce trou en le recalibrant à chaque cadence de sorties (`EXIT_CADENCE`),
+        sur le vécu propre de CE bras.
+
+        `stop_loss_trigger_pct`, écrit au journal, est déjà
+        `effective_stop_loss_pct` = seuil configuré + tampon ALORS actif (voir
+        `Position.effective_stop_loss_pct`). `measured_slippage` mesure donc le
+        RÉSIDU après ce tampon, pas le dépassement brut — exactement ce qu'il
+        faut pour savoir si le tampon en place suffit encore.
+
+        NE DIMINUE JAMAIS LE TAMPON AUTOMATIQUEMENT. Même asymétrie que
+        `_starving` côté filtres, en miroir côté sorties : augmenter le tampon
+        déclenche la sortie plus tôt, donc protège plus — c'est le sens sûr à
+        automatiser. Le réduire tolérerait une perte réelle plus large sans
+        preuve équivalente ; ça resterait un choix du propriétaire.
+        """
+        stop_loss_rows = [
+            r for r in rows if str(r.get("exit_reason", "")).startswith("STOP_LOSS")
+        ]
+        if len(stop_loss_rows) < MIN_SEGMENT_SAMPLE:
+            return None
+
+        residu = -self.measured_slippage(stop_loss_rows)
+        if residu <= 0:
+            # Le tampon actuel couvre déjà le glissement mesuré. Rien à faire —
+            # et surtout pas le réduire sur ce seul signal.
+            return None
+
+        courant = self.params.get("exit_rules.stop_loss_slippage_buffer_pct", 0.0) or 0.0
+        return self._bounded_set(
+            "exit_rules.stop_loss_slippage_buffer_pct",
+            round(courant + residu, 1),
+            f"tampon augmenté : {len(stop_loss_rows)} sorties stop loss "
+            f"dépassent encore leur seuil effectif de {residu:.2f} pts "
+            f"(médiane) même avec le tampon actuel de {courant:.1f}",
+            len(stop_loss_rows),
+        )
+
     def _adjust_exits(self, learning: dict) -> list[str]:
         """Étape 6.3.C — recalibre stop loss et take profit sur le vécu."""
         changes = []
         rows = self.journal.read_positions()
         stop_loss = self.params.get("exit_rules.stop_loss_pct", -25)
         avg_loss = learning.get("avg_loss_pct", 0)
+
+        buffer_change = self._recalibrate_slippage_buffer(rows)
+        if buffer_change:
+            changes.append(buffer_change)
 
         # Pertes bien plus grandes que le SL -> le SL n'est pas atteignable
         # (gap ou rug) : le resserrer pour sortir plus tôt.

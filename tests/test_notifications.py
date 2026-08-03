@@ -161,5 +161,43 @@ class TestPaliers(unittest.TestCase):
         self.loop._announce_milestones(self.arm, FakePosition(99.0, 99.0), 1.0)
 
 
+class TestRoutageDesAjustements(unittest.TestCase):
+    """`_after_trade_closed` n'envoyait les décisions QUE pour le témoin.
+
+    Même classe de défaut que les 16 sorties jamais notifiées, une couche plus
+    profonde : `arm.is_baseline` limitait la visibilité, et le chemin
+    contournait en plus le reporter via `self.telegram.send()` direct. Cinq
+    bras sur six ajustaient leurs paramètres en silence.
+    """
+
+    def setUp(self):
+        self.tg = FakeTelegram()
+        self.reporter = TelegramReporterAgent(inner=self.tg)
+
+    def test_un_bras_non_temoin_est_notifie(self):
+        notifier = ArmNotifier(self.reporter, "quality", "none")
+        notifier.send_learning("filters.min_liquidity_usd -> 15000")
+        self.reporter.flush_batch(force=True)
+        self.assertEqual(len(self.tg.sent), 1)
+        self.assertIn("quality", self.tg.sent[0])
+
+    def test_un_ajustement_et_un_cooldown_ne_se_collisionnent_pas(self):
+        """`send` (cooldown) et `send_learning` (ajustement) partagent le même
+        bras : sous le même `kind`, l'un écraserait l'autre dans la fenêtre de
+        déduplication d'une heure."""
+        notifier = ArmNotifier(self.reporter, "sniper", "none")
+        notifier.send("COOLDOWN 2h")
+        notifier.send_learning("exit_rules.stop_loss_slippage_buffer_pct -> 9.8")
+        self.reporter.flush_batch(force=True)
+        # Le cooldown part immédiatement (alerte) ; l'ajustement rejoint le lot.
+        self.assertEqual(len(self.tg.sent), 2)
+
+    def test_learning_est_toujours_groupe_jamais_immediat(self):
+        notifier = ArmNotifier(self.reporter, "runner", "none")
+        notifier.send_learning("exit_rules.max_hold_time_minutes -> 270")
+        self.assertEqual(self.tg.sent, [])
+        self.assertEqual(len(self.reporter._batch), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

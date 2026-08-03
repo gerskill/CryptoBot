@@ -189,6 +189,19 @@ class TelegramReporterAgent:
             "milestone",
         )
 
+    def report_note(self, arm_name: str, message: str) -> None:
+        """Information de routine d'un bras — un ajustement de paramètre.
+
+        TOUJOURS GROUPÉE, JAMAIS DÉDUPLIQUÉE PAR `kind`. `report_alert`
+        dédoublonne sur 1 h par `kind`, et `ArmNotifier.send` (cooldown)
+        utilise déjà `kind=arm_name` : router les ajustements par le même
+        chemin ferait collision — un ajustement et une alerte de cooldown du
+        même bras dans la même heure s'écraseraient l'un l'autre. Une
+        recalibration de tampon n'est pas urgente au sens d'`is_notable` ; elle
+        mérite sa propre file, pas la déduplication d'une alerte.
+        """
+        self._queue(f"🧠 <b>{arm_name}</b> {message}")
+
     def report_alert(self, kind: str, message: str) -> bool:
         """Une alerte d'exploitation. Immédiate, mais DÉDUPLIQUÉE par `kind`.
 

@@ -1,0 +1,153 @@
+"""Recalibrage du tampon de glissement — la version qui tourne réellement.
+
+CONTEXTE. Une critique proposait un `SlippageMonitorAgent` avec du code qui ne
+tournait pas : `journal.get_trade_count()` (inexistant), `measured_slippage`
+appelée avec un nom de bras au lieu de lignes, `self.arms_config[...]`
+(structure jamais définie), `await` dans un `main.py` à 100 % synchrone. Ce
+fichier verrouille la version qui utilise les mécanismes réels du dépôt :
+`_bounded_set`, `PARAM_BOUNDS`, `measured_slippage(rows)`.
+
+LE POINT DE SÉMANTIQUE À NE PAS RATER. `stop_loss_trigger_pct`, écrit au
+journal, est déjà `effective_stop_loss_pct` = seuil configuré + tampon ALORS
+actif. `measured_slippage` mesure donc le RÉSIDU après le tampon en place, pas
+le dépassement brut. Un test dessus doit construire des lignes avec un
+`stop_loss_trigger_pct` qui reflète un tampon déjà appliqué, sinon il ne teste
+pas la bonne quantité.
+"""
+
+import os
+import sys
+import tempfile
+import unittest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.core.journal import TradeJournal  # noqa: E402
+from src.core.learning import MIN_SEGMENT_SAMPLE, PARAM_BOUNDS, LearningEngine  # noqa: E402
+from src.core.params import ParamsStore  # noqa: E402
+
+PARAMS = {
+    "version": "test",
+    "filters": {},
+    "exit_rules": {"stop_loss_pct": -25, "stop_loss_slippage_buffer_pct": 0.0},
+    "learning": {},
+}
+
+
+def _sl_row(pid: str, trigger: float, realized: float) -> dict:
+    return {
+        "position_id": pid, "token": pid,
+        "exit_reason": f"STOP_LOSS ({realized:.1f}%)",
+        "stop_loss_trigger_pct": trigger,
+        "pnl_pct": realized, "pnl_usd": realized / 10,
+        "is_final_exit": True,
+    }
+
+
+class Base(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        chemin = os.path.join(self.tmp, "params.json")
+        with open(chemin, "w", encoding="utf-8") as fh:
+            import json
+            json.dump(PARAMS, fh)
+        self.params = ParamsStore(chemin)
+        self.journal = TradeJournal(os.path.join(self.tmp, "trades.jsonl"))
+        self.engine = LearningEngine(self.params, self.journal)
+
+    def _ecrire(self, rows):
+        for row in rows:
+            with open(self.journal.path, "a", encoding="utf-8") as fh:
+                import json
+                fh.write(json.dumps(row) + "\n")
+
+
+class TestBorne(unittest.TestCase):
+    def test_le_tampon_est_borne(self):
+        self.assertIn("exit_rules.stop_loss_slippage_buffer_pct", PARAM_BOUNDS)
+        low, high = PARAM_BOUNDS["exit_rules.stop_loss_slippage_buffer_pct"]
+        self.assertEqual(low, 0.0)
+        self.assertLessEqual(high, 15.0)
+
+
+class TestRecalibration(Base):
+    def test_sous_le_seuil_dechantillon_rien_ne_bouge(self):
+        rows = [_sl_row(f"p{i}", -25.0, -34.75) for i in range(MIN_SEGMENT_SAMPLE - 1)]
+        self.assertIsNone(self.engine._recalibrate_slippage_buffer(rows))
+
+    def test_un_residu_positif_augmente_le_tampon(self):
+        """Trigger -25 (tampon 0 actif), realise -34.75 : residu 9.75."""
+        rows = [_sl_row(f"p{i}", -25.0, -34.75) for i in range(MIN_SEGMENT_SAMPLE)]
+        change = self.engine._recalibrate_slippage_buffer(rows)
+        self.assertIsNotNone(change)
+        self.assertEqual(
+            self.params.get("exit_rules.stop_loss_slippage_buffer_pct"), 9.8
+        )
+
+    def test_le_residu_sadditionne_au_tampon_deja_actif(self):
+        """Le trigger porte DEJA le tampon en place (5.0) : le residu mesure
+        ce qui reste a couvrir AU-DELA, et s'ajoute par-dessus."""
+        self.params.set("exit_rules.stop_loss_slippage_buffer_pct", 5.0, "setup", 0)
+        # trigger = -25 (base) + 5 (tampon actif) = -20 ; realise -23 -> residu 3
+        rows = [_sl_row(f"p{i}", -20.0, -23.0) for i in range(MIN_SEGMENT_SAMPLE)]
+        self.engine._recalibrate_slippage_buffer(rows)
+        self.assertEqual(
+            self.params.get("exit_rules.stop_loss_slippage_buffer_pct"), 8.0
+        )
+
+    def test_un_tampon_deja_suffisant_ne_bouge_pas(self):
+        """Realise AU-DESSUS du trigger effectif : le tampon actuel suffit,
+        on ne le reduit pas sur ce seul signal."""
+        rows = [_sl_row(f"p{i}", -25.0, -24.0) for i in range(MIN_SEGMENT_SAMPLE)]
+        self.assertIsNone(self.engine._recalibrate_slippage_buffer(rows))
+        self.assertEqual(
+            self.params.get("exit_rules.stop_loss_slippage_buffer_pct"), 0.0
+        )
+
+    def test_ne_reduit_jamais_meme_face_a_un_residu_negatif(self):
+        self.params.set("exit_rules.stop_loss_slippage_buffer_pct", 10.0, "setup", 0)
+        rows = [_sl_row(f"p{i}", -15.0, -10.0) for i in range(MIN_SEGMENT_SAMPLE)]
+        self.assertIsNone(self.engine._recalibrate_slippage_buffer(rows))
+        self.assertEqual(
+            self.params.get("exit_rules.stop_loss_slippage_buffer_pct"), 10.0
+        )
+
+    def test_le_resultat_reste_borne_a_15(self):
+        rows = [_sl_row(f"p{i}", -25.0, -60.0) for i in range(MIN_SEGMENT_SAMPLE)]
+        self.engine._recalibrate_slippage_buffer(rows)
+        self.assertEqual(
+            self.params.get("exit_rules.stop_loss_slippage_buffer_pct"), 15.0
+        )
+
+    def test_les_sorties_hors_stop_loss_sont_ignorees(self):
+        rows = [
+            {"exit_reason": "TAKE_PROFIT_1", "pnl_pct": 50.0,
+             "stop_loss_trigger_pct": -25.0, "position_id": f"tp{i}"}
+            for i in range(20)
+        ]
+        self.assertIsNone(self.engine._recalibrate_slippage_buffer(rows))
+
+    def test_est_appele_depuis_adjust_exits(self):
+        """La recalibration doit vraiment se déclencher au fil de l'apprentissage
+        normal, pas seulement quand on l'appelle en isolation."""
+        self._ecrire([_sl_row(f"p{i}", -25.0, -34.75) for i in range(MIN_SEGMENT_SAMPLE)])
+        self.engine._adjust_exits({"avg_loss_pct": 0})
+        self.assertGreater(
+            self.params.get("exit_rules.stop_loss_slippage_buffer_pct"), 0.0
+        )
+
+    def test_ecrit_dans_lhistorique_existant_pas_un_nouveau_fichier(self):
+        """Pas de `data/slippage_buffer_log.jsonl` séparé : l'audit existant
+        (`parameter_adjustment_history`) couvre déjà tout changement de
+        paramètre. En dupliquer un ferait deux sources de vérité."""
+        rows = [_sl_row(f"p{i}", -25.0, -34.75) for i in range(MIN_SEGMENT_SAMPLE)]
+        self.engine._recalibrate_slippage_buffer(rows)
+        historique = self.params.get("learning.parameter_adjustment_history", [])
+        self.assertTrue(
+            any("stop_loss_slippage_buffer_pct" in h.get("param_name", "")
+                for h in historique)
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

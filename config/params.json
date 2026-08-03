@@ -65,7 +65,7 @@
     "trailing_stop_activation": 200,
     "trailing_stop_distance_pct": 50,
     "max_hold_time_minutes": 240,
-    "stop_loss_slippage_buffer_pct": 0.0,
+    "stop_loss_slippage_buffer_pct": 3.8,
     "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
   },
   "scoring_weights": {
@@ -76,21 +76,21 @@
     "rugcheck": 0.15
   },
   "learning": {
-    "total_trades": 41,
+    "total_trades": 43,
     "winning_trades": 5,
-    "losing_trades": 36,
+    "losing_trades": 38,
     "avg_win_pct": 78.79,
-    "avg_loss_pct": -26.93,
+    "avg_loss_pct": -26.38,
     "best_performer_filter": null,
     "worst_performer_filter": null,
     "win_rate_by_age": {
       "2-4h": {
-        "win_rate": 23.1,
-        "sample": 13
+        "win_rate": 21.4,
+        "sample": 14
       },
       "1-2h": {
-        "win_rate": 10.0,
-        "sample": 10
+        "win_rate": 9.1,
+        "sample": 11
       },
       "0-1h": {
         "win_rate": 7.7,
@@ -107,8 +107,8 @@
         "sample": 5
       },
       "30-50K": {
-        "win_rate": 10.5,
-        "sample": 19
+        "win_rate": 9.5,
+        "sample": 21
       },
       "10-30K": {
         "win_rate": 5.9,
@@ -419,6 +419,14 @@
         "new_value": 2,
         "reason": "REARME AVANT TOUT PASSAGE EN REEL, decision du proprietaire du 2026-08-03. Il etait a 0 (desactive en PAPER, ou il n y a rien a proteger). Sur 148 trades la flotte perd 1.07 $/trade ; un coupe-circuit desactive sur un systeme qui perd n est acceptable qu en simulation. Le drawdown (max_drawdown_stop_pct 25) restait actif, mais il ne voit que l erosion lente, pas trois pertes d affilee.",
         "trades_sample_size": 148
+      },
+      {
+        "timestamp": "2026-08-03T17:02:19.519000+00:00",
+        "param_name": "exit_rules.stop_loss_slippage_buffer_pct",
+        "old_value": 0.0,
+        "new_value": 3.8,
+        "reason": "tampon augmenté : 36 sorties stop loss dépassent encore leur seuil effectif de 3.76 pts (médiane) même avec le tampon actuel de 0.0",
+        "trades_sample_size": 36
       }
     ],
     "last_adjustment_at": {
