@@ -51,6 +51,7 @@ export type Position = {
   remaining_fraction: number
   duration_min: number
   high_water_pct: number
+  low_water_pct: number
   alpha_score: number
   stop_loss_pct: number
   take_profit_1: number
@@ -158,6 +159,10 @@ export type Trade = {
   holders_at_entry: number | null
   age_hours_at_entry: number
   timestamp_exit: string
+  /** Plus haut/bas latents pendant la détention — déjà mesurés au journal,
+   *  c'est ce qui distingue un stop loss « normal » d'un pic manqué. */
+  peak_pct?: number
+  trough_pct?: number
 }
 
 /** Vue d'ensemble des stratégies. `stats` reste le témoin seul. */

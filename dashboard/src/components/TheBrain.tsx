@@ -250,6 +250,14 @@ function LearningFeed() {
   )
 }
 
+// Un trade qui a culminé à plus du double de son P&L final n'est pas un
+// simple stop loss : c'était en passe de gagner. Le distinguer transforme
+// une liste de défaites en diagnostic — le problème est la sortie, pas
+// l'entrée. Calé sur le constat du dépôt : pic médian +4,9 %, un aller
+// simple qui rebrousse à ce point n'a rien d'anormal, seul un GROS pic
+// abandonné mérite le signal.
+const PIC_MANQUE_RATIO = 2
+
 function RecentTrades() {
   const allTrades = useStore((s) => s.trades)
   const trades = allTrades.slice(0, 5)
@@ -258,28 +266,46 @@ function RecentTrades() {
   }
   return (
     <ul className="space-y-1">
-      {trades.map((trade) => (
-        <li
-          key={trade.id}
-          className="flex items-baseline justify-between gap-2 rounded-lg border border-edge/50 px-3 py-1.5"
-        >
-          <span className="truncate text-xs font-medium">{trade.token}</span>
-          {/* Sans le bras, une liste mêlant 7 stratégies est illisible : on
-              ne sait pas QUI a gagné, donc rien n'est comparable. */}
-          {trade.arm && (
-            <span className="shrink-0 rounded bg-white/10 px-1 py-px font-mono text-[9px] text-muted">
-              {trade.arm}
+      {trades.map((trade) => {
+        const peak = trade.peak_pct
+        // Le pic n'a de sens à comparer qu'au-dessus de zéro : un pic négatif
+        // ne veut pas dire « manqué », la position n'a simplement jamais été
+        // en gain.
+        const picManque =
+          peak != null && peak > 0 && peak >= Math.abs(trade.pnl_pct) * PIC_MANQUE_RATIO
+
+        return (
+          <li
+            key={trade.id}
+            className="flex items-baseline justify-between gap-2 rounded-lg border border-edge/50 px-3 py-1.5"
+          >
+            <span className="truncate text-xs font-medium">{trade.token}</span>
+            {/* Sans le bras, une liste mêlant 7 stratégies est illisible : on
+                ne sait pas QUI a gagné, donc rien n'est comparable. */}
+            {trade.arm && (
+              <span className="shrink-0 rounded bg-white/10 px-1 py-px font-mono text-[9px] text-muted">
+                {trade.arm}
+              </span>
+            )}
+            <span className="truncate font-mono text-[10px] text-dim">{trade.exit_reason}</span>
+            <span className={`shrink-0 font-mono text-xs tabular-nums ${pnlColor(trade.pnl_pct)}`}>
+              {pct(trade.pnl_pct)}
             </span>
-          )}
-          <span className="truncate font-mono text-[10px] text-dim">{trade.exit_reason}</span>
-          <span className={`shrink-0 font-mono text-xs tabular-nums ${pnlColor(trade.pnl_pct)}`}>
-            {pct(trade.pnl_pct)}
-          </span>
-          <span className="shrink-0 font-mono text-[10px] text-dim tabular-nums">
-            {duration(trade.duration_min)}
-          </span>
-        </li>
-      ))}
+            {peak != null && (
+              <span
+                className="shrink-0 font-mono text-[10px] tabular-nums text-dim"
+                title="Plus haut atteint pendant la détention"
+              >
+                {pct(peak)}
+                {picManque && <span className="ml-0.5">🔥</span>}
+              </span>
+            )}
+            <span className="shrink-0 font-mono text-[10px] text-dim tabular-nums">
+              {duration(trade.duration_min)}
+            </span>
+          </li>
+        )
+      })}
     </ul>
   )
 }

@@ -48,6 +48,48 @@ function Funnel({ arm }: { arm: Arm }) {
   )
 }
 
+// Seuils calés sur les taux d'atteinte mesurés (26 positions instrumentées) :
+// +50 % de pic franchi par 23 % des trades, ce qui met la barre haute d'un
+// WR/PF sain nettement au-dessus de ce qu'un memecoin filtré au hasard donne.
+const WR_GOOD = 33
+const WR_OK = 20
+const PF_GOOD = 1.5
+const PF_OK = 1.0
+const PF_SCALE_MAX = 2.0
+
+function microBarColor(value: number, good: number, ok: number): string {
+  if (value >= good) return 'var(--color-toxic)'
+  if (value >= ok) return 'var(--color-warn)'
+  return 'var(--color-blood)'
+}
+
+/** Deux micro-barres horizontales : WR et PF, lisibles sans déplier la ligne. */
+function MicroBars({ winRate, profitFactor }: { winRate: number; profitFactor: number }) {
+  const wrColor = microBarColor(winRate, WR_GOOD, WR_OK)
+  const pfColor = microBarColor(profitFactor, PF_GOOD, PF_OK)
+  const pfFill = Math.min(profitFactor, PF_SCALE_MAX) / PF_SCALE_MAX
+
+  return (
+    <span
+      className="flex shrink-0 flex-col justify-center gap-[3px]"
+      title={`WR ${winRate.toFixed(0)}% · PF ${profitFactor.toFixed(2)}`}
+    >
+      <span className="h-[3px] w-10 overflow-hidden rounded-full bg-white/10">
+        <span
+          className="block h-full rounded-full transition-[width]"
+          style={{ width: `${Math.min(winRate, 100)}%`, backgroundColor: wrColor }}
+        />
+      </span>
+      <span className="h-[3px] w-10 overflow-hidden rounded-full bg-white/10">
+        <span
+          className="block h-full rounded-full transition-[width]"
+          style={{ width: `${pfFill * 100}%`, backgroundColor: pfColor }}
+        />
+      </span>
+    </span>
+  )
+}
+
 function ArmRow({ arm, open, onToggle }: { arm: Arm; open: boolean; onToggle: () => void }) {
   const stats = arm.stats
   const pnl = stats?.total_pnl_usd ?? 0
@@ -76,6 +118,9 @@ function ArmRow({ arm, open, onToggle }: { arm: Arm; open: boolean; onToggle: ()
             </span>
           )}
           <span className="flex-1" />
+          {stats && trades > 0 && (
+            <MicroBars winRate={stats.win_rate} profitFactor={stats.profit_factor} />
+          )}
           <span className="shrink-0 font-mono text-[10px] tabular-nums text-dim">
             {trades} trades
           </span>

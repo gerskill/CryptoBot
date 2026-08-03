@@ -46,9 +46,28 @@ function RiskBar({ position }: { position: Position }) {
   )
 }
 
+// Au-delà de cette fraction de la distance entrée -> SL déjà parcourue, la
+// position est en danger réel : bordure pulsante. Symétrique côté TP1 avec
+// PROXIMITE_TP1 — « à moins de 30 % du TP1 » = 70 % de la distance couverte.
+const DANGER_SL_RATIO = 0.5
+const PROXIMITE_TP1_RATIO = 0.7
+// Sous ce seuil de temps restant, le compte à rebours du time stop s'affiche.
+// Au-dessus, c'est du bruit permanent — la barre suffit.
+const TIME_STOP_ALERT_RATIO = 0.8
+
 function PositionCard({ position }: { position: Position }) {
   const pulse = usePulse(position.current_price)
   const timeRatio = Math.min(1, position.duration_min / position.max_hold_time_minutes)
+  const timeRemaining = Math.max(0, position.max_hold_time_minutes - position.duration_min)
+
+  // `stop_loss_pct` est DÉJÀ `effective_stop_loss_pct` côté API (tampon de
+  // glissement inclus) : l'alerte se déclenche sur le seuil RÉEL, pas sur la
+  // règle nominale — sinon la bordure resterait calme alors que le stop est
+  // sur le point de se déclencher pour de vrai.
+  const enDanger = position.pnl_pct <= position.stop_loss_pct * DANGER_SL_RATIO
+  const presDuTp1 =
+    !enDanger && position.pnl_pct >= position.take_profit_1 * PROXIMITE_TP1_RATIO
+  const pulseClass = enDanger ? 'pulse-danger' : presDuTp1 ? 'pulse-target' : ''
 
   return (
     <motion.article
@@ -57,7 +76,7 @@ function PositionCard({ position }: { position: Position }) {
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.35 } }}
       transition={{ type: 'spring', stiffness: 300, damping: 26 }}
-      className={`mb-3 rounded-xl border px-4 py-3 ${
+      className={`mb-3 rounded-xl border px-4 py-3 ${pulseClass} ${
         position.pnl_pct >= 0
           ? 'border-toxic/35 bg-toxic/[0.03]'
           : 'border-blood/35 bg-blood/[0.03]'
@@ -103,15 +122,29 @@ function PositionCard({ position }: { position: Position }) {
 
       <RiskBar position={position} />
 
-      <div className="mt-3 flex items-center justify-between font-mono text-[10px] text-dim tabular-nums">
+      {/* Pic et creux depuis l'entrée : la donnée existe déjà côté monitoring
+          (`high_water_pct`/`low_water_pct`), elle manquait juste à la carte.
+          C'est ce qui dit si un P&L calme cache une trajectoire agitée. */}
+      <div className="mt-2 flex items-center gap-3 font-mono text-[10px] tabular-nums text-dim">
+        <span>
+          pic <span className="text-toxic">{pct(position.high_water_pct)}</span>
+        </span>
+        <span>
+          creux <span className="text-blood">{pct(position.low_water_pct)}</span>
+        </span>
+      </div>
+
+      <div className="mt-2 flex items-center justify-between font-mono text-[10px] text-dim tabular-nums">
         <span>mise {usd(position.size_usd, 2)}</span>
         <span>reste {Math.round(position.remaining_fraction * 100)}%</span>
         <span>liq ${compact(position.liquidity_at_entry)}</span>
         <span title={`Time stop à ${position.max_hold_time_minutes} min`}>
-          {duration(position.duration_min)}
+          {timeRatio > TIME_STOP_ALERT_RATIO
+            ? `time stop dans ${Math.round(timeRemaining)} min`
+            : duration(position.duration_min)}
           <span className="ml-1 inline-block h-1 w-8 overflow-hidden rounded-full bg-void align-middle">
             <span
-              className={`block h-full ${timeRatio > 0.8 ? 'bg-warn' : 'bg-edge'}`}
+              className={`block h-full ${timeRatio > TIME_STOP_ALERT_RATIO ? 'bg-warn' : 'bg-edge'}`}
               style={{ width: `${timeRatio * 100}%` }}
             />
           </span>

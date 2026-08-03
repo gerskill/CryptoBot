@@ -101,6 +101,15 @@ body::after {
 .pulse-up   { animation: pulse-up 700ms ease-out; }
 .pulse-down { animation: pulse-down 700ms ease-out; }
 
+/* Position en danger / proche du TP1 : box-shadow, pas la bordure elle-même,
+   pour rester subtil même sur plusieurs cartes à la fois en marché agité. */
+@keyframes pulse-danger { 0%, 100% { box-shadow: 0 0 0 1px rgba(255, 74, 110, 0.15); }
+                          50%      { box-shadow: 0 0 0 1px rgba(255, 74, 110, 0.55); } }
+@keyframes pulse-target { 0%, 100% { box-shadow: 0 0 0 1px rgba(46, 229, 107, 0.15); }
+                          50%      { box-shadow: 0 0 0 1px rgba(46, 229, 107, 0.55); } }
+.pulse-danger { animation: pulse-danger 1.5s ease-in-out infinite; }
+.pulse-target { animation: pulse-target 1.5s ease-in-out infinite; }
+
 /* Les panneaux sont dépliables donc navigables au clavier. */
 :focus-visible {
   outline: 1px solid var(--color-gem);
