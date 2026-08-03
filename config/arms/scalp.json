@@ -77,7 +77,7 @@
     "trailing_stop_activation": 50,
     "trailing_stop_distance_pct": 30,
     "max_hold_time_minutes": 60,
-    "stop_loss_slippage_buffer_pct": 0.0,
+    "stop_loss_slippage_buffer_pct": 6.6,
     "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
   },
   "scoring_weights": {
@@ -104,12 +104,20 @@
         "new_value": 6.0,
         "reason": "inactif depuis 313 cycles sans entrée (seuil 300) — motif « âge Nh > Nh »",
         "trades_sample_size": 313
+      },
+      {
+        "timestamp": "2026-08-03T04:35:37.326844+00:00",
+        "param_name": "exit_rules.stop_loss_slippage_buffer_pct",
+        "old_value": 0.0,
+        "new_value": 6.6,
+        "reason": "TAMPON DE GLISSEMENT CALIBRE SUR MESURE, 2026-08-03. Le stop loss depasse son seuil de 6.61 points en MEDIANE sur 95 declenchements reels sous monitoring 5 s (un SL a -25 sort a -34.75). Le doc annoncait 2.2 points : il etait trois fois trop optimiste. Rejeu des sorties sur les trajectoires mises en commun : ce tampon ameliore le $/trade de ce bras. NON applique a baseline (gele, et mesure PIRE) ni a sniper (seul bras rentable, et mesure pire aussi). RESERVE : le rejeu fait sortir EXACTEMENT au seuil alors que c est le depassement qu on compense — le gain mesure est une borne haute.",
+        "trades_sample_size": 95
       }
     ],
-    "total_trades": 9,
-    "winning_trades": 4,
+    "total_trades": 10,
+    "winning_trades": 5,
     "losing_trades": 5,
-    "avg_win_pct": 30.93,
+    "avg_win_pct": 29.55,
     "avg_loss_pct": -30.18,
     "win_rate_by_age": {
       "2-4h": {
@@ -117,8 +125,8 @@
         "sample": 5
       },
       "1-2h": {
-        "win_rate": 66.7,
-        "sample": 3
+        "win_rate": 75.0,
+        "sample": 4
       },
       "0-1h": {
         "win_rate": 100.0,
@@ -127,8 +135,8 @@
     },
     "win_rate_by_liquidity": {
       "10-30K": {
-        "win_rate": 50.0,
-        "sample": 6
+        "win_rate": 57.1,
+        "sample": 7
       },
       "30-50K": {
         "win_rate": 33.3,

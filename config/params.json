@@ -411,6 +411,14 @@
         "new_value": 0.02,
         "reason": "WR 10%, drawdown 18%",
         "trades_sample_size": 40
+      },
+      {
+        "timestamp": "2026-08-03T04:35:37.323961+00:00",
+        "param_name": "risk_rules.cooldown_hours",
+        "old_value": 0,
+        "new_value": 2,
+        "reason": "REARME AVANT TOUT PASSAGE EN REEL, decision du proprietaire du 2026-08-03. Il etait a 0 (desactive en PAPER, ou il n y a rien a proteger). Sur 148 trades la flotte perd 1.07 $/trade ; un coupe-circuit desactive sur un systeme qui perd n est acceptable qu en simulation. Le drawdown (max_drawdown_stop_pct 25) restait actif, mais il ne voit que l erosion lente, pas trois pertes d affilee.",
+        "trades_sample_size": 148
       }
     ],
     "last_adjustment_at": {
@@ -421,7 +429,7 @@
     }
   },
   "risk_rules": {
-    "cooldown_hours": 0,
+    "cooldown_hours": 2,
     "consecutive_losses_trigger": 3,
     "_note": "cooldown_hours 0 : DESACTIVE EN PAPER, decision du proprietaire. Une pause de 2h apres 3 pertes bloque la collecte, et en papier il n y a rien a proteger. LE COUPE-CIRCUIT DRAWDOWN RESTE ACTIF (max_drawdown_stop_pct) : lui ne coute rien tant qu on ne perd pas 25%, et il voit l erosion lente que 3 pertes consecutives ne detectent pas. A remettre a 2 AVANT tout passage en reel.",
     "max_drawdown_stop_pct": 25
