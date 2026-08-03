@@ -242,6 +242,12 @@ class AlphaLoop:
         # Paliers de gain déjà annoncés, par position. Volontairement hors de
         # `Position`, qui est immuable et persistée : voir `_announce_milestones`.
         self._milestones_sent: dict[str, set[float]] = {}
+        # Durée du CYCLE PRÉCÉDENT, pas du courant : `_publish_state` tourne
+        # avant que le cycle en cours ne soit fini de mesurer. Un décalage
+        # d'un cycle plutôt qu'un chiffre inventé. Sert le badge de santé du
+        # dashboard — `scan.duration_sec` ne couvrait que le sous-temps de
+        # collecte, pas le cycle entier (monitoring, entrées, notifications).
+        self._last_cycle_duration_sec = 0.0
 
     def _starting_capital(self) -> float:
         capital = float(self.params.get("capital_total", 0) or 0)
@@ -267,6 +273,7 @@ class AlphaLoop:
                 print(f"[Loop] ⚠️ Erreur cycle {self.cycle_count} : {type(exc).__name__} — {exc}")
 
             elapsed = time.monotonic() - started
+            self._last_cycle_duration_sec = round(elapsed, 1)
             if elapsed > interval:
                 print(f"[Loop] ⏱️ Cycle {elapsed:.0f}s > {interval}s — enchaînement direct")
             self._sleep_monitoring(max(0.0, interval - elapsed))
@@ -521,6 +528,7 @@ class AlphaLoop:
                     "cycle": self.cycle_count,
                     "interval_seconds": self.params.get("scan.interval_seconds", 90),
                     "next_scan_at": self._next_scan_at,
+                    "cycle_duration_sec": self._last_cycle_duration_sec,
                     # `stats` reste celui du TÉMOIN : l'API, les 36 trades
                     # historiques et la courbe d'équité s'y appuient.
                     # `aggregate` donne la vue d'ensemble sans casser ça.

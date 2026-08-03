@@ -1,8 +1,9 @@
+import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { useStore } from '../lib/store'
 import { EMPTY_ARRAY, EMPTY_OBJECT } from '../lib/empty'
 import { Panel, NoSource } from './Panel'
-import { usd, pct, duration, pnlColor } from '../lib/format'
+import { usd, pct, duration, pnlColor, relativeTime } from '../lib/format'
 
 /**
  * Valeur d'ajustement lisible.
@@ -215,15 +216,44 @@ function GhostMode() {
 }
 
 /** Derniers ajustements de paramètres décidés par le bot. */
+// Nombre de lignes montrées avant « voir tout ». Les 4 boîtes textuelles
+// d'origine, avec leur `reason` complet (parfois plusieurs phrases), pouvaient
+// occuper 40 % de la colonne — la RAISON reste disponible, en infobulle, pas
+// dans le flux.
+const LEARNING_FEED_COLLAPSED_COUNT = 4
+
+/** Nom de paramètre raccourci pour tenir sur une ligne, sans perdre le sens :
+ *  `exit_rules.stop_loss_slippage_buffer_pct` -> `slippage buffer`. */
+function shortParamName(name: string): string {
+  const KNOWN: Record<string, string> = {
+    'scan.alpha_score_entry_threshold': 'scan.alpha',
+    'exit_rules.stop_loss_slippage_buffer_pct': 'slippage buffer',
+    'exit_rules.stop_loss_pct': 'stop loss',
+    'exit_rules.take_profit_1': 'take profit 1',
+    'exit_rules.trailing_stop_distance_pct': 'trailing',
+    'risk_rules.cooldown_hours': 'cooldown',
+    'risk_per_trade': 'risk/trade',
+    'filters.min_liquidity_usd': 'liq min',
+    'filters.max_age_hours': 'âge max',
+    'filters.min_age_hours': 'âge min',
+  }
+  if (KNOWN[name]) return KNOWN[name]
+  // Repli : dernier segment du chemin, assez lisible pour un nom inconnu.
+  const last = name.split('.').pop() ?? name
+  return last.length > 18 ? `${last.slice(0, 17)}…` : last
+}
+
 function LearningFeed() {
   const history = useStore(
     (s) => (s.state.params?.learning?.parameter_adjustment_history ?? EMPTY_ARRAY) as any[],
   )
+  const [expanded, setExpanded] = useState(false)
   // Le tri se fait APRÈS le sélecteur : trier dedans créerait un tableau neuf
   // à chaque rendu et relancerait la boucle.
-  const recent = [...history].reverse().slice(0, 4)
+  const chronological = [...history].reverse()
+  const visible = expanded ? chronological : chronological.slice(0, LEARNING_FEED_COLLAPSED_COUNT)
 
-  if (recent.length === 0) {
+  if (chronological.length === 0) {
     return (
       <NoSource
         label="Aucun ajustement pour l'instant"
@@ -233,20 +263,44 @@ function LearningFeed() {
   }
 
   return (
-    <ul className="space-y-2">
-      {recent.map((entry, index) => (
-        <li key={index} className="rounded-lg border border-gem/25 bg-gem/[0.04] px-3 py-2">
-          {/* `String({...})` rendait « [object Object] » : certains ajustements
-              remplacent une SECTION entière (filters, exit_rules, scan) et pas
-              un scalaire. Voir formatValue. */}
-          <div className="font-mono text-[11px] text-gem">
-            {entry.param_name} : {formatValue(entry.old_value)} →{' '}
-            {formatValue(entry.new_value)}
-          </div>
-          <div className="mt-0.5 text-[10px] leading-snug text-dim">{entry.reason}</div>
-        </li>
-      ))}
-    </ul>
+    <div>
+      <ul className="space-y-1">
+        {visible.map((entry, index) => {
+          // Seul cas de « non-appliqué » présent dans les données réelles :
+          // un backtest qui REVIENT en arrière écrit quand même une ligne
+          // d'historique (traçabilité), avec « annulé » dans la raison. Un
+          // ajustement bloqué par une borne, lui, n'écrit jamais de ligne —
+          // il n'y a donc rien de gris à inventer pour ce cas-là.
+          const annule = typeof entry.reason === 'string' && entry.reason.includes('annulé')
+          return (
+            <li
+              key={index}
+              title={entry.reason}
+              className={`flex items-center gap-2 rounded-md border px-2 py-1 font-mono text-[10px] ${
+                annule ? 'border-edge/40 bg-white/[0.02] text-dim' : 'border-gem/25 bg-gem/[0.04]'
+              }`}
+            >
+              <span className={annule ? 'text-dim' : 'text-gem'}>{annule ? '↩' : '↗'}</span>
+              <span className={`tabular-nums ${annule ? 'text-dim' : 'text-ink'}`}>
+                {formatValue(entry.old_value)} → {formatValue(entry.new_value)}
+              </span>
+              <span className="truncate text-dim">{shortParamName(entry.param_name)}</span>
+              <span className="ml-auto shrink-0 text-dim">
+                {entry.timestamp ? relativeTime(entry.timestamp) : ''}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+      {chronological.length > LEARNING_FEED_COLLAPSED_COUNT && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-1.5 text-[10px] text-dim underline decoration-dotted hover:text-ink"
+        >
+          {expanded ? 'réduire' : `voir tout (${chronological.length})`}
+        </button>
+      )}
+    </div>
   )
 }
 

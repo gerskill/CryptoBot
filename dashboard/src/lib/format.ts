@@ -38,3 +38,16 @@ export const duration = (minutes: number) => {
 /** Vert au-dessus de zéro, rouge en dessous. Utilisé partout. */
 export const pnlColor = (value: number) =>
   value > 0 ? 'text-toxic' : value < 0 ? 'text-blood' : 'text-dim'
+
+/** « il y a 2h », « à l'instant » — pour une timeline qui ne recalcule pas
+ *  un horodatage complet à chaque ligne. */
+export const relativeTime = (isoTimestamp: string): string => {
+  const then = new Date(isoTimestamp).getTime()
+  if (Number.isNaN(then)) return isoTimestamp
+  const minutes = Math.max(0, Math.round((Date.now() - then) / 60000))
+  if (minutes < 1) return "à l'instant"
+  if (minutes < 60) return `il y a ${minutes} min`
+  const hours = minutes / 60
+  if (hours < 24) return `il y a ${hours.toFixed(hours < 10 ? 1 : 0)}h`
+  return `il y a ${Math.round(hours / 24)} j`
+}

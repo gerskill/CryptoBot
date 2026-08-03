@@ -94,6 +94,9 @@ export type BotState = {
   cycle?: number
   interval_seconds?: number
   next_scan_at?: number
+  /** Durée du cycle PRÉCÉDENT (mesure complète : monitoring, scan, entrées,
+   *  notifications). Décalée d'un cycle par construction — voir main.py. */
+  cycle_duration_sec?: number
   stats?: Stats
   positions?: Position[]
   candidates?: Candidate[]
