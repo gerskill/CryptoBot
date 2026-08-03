@@ -14,6 +14,7 @@ const RECONNECT_DELAY_MS = 2000
 export function useLiveState() {
   const setState = useStore((s) => s.setState)
   const setTrades = useStore((s) => s.setTrades)
+  const setEquitySeries = useStore((s) => s.setEquitySeries)
   const setShadow = useStore((s) => s.setShadow)
   const setConnected = useStore((s) => s.setConnected)
   const lastTradeCount = useRef(-1)
@@ -30,6 +31,7 @@ export function useLiveState() {
           fetch('/api/shadow').then((r) => r.json()),
         ])
         setTrades(trades.trades ?? [])
+        setEquitySeries(trades.equity_series ?? [])
         setShadow({
           total: shadow.total ?? 0,
           missed: shadow.missed ?? 0,
@@ -50,8 +52,11 @@ export function useLiveState() {
       socket.onmessage = (event) => {
         const state = JSON.parse(event.data)
         setState(state)
-        // Recharger les trades seulement quand leur nombre change
-        const count = state?.stats?.total_trades ?? 0
+        // Recharger les trades seulement quand leur nombre change. Compté
+        // sur la FLOTTE (`aggregate`), pas sur le seul témoin : sinon un
+        // cycle sans clôture côté témoin ne rafraîchit ni la table ni la
+        // courbe, même si sniper ou runner viennent de clôturer une position.
+        const count = state?.aggregate?.closed_trades ?? state?.stats?.total_trades ?? 0
         if (count !== lastTradeCount.current) {
           lastTradeCount.current = count
           loadRest()
@@ -73,7 +78,7 @@ export function useLiveState() {
       window.clearTimeout(retryTimer)
       socket?.close()
     }
-  }, [setState, setTrades, setShadow, setConnected])
+  }, [setState, setTrades, setEquitySeries, setShadow, setConnected])
 }
 
 /** Anime une valeur quand elle change : vert si elle monte, rouge si elle baisse. */

@@ -12,7 +12,7 @@
     ],
     "cache_ttl_minutes": 30,
     "max_candidates_enriched": 25,
-    "alpha_score_entry_threshold": 75,
+    "alpha_score_entry_threshold": 72.5,
     "social_lookup_min_alpha": 70,
     "social_max_lookups_per_cycle": 2,
     "_note_monitor": "5s au lieu de 20s : mesure sur 10 trades, 8 sorties SL sur 8 depassaient leur seuil de 4.6 points en moyenne (pire -40.5% pour un SL a -25%). Cout : 1 requete par position et par tick, quota DexScreener 300/min.",
@@ -76,10 +76,10 @@
     "rugcheck": 0.15
   },
   "learning": {
-    "total_trades": 43,
-    "winning_trades": 5,
+    "total_trades": 44,
+    "winning_trades": 6,
     "losing_trades": 38,
-    "avg_win_pct": 78.79,
+    "avg_win_pct": 98.3,
     "avg_loss_pct": -26.38,
     "best_performer_filter": null,
     "worst_performer_filter": null,
@@ -89,8 +89,8 @@
         "sample": 14
       },
       "1-2h": {
-        "win_rate": 9.1,
-        "sample": 11
+        "win_rate": 16.7,
+        "sample": 12
       },
       "0-1h": {
         "win_rate": 7.7,
@@ -107,8 +107,8 @@
         "sample": 5
       },
       "30-50K": {
-        "win_rate": 9.5,
-        "sample": 21
+        "win_rate": 13.6,
+        "sample": 22
       },
       "10-30K": {
         "win_rate": 5.9,
@@ -427,6 +427,14 @@
         "new_value": 3.8,
         "reason": "tampon augmenté : 36 sorties stop loss dépassent encore leur seuil effectif de 3.76 pts (médiane) même avec le tampon actuel de 0.0",
         "trades_sample_size": 36
+      },
+      {
+        "timestamp": "2026-08-03T20:11:14.245578+00:00",
+        "param_name": "scan.alpha_score_entry_threshold",
+        "old_value": 75,
+        "new_value": 72.5,
+        "reason": "inactif depuis 422 cycles sans entrée (seuil 300) — motif « alpha N< N »",
+        "trades_sample_size": 422
       }
     ],
     "last_adjustment_at": {

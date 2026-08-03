@@ -36,7 +36,7 @@
     "min_rugcheck_score": 85,
     "max_top_wallet_concentration": 20,
     "min_social_mentions_1h": 0,
-    "min_smart_money_buys_30min": 2,
+    "min_smart_money_buys_30min": 1,
     "max_tax_buy": 5,
     "max_tax_sell": 5,
     "max_age_hours": 24.0,
@@ -240,13 +240,21 @@
         "new_value": 0.0,
         "reason": "inactif depuis 485 cycles sans entrée (seuil 300) — motif « âge Nh < Nh »",
         "trades_sample_size": 485
+      },
+      {
+        "timestamp": "2026-08-03T20:04:41.089244+00:00",
+        "param_name": "filters.min_smart_money_buys_30min",
+        "old_value": 2,
+        "new_value": 1,
+        "reason": "28.6% des rejets 'smart_money' auraient fait +100% (pic moyen 125.8%)",
+        "trades_sample_size": 35
       }
     ],
-    "total_trades": 6,
+    "total_trades": 7,
     "winning_trades": 1,
-    "losing_trades": 5,
+    "losing_trades": 6,
     "avg_win_pct": 71.5,
-    "avg_loss_pct": -24.47,
+    "avg_loss_pct": -23.86,
     "win_rate_by_age": {
       "4h+": {
         "win_rate": 25.0,
@@ -254,7 +262,7 @@
       },
       "1-2h": {
         "win_rate": 0.0,
-        "sample": 1
+        "sample": 2
       },
       "2-4h": {
         "win_rate": 0.0,
@@ -269,6 +277,10 @@
       "30-50K": {
         "win_rate": 0.0,
         "sample": 3
+      },
+      "10-30K": {
+        "win_rate": 0.0,
+        "sample": 1
       }
     },
     "win_rate_by_social_score": {}

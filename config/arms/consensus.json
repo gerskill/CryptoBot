@@ -2,7 +2,7 @@
   "version": "2.0",
   "mode": "PAPER",
   "capital_total": 0,
-  "risk_per_trade": 0.025,
+  "risk_per_trade": 0.02,
   "max_concurrent_positions": 3,
   "scan": {
     "interval_seconds": 90,
@@ -81,10 +81,10 @@
     "rugcheck": 0.15
   },
   "learning": {
-    "total_trades": 19,
-    "winning_trades": 5,
+    "total_trades": 20,
+    "winning_trades": 6,
     "losing_trades": 14,
-    "avg_win_pct": 48.16,
+    "avg_win_pct": 71.05,
     "avg_loss_pct": -34.13,
     "win_rate_by_age": {
       "2-4h": {
@@ -96,8 +96,8 @@
         "sample": 2
       },
       "1-2h": {
-        "win_rate": 44.4,
-        "sample": 9
+        "win_rate": 50.0,
+        "sample": 10
       },
       "0-1h": {
         "win_rate": 0.0,
@@ -110,8 +110,8 @@
         "sample": 10
       },
       "30-50K": {
-        "win_rate": 14.3,
-        "sample": 7
+        "win_rate": 25.0,
+        "sample": 8
       },
       ">50K": {
         "win_rate": 0.0,
@@ -167,12 +167,21 @@
         "new_value": 9.4,
         "reason": "tampon augmenté : 13 sorties stop loss dépassent encore leur seuil effectif de 2.79 pts (médiane) même avec le tampon actuel de 6.6",
         "trades_sample_size": 13
+      },
+      {
+        "timestamp": "2026-08-03T20:38:32.465737+00:00",
+        "param_name": "risk_per_trade",
+        "old_value": 0.025,
+        "new_value": 0.02,
+        "reason": "WR 30%, drawdown 7%",
+        "trades_sample_size": 20
       }
     ],
     "last_adjustment_at": {
-      "filters": 15,
+      "filters": 20,
       "weights": 15,
-      "exits": 15
+      "exits": 15,
+      "risk": 20
     }
   },
   "risk_rules": {

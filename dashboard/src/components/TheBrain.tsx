@@ -29,10 +29,16 @@ function formatValue(value: unknown): string {
 
 /** Courbe d'equity reconstruite depuis le journal, du plus ancien au plus récent. */
 function EquityCurve() {
-  const trades = useStore((s) => s.trades)
-  // La liste des trades couvre les 7 stratégies : le point de départ doit
-  // être le capital AGRÉGÉ, pas celui du témoin seul. Sinon on empile le P&L
-  // de sept bras sur la mise d'un seul et la courbe descend deux fois trop.
+  // `equitySeries` porte TOUT l'historique (jamais tronqué par la pagination
+  // de `/api/trades`) — c'est lui qui trace la courbe, pas `trades` (limité,
+  // réservé au tableau « derniers trades »). Sans cette séparation, le point
+  // le plus récent de la courbe décrochait du capital affiché en en-tête :
+  // ~47 $ d'écart mesuré, dû aux ~110 trades les plus anciens absents de la
+  // fenêtre tronquée à 100.
+  const equitySeries = useStore((s) => s.equitySeries)
+  // Le point de départ doit être le capital AGRÉGÉ, pas celui du témoin
+  // seul. Sinon on empile le P&L de six bras sur la mise d'un seul et la
+  // courbe descend six fois trop.
   const initial = useStore((s) => {
     const agg = s.state.aggregate
     if (agg) return agg.equity - agg.total_pnl_usd
@@ -40,17 +46,16 @@ function EquityCurve() {
     return stats ? stats.equity - stats.total_pnl_usd : 1000
   })
 
-  if (trades.length < 2) {
+  if (equitySeries.length < 2) {
     return (
       <p className="px-1 py-3 text-[11px] leading-snug text-dim">
-        Courbe disponible à partir de 2 trades clôturés ({trades.length} pour l'instant).
+        Courbe disponible à partir de 2 trades clôturés ({equitySeries.length} pour l'instant).
       </p>
     )
   }
 
-  const chronological = [...trades].reverse()
   let running = initial
-  const points = [initial, ...chronological.map((t) => (running += t.pnl_usd))]
+  const points = [initial, ...equitySeries.map((pnl) => (running += pnl))]
   const min = Math.min(...points)
   const max = Math.max(...points)
   const span = max - min || 1

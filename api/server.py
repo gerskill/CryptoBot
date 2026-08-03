@@ -137,6 +137,23 @@ def get_trades(limit: int = 100, arm: Optional[str] = None) -> dict[str, Any]:
     sortie en TP1 puis breakeven s'affichait comme « BREAKEVEN_STOP -1,8% » :
     les gagnants du bot n'apparaissaient nulle part. `read_positions()`
     recolle les jambes ; `exit_path` garde le détail du chemin de sortie.
+
+    TROIS DÉFAUTS CORRIGÉS ICI, trouvés en vérifiant une courbe d'équité qui
+    ne recollait pas avec le capital affiché (écart mesuré : ~47 $).
+
+    1. `load_manifest()` liste TOUS les bras du fichier, désactivés compris.
+       `narrative` (4 trades réels sur disque) se glissait dans `arm=all`
+       alors qu'il est invisible partout ailleurs dans le dashboard — la
+       courbe et le tableau ne portaient pas le même périmètre que le panneau
+       STRATÉGIES.
+    2. `equity_series` : la reconstruction d'une courbe cumulative a besoin
+       de TOUT l'historique, pas d'une fenêtre de `limit`. Coupé à 100 sur
+       210+ trades réels, le point le plus récent de la courbe ratait le
+       P&L des ~110 trades les plus anciens. Champ séparé et JAMAIS borné :
+       un flottant par trade ne pèse rien même à plusieurs milliers de
+       positions, contrairement aux objets `trade` complets.
+    3. `trades` reste borné par `limit` : le tableau « derniers trades »
+       n'a besoin que d'une fenêtre récente, lui.
     """
     if arm == "all":
         # Défaut du dashboard. Sans ça il n'affichait que le témoin : 4
@@ -145,6 +162,8 @@ def get_trades(limit: int = 100, arm: Optional[str] = None) -> dict[str, Any]:
         # empêche exactement la comparaison qu'on cherche à faire.
         positions = []
         for entry in load_manifest():
+            if not entry.get("enabled", True):
+                continue
             path = settings.arm_paths(entry["name"])["trades"]
             if not os.path.exists(path):
                 continue
@@ -160,7 +179,11 @@ def get_trades(limit: int = 100, arm: Optional[str] = None) -> dict[str, Any]:
             row["arm"] = name
 
     partials = sum(row.get("legs", 1) - 1 for row in positions)
-    return {"trades": list(reversed(positions))[:limit], "partials": partials}
+    return {
+        "trades": list(reversed(positions))[:limit],
+        "equity_series": [round(row.get("pnl_usd") or 0.0, 4) for row in positions],
+        "partials": partials,
+    }
 
 
 @app.get("/api/arms")
@@ -183,14 +206,21 @@ def get_confluence() -> dict[str, Any]:
 
 @app.get("/api/shadow")
 def get_shadow(limit: int = 100, arm: Optional[str] = None) -> dict[str, Any]:
-    """Trades fantômes : ce que le bot a REFUSÉ et ce que c'est devenu."""
-    rows = _read_jsonl(settings.arm_paths(_resolve_arm(arm))["shadow"], limit)
-    missed = [r for r in rows if r.get("would_have_won")]
+    """Trades fantômes : ce que le bot a REFUSÉ et ce que c'est devenu.
+
+    LE BUG CORRIGÉ ICI. `total`/`missed`/`missed_rate` se calculaient sur
+    `rows`, DÉJÀ tronqué à `limit` par `_read_jsonl`. Le dashboard affichait
+    « 100 jugés » en plafond structurel, quelle que soit la taille réelle du
+    journal — mesuré à 730 lignes le jour où ça a été trouvé. `limit` ne doit
+    borner que ce qui s'AFFICHE (`shadow`), jamais ce qui se COMPTE.
+    """
+    toutes = _read_jsonl(settings.arm_paths(_resolve_arm(arm))["shadow"])
+    missed = [r for r in toutes if r.get("would_have_won")]
     return {
-        "shadow": list(reversed(rows)),
-        "total": len(rows),
+        "shadow": list(reversed(toutes))[:limit],
+        "total": len(toutes),
         "missed": len(missed),
-        "missed_rate": round(100 * len(missed) / len(rows), 1) if rows else 0.0,
+        "missed_rate": round(100 * len(missed) / len(toutes), 1) if toutes else 0.0,
     }
 
 
