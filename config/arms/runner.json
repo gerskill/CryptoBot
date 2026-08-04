@@ -354,44 +354,112 @@
         },
         "reason": "backtest sorties : P&L/trade 0.0899 → -0.0236, pas d'amélioration ≥ 10% — annulé",
         "trades_sample_size": 40
+      },
+      {
+        "timestamp": "2026-08-04T01:10:22.576980+00:00",
+        "param_name": "filters.min_age_hours",
+        "old_value": 1.0,
+        "new_value": 0.5,
+        "reason": "32.9% des rejets 'age_min' auraient fait +100% (pic moyen 138.1%)",
+        "trades_sample_size": 76
+      },
+      {
+        "timestamp": "2026-08-04T01:10:22.581497+00:00",
+        "param_name": "filters",
+        "old_value": {
+          "min_liquidity_usd": 15000,
+          "min_holders": 75,
+          "min_volume_1h": 8000,
+          "max_dev_wallet_pct": 10,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 20,
+          "min_social_mentions_1h": 0,
+          "min_smart_money_buys_30min": 0,
+          "max_tax_buy": 5,
+          "max_tax_sell": 5,
+          "max_age_hours": 12.0,
+          "min_age_hours": 0.5,
+          "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose.",
+          "max_bundler_rate": 0.35,
+          "max_insider_rate": 0.15,
+          "reject_wash_trading": true,
+          "reject_creator_sold": true,
+          "min_swaps": 300,
+          "min_liquidity_growth_ratio": 1.2,
+          "min_volume_liquidity_ratio": 1.5,
+          "max_price_change_1h": 150,
+          "max_drawdown_from_ath_pct": 55,
+          "min_market_cap": 100000,
+          "require_social": true,
+          "max_dev_tokens_launched": 10
+        },
+        "new_value": {
+          "min_liquidity_usd": 15000,
+          "min_holders": 75,
+          "min_volume_1h": 8000,
+          "max_dev_wallet_pct": 10,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 20,
+          "min_social_mentions_1h": 0,
+          "min_smart_money_buys_30min": 0,
+          "max_tax_buy": 5,
+          "max_tax_sell": 5,
+          "max_age_hours": 12.0,
+          "min_age_hours": 1.0,
+          "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose.",
+          "max_bundler_rate": 0.35,
+          "max_insider_rate": 0.15,
+          "reject_wash_trading": true,
+          "reject_creator_sold": true,
+          "min_swaps": 300,
+          "min_liquidity_growth_ratio": 1.2,
+          "min_volume_liquidity_ratio": 1.5,
+          "max_price_change_1h": 150,
+          "max_drawdown_from_ath_pct": 55,
+          "min_market_cap": 100000,
+          "require_social": true,
+          "max_dev_tokens_launched": 10
+        },
+        "reason": "backtest : P&L/trade 1.9016 → 1.9016, pas d'amélioration ≥ 10% — annulé",
+        "trades_sample_size": 20
       }
     ],
-    "total_trades": 28,
-    "winning_trades": 7,
-    "losing_trades": 21,
-    "avg_win_pct": 112.76,
-    "avg_loss_pct": -28.29,
+    "total_trades": 34,
+    "winning_trades": 10,
+    "losing_trades": 24,
+    "avg_win_pct": 138.15,
+    "avg_loss_pct": -26.47,
     "win_rate_by_age": {
       "2-4h": {
-        "win_rate": 14.3,
-        "sample": 14
+        "win_rate": 13.3,
+        "sample": 15
       },
       "4h+": {
-        "win_rate": 28.6,
-        "sample": 7
+        "win_rate": 36.4,
+        "sample": 11
       },
       "1-2h": {
-        "win_rate": 42.9,
-        "sample": 7
+        "win_rate": 50.0,
+        "sample": 8
       }
     },
     "win_rate_by_liquidity": {
       "30-50K": {
+        "win_rate": 33.3,
+        "sample": 12
+      },
+      ">50K": {
         "win_rate": 30.0,
         "sample": 10
       },
-      ">50K": {
-        "win_rate": 14.3,
-        "sample": 7
-      },
       "10-30K": {
-        "win_rate": 27.3,
-        "sample": 11
+        "win_rate": 25.0,
+        "sample": 12
       }
     },
     "win_rate_by_social_score": {},
     "last_adjustment_at": {
-      "filters": 25,
+      "filters": 30,
       "weights": 25,
       "exits": 25,
       "risk": 20

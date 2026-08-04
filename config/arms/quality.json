@@ -36,7 +36,7 @@
     "min_rugcheck_score": 85,
     "max_top_wallet_concentration": 20,
     "min_social_mentions_1h": 0,
-    "min_smart_money_buys_30min": 1,
+    "min_smart_money_buys_30min": 0,
     "max_tax_buy": 5,
     "max_tax_sell": 5,
     "max_age_hours": 24.0,
@@ -248,35 +248,43 @@
         "new_value": 1,
         "reason": "28.6% des rejets 'smart_money' auraient fait +100% (pic moyen 125.8%)",
         "trades_sample_size": 35
+      },
+      {
+        "timestamp": "2026-08-04T00:58:39.369491+00:00",
+        "param_name": "filters.min_smart_money_buys_30min",
+        "old_value": 1,
+        "new_value": 0,
+        "reason": "28.6% des rejets 'smart_money' auraient fait +100% (pic moyen 125.8%)",
+        "trades_sample_size": 35
       }
     ],
-    "total_trades": 7,
-    "winning_trades": 1,
-    "losing_trades": 6,
-    "avg_win_pct": 71.5,
-    "avg_loss_pct": -23.86,
+    "total_trades": 10,
+    "winning_trades": 3,
+    "losing_trades": 7,
+    "avg_win_pct": 55.39,
+    "avg_loss_pct": -23.64,
     "win_rate_by_age": {
       "4h+": {
-        "win_rate": 25.0,
-        "sample": 4
+        "win_rate": 33.3,
+        "sample": 6
       },
       "1-2h": {
         "win_rate": 0.0,
         "sample": 2
       },
       "2-4h": {
-        "win_rate": 0.0,
-        "sample": 1
+        "win_rate": 50.0,
+        "sample": 2
       }
     },
     "win_rate_by_liquidity": {
       ">50K": {
-        "win_rate": 33.3,
-        "sample": 3
+        "win_rate": 50.0,
+        "sample": 4
       },
       "30-50K": {
-        "win_rate": 0.0,
-        "sample": 3
+        "win_rate": 20.0,
+        "sample": 5
       },
       "10-30K": {
         "win_rate": 0.0,

@@ -76,21 +76,21 @@
     "rugcheck": 0.15
   },
   "learning": {
-    "total_trades": 44,
-    "winning_trades": 6,
-    "losing_trades": 38,
-    "avg_win_pct": 98.3,
-    "avg_loss_pct": -26.38,
+    "total_trades": 48,
+    "winning_trades": 8,
+    "losing_trades": 40,
+    "avg_win_pct": 123.5,
+    "avg_loss_pct": -26.11,
     "best_performer_filter": null,
     "worst_performer_filter": null,
     "win_rate_by_age": {
       "2-4h": {
-        "win_rate": 21.4,
-        "sample": 14
+        "win_rate": 29.4,
+        "sample": 17
       },
       "1-2h": {
-        "win_rate": 16.7,
-        "sample": 12
+        "win_rate": 15.4,
+        "sample": 13
       },
       "0-1h": {
         "win_rate": 7.7,
@@ -103,12 +103,12 @@
     },
     "win_rate_by_liquidity": {
       ">50K": {
-        "win_rate": 40.0,
-        "sample": 5
+        "win_rate": 50.0,
+        "sample": 8
       },
       "30-50K": {
-        "win_rate": 13.6,
-        "sample": 22
+        "win_rate": 13.0,
+        "sample": 23
       },
       "10-30K": {
         "win_rate": 5.9,
@@ -435,10 +435,70 @@
         "new_value": 72.5,
         "reason": "inactif depuis 422 cycles sans entrée (seuil 300) — motif « alpha N< N »",
         "trades_sample_size": 422
+      },
+      {
+        "timestamp": "2026-08-03T21:44:23.546020+00:00",
+        "param_name": "filters.min_age_hours",
+        "old_value": 1.5,
+        "new_value": 2.0,
+        "reason": "WR 7.7% sur tokens 0-1h",
+        "trades_sample_size": 13
+      },
+      {
+        "timestamp": "2026-08-03T21:44:23.585326+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 25000,
+        "new_value": 30000,
+        "reason": "WR 5.9% sous 30K",
+        "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-08-03T21:44:23.589894+00:00",
+        "param_name": "filters.min_age_hours",
+        "old_value": 2.0,
+        "new_value": 1.5,
+        "reason": "45.0% des rejets 'age_min' auraient fait +100% (pic moyen 276.2%)",
+        "trades_sample_size": 20
+      },
+      {
+        "timestamp": "2026-08-03T21:44:23.591071+00:00",
+        "param_name": "filters",
+        "old_value": {
+          "min_liquidity_usd": 30000,
+          "min_holders": 75,
+          "min_volume_1h": 8000,
+          "max_dev_wallet_pct": 10,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 20,
+          "min_social_mentions_1h": 0,
+          "min_smart_money_buys_30min": 0,
+          "max_tax_buy": 5,
+          "max_tax_sell": 5,
+          "max_age_hours": 6,
+          "min_age_hours": 1.5,
+          "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose."
+        },
+        "new_value": {
+          "min_liquidity_usd": 25000,
+          "min_holders": 75,
+          "min_volume_1h": 8000,
+          "max_dev_wallet_pct": 10,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 20,
+          "min_social_mentions_1h": 0,
+          "min_smart_money_buys_30min": 0,
+          "max_tax_buy": 5,
+          "max_tax_sell": 5,
+          "max_age_hours": 6,
+          "min_age_hours": 1.5,
+          "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose."
+        },
+        "reason": "backtest : P&L/trade 3.2899 → 3.4749, pas d'amélioration ≥ 10% — annulé",
+        "trades_sample_size": 20
       }
     ],
     "last_adjustment_at": {
-      "filters": 40,
+      "filters": 45,
       "weights": 40,
       "exits": 40,
       "risk": 40

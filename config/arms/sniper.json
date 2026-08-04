@@ -68,7 +68,7 @@
     "structure_mode": "balanced"
   },
   "exit_rules": {
-    "stop_loss_pct": -25.0,
+    "stop_loss_pct": -30.0,
     "take_profit_1": 100.0,
     "take_profit_2": 120,
     "take_profit_3": 400,
@@ -76,9 +76,9 @@
     "partial_sell_tp1_pct": 0.5,
     "partial_sell_tp2_pct": 0.5,
     "trailing_stop_activation": 80,
-    "trailing_stop_distance_pct": 35,
+    "trailing_stop_distance_pct": 45,
     "max_hold_time_minutes": 30,
-    "stop_loss_slippage_buffer_pct": 6.6,
+    "stop_loss_slippage_buffer_pct": 13.0,
     "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
   },
   "scoring_weights": {
@@ -255,47 +255,71 @@
         "new_value": 6.6,
         "reason": "tampon augmenté : 42 sorties stop loss dépassent encore leur seuil effectif de 6.56 pts (médiane) même avec le tampon actuel de 0.0",
         "trades_sample_size": 42
+      },
+      {
+        "timestamp": "2026-08-03T22:28:57.842422+00:00",
+        "param_name": "exit_rules.stop_loss_slippage_buffer_pct",
+        "old_value": 6.6,
+        "new_value": 13.0,
+        "reason": "tampon augmenté : 47 sorties stop loss dépassent encore leur seuil effectif de 6.36 pts (médiane) même avec le tampon actuel de 6.6",
+        "trades_sample_size": 47
+      },
+      {
+        "timestamp": "2026-08-03T22:28:57.842945+00:00",
+        "param_name": "exit_rules.trailing_stop_distance_pct",
+        "old_value": 35,
+        "new_value": 45,
+        "reason": "18 sorties trailing quasi toutes gagnantes : trop serré",
+        "trades_sample_size": 18
+      },
+      {
+        "timestamp": "2026-08-03T22:28:57.885334+00:00",
+        "param_name": "exit_rules.stop_loss_pct",
+        "old_value": -25.0,
+        "new_value": -30.0,
+        "reason": "rejeu sur 40 positions : P&L/trade 0.5106 → 0.8554 (0 ambiguës)",
+        "trades_sample_size": 40
       }
     ],
-    "total_trades": 93,
-    "winning_trades": 37,
-    "losing_trades": 56,
-    "avg_win_pct": 76.7,
-    "avg_loss_pct": -37.47,
+    "total_trades": 103,
+    "winning_trades": 40,
+    "losing_trades": 63,
+    "avg_win_pct": 84.66,
+    "avg_loss_pct": -35.99,
     "win_rate_by_age": {
       "1-2h": {
-        "win_rate": 39.3,
-        "sample": 28
+        "win_rate": 34.4,
+        "sample": 32
       },
       "0-1h": {
-        "win_rate": 40.0,
-        "sample": 65
+        "win_rate": 40.8,
+        "sample": 71
       }
     },
     "win_rate_by_liquidity": {
       "10-30K": {
         "win_rate": 42.0,
-        "sample": 81
+        "sample": 88
       },
       "<10K": {
         "win_rate": 0.0,
         "sample": 2
       },
       "30-50K": {
-        "win_rate": 42.9,
-        "sample": 7
+        "win_rate": 33.3,
+        "sample": 9
       },
       ">50K": {
         "win_rate": 0.0,
-        "sample": 3
+        "sample": 4
       }
     },
     "win_rate_by_social_score": {},
     "last_adjustment_at": {
-      "filters": 90,
-      "weights": 85,
-      "exits": 85,
-      "risk": 80
+      "filters": 100,
+      "weights": 95,
+      "exits": 95,
+      "risk": 100
     }
   },
   "risk_rules": {
