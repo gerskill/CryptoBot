@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import type { BotState, Trade } from './types'
 
+export type View = 'dashboard' | 'live' | 'weekly' | 'config' | 'backtester'
+
 /**
  * État du dashboard. Le WebSocket pousse l'état du bot ; les trades et les
  * shadow trades sont récupérés en REST à l'ouverture puis après chaque
@@ -16,11 +18,13 @@ type Store = {
   equitySeries: number[]
   shadow: { total: number; missed: number; missed_rate: number }
   connected: boolean
+  view: View
   setState: (state: BotState) => void
   setTrades: (trades: Trade[]) => void
   setEquitySeries: (series: number[]) => void
   setShadow: (shadow: Store['shadow']) => void
   setConnected: (connected: boolean) => void
+  setView: (view: View) => void
 }
 
 export const useStore = create<Store>((set) => ({
@@ -29,9 +33,11 @@ export const useStore = create<Store>((set) => ({
   equitySeries: [],
   shadow: { total: 0, missed: 0, missed_rate: 0 },
   connected: false,
+  view: 'dashboard',
   setState: (state) => set({ state }),
   setTrades: (trades) => set({ trades }),
   setEquitySeries: (equitySeries) => set({ equitySeries }),
   setShadow: (shadow) => set({ shadow }),
   setConnected: (connected) => set({ connected }),
+  setView: (view) => set({ view }),
 }))

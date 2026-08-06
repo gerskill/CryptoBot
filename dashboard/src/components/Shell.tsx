@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { useStore } from '../lib/store'
 import { usd, pct, pnlColor } from '../lib/format'
 import { usePulse } from '../lib/useLiveState'
+import { NavBar } from './NavBar'
 
 /** Compte à rebours jusqu'au prochain scan. */
 function ScanClock() {
@@ -172,6 +173,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
+
+      <NavBar />
 
       <motion.main
         initial={{ opacity: 0 }}
