@@ -6,6 +6,7 @@ type Props = {
 }
 
 const MAX_INLINE_DEPTH = 2
+const MAX_INLINE_ARRAY_LENGTH = 5
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -34,7 +35,7 @@ export function ParamValue({ value, depth = 0 }: Props) {
 
   if (Array.isArray(value)) {
     if (value.length === 0) return <span className="text-dim">[]</span>
-    if (depth >= MAX_INLINE_DEPTH && !expanded) {
+    if ((depth >= MAX_INLINE_DEPTH || value.length > MAX_INLINE_ARRAY_LENGTH) && !expanded) {
       return (
         <button
           onClick={() => setExpanded(true)}
