@@ -2,7 +2,7 @@
   "version": "2.0",
   "mode": "PAPER",
   "capital_total": 0,
-  "risk_per_trade": 0.02,
+  "risk_per_trade": 0.01,
   "max_concurrent_positions": 3,
   "scan": {
     "interval_seconds": 90,
@@ -68,7 +68,7 @@
     "structure_mode": "balanced"
   },
   "exit_rules": {
-    "stop_loss_pct": -30.0,
+    "stop_loss_pct": -25.0,
     "take_profit_1": 100.0,
     "take_profit_2": 120,
     "take_profit_3": 400,
@@ -76,9 +76,9 @@
     "partial_sell_tp1_pct": 0.5,
     "partial_sell_tp2_pct": 0.5,
     "trailing_stop_activation": 80,
-    "trailing_stop_distance_pct": 45,
-    "max_hold_time_minutes": 30,
-    "stop_loss_slippage_buffer_pct": 13.0,
+    "trailing_stop_distance_pct": 55,
+    "max_hold_time_minutes": 60,
+    "stop_loss_slippage_buffer_pct": 15.0,
     "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
   },
   "scoring_weights": {
@@ -279,47 +279,395 @@
         "new_value": -30.0,
         "reason": "rejeu sur 40 positions : P&L/trade 0.5106 → 0.8554 (0 ambiguës)",
         "trades_sample_size": 40
+      },
+      {
+        "timestamp": "2026-08-05T18:43:14.186667+00:00",
+        "param_name": "exit_rules.stop_loss_slippage_buffer_pct",
+        "old_value": 13.0,
+        "new_value": 15.0,
+        "reason": "tampon augmenté : 58 sorties stop loss dépassent encore leur seuil effectif de 6.44 pts (médiane) même avec le tampon actuel de 13.0",
+        "trades_sample_size": 58
+      },
+      {
+        "timestamp": "2026-08-05T18:43:14.187125+00:00",
+        "param_name": "exit_rules.max_hold_time_minutes",
+        "old_value": 30,
+        "new_value": 60,
+        "reason": "10 trades gagnants coupés par le time stop",
+        "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-08-05T18:43:14.187568+00:00",
+        "param_name": "exit_rules.trailing_stop_distance_pct",
+        "old_value": 45,
+        "new_value": 55,
+        "reason": "19 sorties trailing quasi toutes gagnantes : trop serré",
+        "trades_sample_size": 19
+      },
+      {
+        "timestamp": "2026-08-05T18:43:14.235301+00:00",
+        "param_name": "exit_rules.stop_loss_pct",
+        "old_value": -30.0,
+        "new_value": -25.0,
+        "reason": "rejeu sur 40 positions : P&L/trade -0.917 → -0.5789 (1 ambiguës)",
+        "trades_sample_size": 40
+      },
+      {
+        "timestamp": "2026-08-05T19:58:34.327623+00:00",
+        "param_name": "exit_rules.max_hold_time_minutes",
+        "old_value": 60,
+        "new_value": 90,
+        "reason": "10 trades gagnants coupés par le time stop",
+        "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-08-05T19:58:34.328139+00:00",
+        "param_name": "exit_rules.trailing_stop_distance_pct",
+        "old_value": 55,
+        "new_value": 65,
+        "reason": "21 sorties trailing quasi toutes gagnantes : trop serré",
+        "trades_sample_size": 21
+      },
+      {
+        "timestamp": "2026-08-05T19:58:34.383316+00:00",
+        "param_name": "exit_rules",
+        "old_value": {
+          "stop_loss_pct": -25.0,
+          "take_profit_1": 100.0,
+          "take_profit_2": 120,
+          "take_profit_3": 400,
+          "breakeven_trigger": 100,
+          "partial_sell_tp1_pct": 0.5,
+          "partial_sell_tp2_pct": 0.5,
+          "trailing_stop_activation": 80,
+          "trailing_stop_distance_pct": 65,
+          "max_hold_time_minutes": 90,
+          "stop_loss_slippage_buffer_pct": 15.0,
+          "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
+        },
+        "new_value": {
+          "stop_loss_pct": -25.0,
+          "take_profit_1": 100.0,
+          "take_profit_2": 120,
+          "take_profit_3": 400,
+          "breakeven_trigger": 100,
+          "partial_sell_tp1_pct": 0.5,
+          "partial_sell_tp2_pct": 0.5,
+          "trailing_stop_activation": 80,
+          "trailing_stop_distance_pct": 55,
+          "max_hold_time_minutes": 60,
+          "stop_loss_slippage_buffer_pct": 15.0,
+          "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
+        },
+        "reason": "backtest sorties : P&L/trade -1.144 → -1.144, pas d'amélioration ≥ 10% — annulé",
+        "trades_sample_size": 40
+      },
+      {
+        "timestamp": "2026-08-06T03:05:08.887577+00:00",
+        "param_name": "exit_rules.max_hold_time_minutes",
+        "old_value": 60,
+        "new_value": 90,
+        "reason": "10 trades gagnants coupés par le time stop",
+        "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-08-06T03:05:08.888067+00:00",
+        "param_name": "exit_rules.trailing_stop_distance_pct",
+        "old_value": 55,
+        "new_value": 65,
+        "reason": "22 sorties trailing quasi toutes gagnantes : trop serré",
+        "trades_sample_size": 22
+      },
+      {
+        "timestamp": "2026-08-06T03:05:08.950436+00:00",
+        "param_name": "exit_rules",
+        "old_value": {
+          "stop_loss_pct": -25.0,
+          "take_profit_1": 100.0,
+          "take_profit_2": 120,
+          "take_profit_3": 400,
+          "breakeven_trigger": 100,
+          "partial_sell_tp1_pct": 0.5,
+          "partial_sell_tp2_pct": 0.5,
+          "trailing_stop_activation": 80,
+          "trailing_stop_distance_pct": 65,
+          "max_hold_time_minutes": 90,
+          "stop_loss_slippage_buffer_pct": 15.0,
+          "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
+        },
+        "new_value": {
+          "stop_loss_pct": -25.0,
+          "take_profit_1": 100.0,
+          "take_profit_2": 120,
+          "take_profit_3": 400,
+          "breakeven_trigger": 100,
+          "partial_sell_tp1_pct": 0.5,
+          "partial_sell_tp2_pct": 0.5,
+          "trailing_stop_activation": 80,
+          "trailing_stop_distance_pct": 55,
+          "max_hold_time_minutes": 60,
+          "stop_loss_slippage_buffer_pct": 15.0,
+          "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
+        },
+        "reason": "backtest sorties : P&L/trade -1.1104 → -1.1104, pas d'amélioration ≥ 10% — annulé",
+        "trades_sample_size": 40
+      },
+      {
+        "timestamp": "2026-08-06T04:29:10.403314+00:00",
+        "param_name": "exit_rules.max_hold_time_minutes",
+        "old_value": 60,
+        "new_value": 90,
+        "reason": "10 trades gagnants coupés par le time stop",
+        "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-08-06T04:29:10.404029+00:00",
+        "param_name": "exit_rules.trailing_stop_distance_pct",
+        "old_value": 55,
+        "new_value": 65,
+        "reason": "22 sorties trailing quasi toutes gagnantes : trop serré",
+        "trades_sample_size": 22
+      },
+      {
+        "timestamp": "2026-08-06T04:29:10.470949+00:00",
+        "param_name": "exit_rules",
+        "old_value": {
+          "stop_loss_pct": -25.0,
+          "take_profit_1": 100.0,
+          "take_profit_2": 120,
+          "take_profit_3": 400,
+          "breakeven_trigger": 100,
+          "partial_sell_tp1_pct": 0.5,
+          "partial_sell_tp2_pct": 0.5,
+          "trailing_stop_activation": 80,
+          "trailing_stop_distance_pct": 65,
+          "max_hold_time_minutes": 90,
+          "stop_loss_slippage_buffer_pct": 15.0,
+          "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
+        },
+        "new_value": {
+          "stop_loss_pct": -25.0,
+          "take_profit_1": 100.0,
+          "take_profit_2": 120,
+          "take_profit_3": 400,
+          "breakeven_trigger": 100,
+          "partial_sell_tp1_pct": 0.5,
+          "partial_sell_tp2_pct": 0.5,
+          "trailing_stop_activation": 80,
+          "trailing_stop_distance_pct": 55,
+          "max_hold_time_minutes": 60,
+          "stop_loss_slippage_buffer_pct": 15.0,
+          "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
+        },
+        "reason": "backtest sorties : P&L/trade -1.5727 → -1.5727, pas d'amélioration ≥ 10% — annulé",
+        "trades_sample_size": 40
+      },
+      {
+        "timestamp": "2026-08-06T04:30:39.023101+00:00",
+        "param_name": "risk_per_trade",
+        "old_value": 0.02,
+        "new_value": 0.015,
+        "reason": "WR 31%, drawdown 11%",
+        "trades_sample_size": 140
+      },
+      {
+        "timestamp": "2026-08-06T05:17:38.675581+00:00",
+        "param_name": "exit_rules.max_hold_time_minutes",
+        "old_value": 60,
+        "new_value": 90,
+        "reason": "10 trades gagnants coupés par le time stop",
+        "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-08-06T05:17:38.676135+00:00",
+        "param_name": "exit_rules.trailing_stop_distance_pct",
+        "old_value": 55,
+        "new_value": 65,
+        "reason": "22 sorties trailing quasi toutes gagnantes : trop serré",
+        "trades_sample_size": 22
+      },
+      {
+        "timestamp": "2026-08-06T05:17:38.746808+00:00",
+        "param_name": "exit_rules",
+        "old_value": {
+          "stop_loss_pct": -25.0,
+          "take_profit_1": 100.0,
+          "take_profit_2": 120,
+          "take_profit_3": 400,
+          "breakeven_trigger": 100,
+          "partial_sell_tp1_pct": 0.5,
+          "partial_sell_tp2_pct": 0.5,
+          "trailing_stop_activation": 80,
+          "trailing_stop_distance_pct": 65,
+          "max_hold_time_minutes": 90,
+          "stop_loss_slippage_buffer_pct": 15.0,
+          "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
+        },
+        "new_value": {
+          "stop_loss_pct": -25.0,
+          "take_profit_1": 100.0,
+          "take_profit_2": 120,
+          "take_profit_3": 400,
+          "breakeven_trigger": 100,
+          "partial_sell_tp1_pct": 0.5,
+          "partial_sell_tp2_pct": 0.5,
+          "trailing_stop_activation": 80,
+          "trailing_stop_distance_pct": 55,
+          "max_hold_time_minutes": 60,
+          "stop_loss_slippage_buffer_pct": 15.0,
+          "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
+        },
+        "reason": "backtest sorties : P&L/trade -2.0931 → -2.0931, pas d'amélioration ≥ 10% — annulé",
+        "trades_sample_size": 40
+      },
+      {
+        "timestamp": "2026-08-06T09:04:14.244194+00:00",
+        "param_name": "exit_rules.max_hold_time_minutes",
+        "old_value": 60,
+        "new_value": 90,
+        "reason": "10 trades gagnants coupés par le time stop",
+        "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-08-06T09:04:14.244783+00:00",
+        "param_name": "exit_rules.trailing_stop_distance_pct",
+        "old_value": 55,
+        "new_value": 65,
+        "reason": "24 sorties trailing quasi toutes gagnantes : trop serré",
+        "trades_sample_size": 24
+      },
+      {
+        "timestamp": "2026-08-06T09:04:14.320735+00:00",
+        "param_name": "exit_rules",
+        "old_value": {
+          "stop_loss_pct": -25.0,
+          "take_profit_1": 100.0,
+          "take_profit_2": 120,
+          "take_profit_3": 400,
+          "breakeven_trigger": 100,
+          "partial_sell_tp1_pct": 0.5,
+          "partial_sell_tp2_pct": 0.5,
+          "trailing_stop_activation": 80,
+          "trailing_stop_distance_pct": 65,
+          "max_hold_time_minutes": 90,
+          "stop_loss_slippage_buffer_pct": 15.0,
+          "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
+        },
+        "new_value": {
+          "stop_loss_pct": -25.0,
+          "take_profit_1": 100.0,
+          "take_profit_2": 120,
+          "take_profit_3": 400,
+          "breakeven_trigger": 100,
+          "partial_sell_tp1_pct": 0.5,
+          "partial_sell_tp2_pct": 0.5,
+          "trailing_stop_activation": 80,
+          "trailing_stop_distance_pct": 55,
+          "max_hold_time_minutes": 60,
+          "stop_loss_slippage_buffer_pct": 15.0,
+          "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
+        },
+        "reason": "backtest sorties : P&L/trade -1.6704 → -1.6704, pas d'amélioration ≥ 10% — annulé",
+        "trades_sample_size": 40
+      },
+      {
+        "timestamp": "2026-08-06T09:55:51.777272+00:00",
+        "param_name": "risk_per_trade",
+        "old_value": 0.015,
+        "new_value": 0.01,
+        "reason": "WR 28%, drawdown 16%",
+        "trades_sample_size": 160
+      },
+      {
+        "timestamp": "2026-08-06T12:04:03.917484+00:00",
+        "param_name": "exit_rules.max_hold_time_minutes",
+        "old_value": 60,
+        "new_value": 90,
+        "reason": "10 trades gagnants coupés par le time stop",
+        "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-08-06T12:04:03.918142+00:00",
+        "param_name": "exit_rules.trailing_stop_distance_pct",
+        "old_value": 55,
+        "new_value": 65,
+        "reason": "25 sorties trailing quasi toutes gagnantes : trop serré",
+        "trades_sample_size": 25
+      },
+      {
+        "timestamp": "2026-08-06T12:04:03.999174+00:00",
+        "param_name": "exit_rules",
+        "old_value": {
+          "stop_loss_pct": -25.0,
+          "take_profit_1": 100.0,
+          "take_profit_2": 120,
+          "take_profit_3": 400,
+          "breakeven_trigger": 100,
+          "partial_sell_tp1_pct": 0.5,
+          "partial_sell_tp2_pct": 0.5,
+          "trailing_stop_activation": 80,
+          "trailing_stop_distance_pct": 65,
+          "max_hold_time_minutes": 90,
+          "stop_loss_slippage_buffer_pct": 15.0,
+          "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
+        },
+        "new_value": {
+          "stop_loss_pct": -25.0,
+          "take_profit_1": 100.0,
+          "take_profit_2": 120,
+          "take_profit_3": 400,
+          "breakeven_trigger": 100,
+          "partial_sell_tp1_pct": 0.5,
+          "partial_sell_tp2_pct": 0.5,
+          "trailing_stop_activation": 80,
+          "trailing_stop_distance_pct": 55,
+          "max_hold_time_minutes": 60,
+          "stop_loss_slippage_buffer_pct": 15.0,
+          "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
+        },
+        "reason": "backtest sorties : P&L/trade -1.4428 → -1.4428, pas d'amélioration ≥ 10% — annulé",
+        "trades_sample_size": 40
       }
     ],
-    "total_trades": 103,
-    "winning_trades": 40,
-    "losing_trades": 63,
-    "avg_win_pct": 84.66,
-    "avg_loss_pct": -35.99,
+    "total_trades": 172,
+    "winning_trades": 47,
+    "losing_trades": 125,
+    "avg_win_pct": 82.36,
+    "avg_loss_pct": -31.85,
     "win_rate_by_age": {
       "1-2h": {
-        "win_rate": 34.4,
-        "sample": 32
+        "win_rate": 23.3,
+        "sample": 60
       },
       "0-1h": {
-        "win_rate": 40.8,
-        "sample": 71
+        "win_rate": 29.5,
+        "sample": 112
       }
     },
     "win_rate_by_liquidity": {
       "10-30K": {
-        "win_rate": 42.0,
-        "sample": 88
+        "win_rate": 29.2,
+        "sample": 144
       },
       "<10K": {
         "win_rate": 0.0,
         "sample": 2
       },
       "30-50K": {
-        "win_rate": 33.3,
-        "sample": 9
+        "win_rate": 23.8,
+        "sample": 21
       },
       ">50K": {
         "win_rate": 0.0,
-        "sample": 4
+        "sample": 5
       }
     },
     "win_rate_by_social_score": {},
     "last_adjustment_at": {
-      "filters": 100,
-      "weights": 95,
-      "exits": 95,
-      "risk": 100
+      "filters": 169,
+      "weights": 169,
+      "exits": 169,
+      "risk": 160
     }
   },
   "risk_rules": {

@@ -132,6 +132,19 @@ class TestExitRules(unittest.TestCase):
         position = update_high_water(position, 2.0)  # redescend
         self.assertAlmostEqual(position.high_water_pct, 200.0)
 
+    def test_apply_exit_deduit_le_cout_reel(self):
+        position = make_position()
+        actions = evaluate_exits(position, price=2.0)  # +100%, TP1 sur la moitié
+        position = apply_exit(position, actions[0], 2.0, cost_pct=10.0)
+        # (100% - 10%) sur 50% de 100$ = 45$, pas les 50$ au prix nu.
+        self.assertAlmostEqual(position.realized_pnl_usd, 45.0)
+
+    def test_apply_exit_cout_par_defaut_inchange(self):
+        position = make_position()
+        actions = evaluate_exits(position, price=2.0)
+        position = apply_exit(position, actions[0], 2.0)
+        self.assertAlmostEqual(position.realized_pnl_usd, 50.0)
+
 
 class TestPaperPortfolio(unittest.TestCase):
     def setUp(self):
@@ -200,6 +213,130 @@ class TestPaperPortfolio(unittest.TestCase):
         self.assertEqual(stats["total_trades"], 2)
         self.assertEqual(stats["win_rate"], 50.0)
         self.assertGreater(stats["profit_factor"], 1)
+
+
+class FakeExitCost:
+    def __init__(self, total_cost_pct, partial=False):
+        self.total_cost_pct = total_cost_pct
+        self.partial = partial
+
+
+class TestPaperPortfolioExitFeeMeasurer(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.journal = TradeJournal(os.path.join(self.tmp, "trades.jsonl"))
+        self.calls = []
+
+    def _portfolio(self, measurer):
+        return PaperPortfolio(capital=1000.0, journal=self.journal, exit_fee_measurer=measurer)
+
+    def test_sortie_finale_deduit_le_cout_mesure(self):
+        def measurer(token_address, size_usd):
+            self.calls.append((token_address, size_usd))
+            return FakeExitCost(total_cost_pct=10.0)
+
+        portfolio = self._portfolio(measurer)
+        position = portfolio.open(make_candidate(), PARAMS_MINIMAL, 100.0)
+        rows = portfolio.update(position.id, price=0.6)  # -40% nu -> -50% avec coût
+
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(rows[0]["exit_cost_pct"], 10.0)
+        self.assertEqual(rows[0]["exit_cost_partial"], False)
+        self.assertAlmostEqual(rows[0]["pnl_pct"], -50.0)
+
+    def test_jambe_partielle_tp1_ignore_le_measurer(self):
+        def measurer(token_address, size_usd):
+            self.calls.append((token_address, size_usd))
+            return FakeExitCost(total_cost_pct=10.0)
+
+        portfolio = self._portfolio(measurer)
+        position = portfolio.open(make_candidate(), PARAMS_MINIMAL, 100.0)
+        rows = portfolio.update(position.id, price=2.0)  # +100% -> TP1, jambe non finale
+
+        self.assertEqual(self.calls, [])
+        self.assertIsNone(rows[0]["exit_cost_pct"])
+        self.assertAlmostEqual(rows[0]["pnl_pct"], 100.0)
+
+    def test_notionnel_final_suit_le_prix_pas_la_mise_dentree(self):
+        """Régression Codex : le devis doit porter sur la valeur COURANTE de
+        ce qui est vendu, pas sur `size_usd` figé à l'entrée. Après TP1 (50%
+        vendus à +100%), la jambe finale vend le reste à +500% (x6 du prix
+        d'entrée, seuil TP3) : la valeur réellement échangée est 50$ * 6 =
+        300$, pas 50$.
+        """
+
+        def measurer(token_address, size_usd):
+            self.calls.append((token_address, size_usd))
+            return FakeExitCost(total_cost_pct=1.0)
+
+        portfolio = self._portfolio(measurer)
+        position = portfolio.open(make_candidate(), PARAMS_MINIMAL, 100.0)
+        portfolio.update(position.id, price=2.0)  # +100% -> TP1, 50% vendus, measurer pas appelé
+        portfolio.update(position.id, price=6.0)  # +500% -> TP3, reste vendu, jambe finale
+
+        self.assertEqual(len(self.calls), 1)
+        _, notional = self.calls[0]
+        self.assertAlmostEqual(notional, 300.0)
+
+    def test_force_close_deduit_le_cout_mesure(self):
+        def measurer(token_address, size_usd):
+            self.calls.append((token_address, size_usd))
+            return FakeExitCost(total_cost_pct=8.0)
+
+        portfolio = self._portfolio(measurer)
+        position = portfolio.open(make_candidate(), PARAMS_MINIMAL, 100.0)
+        row = portfolio.force_close(position.id, price=1.5, reason="PANIC_STOP")
+
+        self.assertEqual(len(self.calls), 1)
+        self.assertAlmostEqual(row["pnl_pct"], 42.0)  # 50% nu - 8% de coût
+        self.assertEqual(row["exit_cost_pct"], 8.0)
+        self.assertEqual(row["exit_cost_partial"], False)
+
+    def test_force_close_measurer_qui_leve_ne_bloque_pas(self):
+        def measurer(token_address, size_usd):
+            raise RuntimeError("réseau indisponible")
+
+        portfolio = self._portfolio(measurer)
+        position = portfolio.open(make_candidate(), PARAMS_MINIMAL, 100.0)
+        row = portfolio.force_close(position.id, price=1.5, reason="PANIC_STOP")
+
+        self.assertIsNone(row["exit_cost_pct"])
+        self.assertAlmostEqual(row["pnl_pct"], 50.0)
+
+    def test_force_close_sans_measurer_comportement_dorigine(self):
+        portfolio = self._portfolio(None)
+        position = portfolio.open(make_candidate(), PARAMS_MINIMAL, 100.0)
+        row = portfolio.force_close(position.id, price=1.5, reason="PANIC_STOP")
+
+        self.assertIsNone(row["exit_cost_pct"])
+        self.assertAlmostEqual(row["pnl_pct"], 50.0)
+
+    def test_measurer_qui_leve_ne_bloque_pas_la_sortie(self):
+        def measurer(token_address, size_usd):
+            raise RuntimeError("réseau indisponible")
+
+        portfolio = self._portfolio(measurer)
+        position = portfolio.open(make_candidate(), PARAMS_MINIMAL, 100.0)
+        rows = portfolio.update(position.id, price=0.6)
+
+        self.assertIsNone(rows[0]["exit_cost_pct"])
+        self.assertAlmostEqual(rows[0]["pnl_pct"], -40.0)
+
+    def test_measurer_absent_comportement_dorigine(self):
+        portfolio = self._portfolio(None)
+        position = portfolio.open(make_candidate(), PARAMS_MINIMAL, 100.0)
+        rows = portfolio.update(position.id, price=0.6)
+
+        self.assertIsNone(rows[0]["exit_cost_pct"])
+        self.assertAlmostEqual(rows[0]["pnl_pct"], -40.0)
+
+    def test_measurer_qui_retourne_none_comportement_dorigine(self):
+        portfolio = self._portfolio(lambda token_address, size_usd: None)
+        position = portfolio.open(make_candidate(), PARAMS_MINIMAL, 100.0)
+        rows = portfolio.update(position.id, price=0.6)
+
+        self.assertIsNone(rows[0]["exit_cost_pct"])
+        self.assertAlmostEqual(rows[0]["pnl_pct"], -40.0)
 
 
 class TestLearning(unittest.TestCase):

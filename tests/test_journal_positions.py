@@ -49,6 +49,27 @@ class TestLectureParPosition(unittest.TestCase):
             leg("p1", -1.77, -0.23, 0.5, True, "BREAKEVEN_STOP (-1.8%)", token="CALLCAT")
         )
 
+    def test_position_exclue_est_ignoree_par_read_positions(self):
+        """Incident du 2026-08-06 : stop loss effectif positif sur 4 bras,
+        sorties sans trajectoire de prix observable après l'entrée. La ligne
+        marquée `excluded_from_learning` reste dans le fichier (`read_all` la
+        voit) mais `read_positions` — la source unique du capital, des stats
+        et de l'apprentissage — l'ignore, sans qu'aucune donnée soit inventée
+        pour la remplacer."""
+        self.journal._append(
+            leg(
+                "buggy1", -10.0, -1.25, 1.0, True, "STOP_LOSS (-10.0%)",
+                token="BUGGY", excluded_from_learning=True,
+                exclusion_reason="incident 2026-08-06 : seuil effectif positif",
+            )
+        )
+        self.journal._append(leg("ok1", 20.0, 2.5, 1.0, True, "STOP_LOSS (-10.0%)", token="OK"))
+
+        self.assertEqual(len(self.journal.read_all()), 2)
+        positions = self.journal.read_positions()
+        self.assertEqual(len(positions), 1)
+        self.assertEqual(positions[0]["token"], "OK")
+
     def test_regroupe_les_jambes_dune_position(self):
         self._callcat()
         positions = self.journal.read_positions()

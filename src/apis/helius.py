@@ -17,6 +17,30 @@ REQUEST_TIMEOUT = 15
 MAX_HOLDER_PAGES = 5  # au-delà on renvoie une borne inférieure
 PAGE_LIMIT = 1000
 
+# LISTE BLANCHE DES MÉTHODES RPC. `gmgn.py` (ALLOWED_COMMANDS) et `jupiter.py`
+# (ALLOWED_PATHS) vérifient AVANT la requête ; `_rpc()` ici acceptait N'IMPORTE
+# QUELLE méthode, sans y être jamais poussé par une entrée dynamique — mais
+# l'absence de garde structurel était une incohérence avec le reste du dépôt,
+# trouvée en auditant l'ajout de `getRecentPrioritizationFees`. Toutes des
+# méthodes de LECTURE ; aucune ne signe ni ne soumet de transaction.
+ALLOWED_RPC_METHODS = frozenset({
+    "getAsset",
+    "getTokenAccounts",
+    "getTokenLargestAccounts",
+    "getTokenSupply",
+    "getRecentPrioritizationFees",
+})
+
+# Un swap Jupiter simple (une route, pas d'aggrégation multi-hop) consomme
+# généralement 150-300k unités de calcul. C'est une HYPOTHÈSE, pas une mesure
+# — `getRecentPrioritizationFees` rend un PRIX par unité (micro-lamports/CU),
+# jamais un total ; il faut le multiplier par un budget de CU pour obtenir un
+# coût en lamports, et ce budget n'est connu qu'à la construction réelle de la
+# transaction (hors périmètre : `/swap/v2/build` est absent d'ALLOWED_PATHS).
+# 200k est le milieu de la fourchette usuelle ; documenté ici pour qu'un
+# lecteur futur sache que c'est une supposition, pas un fait mesuré.
+ASSUMED_SWAP_COMPUTE_UNITS = 200_000
+
 
 @dataclass(frozen=True)
 class HolderStats:
@@ -27,6 +51,10 @@ class HolderStats:
     top_holder_pct: Optional[float] = None
     top10_holder_pct: Optional[float] = None
     supply: Optional[float] = None
+
+
+class ForbiddenRpcMethod(RuntimeError):
+    """Méthode RPC absente de la liste blanche — refusée avant l'appel."""
 
 
 def _safe_error(exc: Exception) -> str:
@@ -62,7 +90,13 @@ class HeliusAPI:
         return f"https://mainnet.helius-rpc.com/?api-key={self.api_key}"
 
     def _rpc(self, method: str, params: Any) -> Optional[Any]:
-        """Appel JSON-RPC. Retourne None en cas d'échec (jamais d'exception)."""
+        """Appel JSON-RPC. Retourne None en cas d'échec (jamais d'exception).
+
+        Refuse toute méthode absente de la liste blanche — même garde-fou que
+        `gmgn.py`/`jupiter.py`, appliqué AVANT la requête.
+        """
+        if method not in ALLOWED_RPC_METHODS:
+            raise ForbiddenRpcMethod(f"méthode '{method}' interdite — lecture seule uniquement")
         if not self.enabled:
             return None
         self.rate_limiter.acquire()
@@ -86,6 +120,32 @@ class HeliusAPI:
         except ValueError as exc:
             print(f"[Helius] {method} JSON invalide : {exc}")
         return None
+
+    def get_recent_prioritization_fee_lamports(
+        self, compute_units: int = ASSUMED_SWAP_COMPUTE_UNITS
+    ) -> Optional[float]:
+        """Coût estimé de priorité pour UNE transaction, en lamports.
+
+        `getRecentPrioritizationFees` rend un PRIX (micro-lamports par unité
+        de calcul) sur les derniers slots — pas un coût de transaction. On
+        prend la MÉDIANE, pas la moyenne : un seul slot en pleine congestion
+        ferait exploser une moyenne pour un prix qui n'a duré qu'un slot.
+
+        Multiplié par `compute_units`, hypothèse documentée sur
+        `ASSUMED_SWAP_COMPUTE_UNITS` : le vrai budget de CU n'est connu qu'à
+        la construction de la transaction, hors périmètre de ce bot.
+
+        `None` = non mesurable (clé absente, RPC indisponible, réponse vide).
+        Ne bloque jamais l'appelant — même invariant que le reste du pipeline.
+        """
+        result = self._rpc("getRecentPrioritizationFees", [])
+        if not result:
+            return None
+        prix = sorted(int(r.get("prioritizationFee", 0)) for r in result if "prioritizationFee" in r)
+        if not prix:
+            return None
+        mediane = prix[len(prix) // 2]
+        return (mediane * compute_units) / 1_000_000  # micro-lamports -> lamports
 
     def get_supply(self, mint: str) -> Optional[float]:
         result = self._rpc("getTokenSupply", [mint])

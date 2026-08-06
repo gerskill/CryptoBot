@@ -44,6 +44,7 @@ from src.core import economics
 from src.core.budget import load_budgets
 from src.core.capabilities import build_registry
 from src.core.economics import size_for_cost
+from src.core.exit_fees import measure_exit_cost
 from src.core.cache import TokenCache
 from src.core.confluence import (
     arm_signals,
@@ -59,6 +60,7 @@ from src.core.lock import InstanceLock
 from src.core.models import Candidate, ScanResult
 from src.core.params import ParamsStore
 from src.core.positions import RUG_LIQUIDITY_DROP_PCT
+from src.core.quota_agent import QuotaAgent
 from src.core.pricefeed import (
     MONITOR_BUDGET_PER_MIN,
     CycleMarketCache,
@@ -124,6 +126,14 @@ class AlphaLoop:
         # Le seul module qui sait ce qu'une taille coûte VRAIMENT : DexScreener
         # et Birdeye rendent un prix moyen, un devis rend le prix exécutable.
         self.jupiter = JupiterAPI(settings.JUPITER_API_KEY)
+        # UNE SEULE INSTANCE, PARTAGÉE. Deux `HeliusAPI(...)` séparées ici même
+        # (capabilities et pipeline) créaient chacune leur propre RateLimiter :
+        # 10/s x2 instances = jusqu'à 20 req/s réelles contre un palier prévu
+        # pour 10, sans que rien ne le voie. Trouvé en câblant la mesure de
+        # priority fee, qui a besoin elle aussi d'un client Helius — la
+        # troisième instance aurait aggravé le même défaut au lieu de le
+        # corriger.
+        self.helius = HeliusAPI(settings.HELIUS_API_KEY)
 
         # AGENTS DE MESURE. Ils calculent et journalisent ; aucun n'écrit de
         # paramètre ni ne refuse une entrée. Avec 93 trades clôturés, brancher
@@ -143,18 +153,22 @@ class AlphaLoop:
         # state.json pour que la dégradation soit visible au lieu d'être subie.
         self.capabilities = build_registry(
             birdeye=self.birdeye, gmgn=self.gmgn, jupiter=self.jupiter, dex=self.dex,
-            helius=HeliusAPI(settings.HELIUS_API_KEY),
+            helius=self.helius,
         )
         self.budgets = load_budgets(
             settings.BUDGET_PATH,
             {k: v for k, v in (self.params.get("api_budgets", {}) or {}).items()
              if isinstance(v, int)},
         )
+        # Ajuste le débit (`scan.social_max_lookups_per_cycle`) sur le RYTHME
+        # de consommation mesuré, plutôt que sur une constante réglée une fois
+        # à la main. Voir `src/core/quota_agent.py`.
+        self.quota_agent = QuotaAgent(self.params)
         self.pipeline = ScanPipeline(
             params=self.params,
             cache=self.cache,
             dex=self.dex,
-            helius=HeliusAPI(settings.HELIUS_API_KEY),
+            helius=self.helius,
             rugcheck=RugCheckAPI(),
             birdeye=self.birdeye,
             twitter=TwitterAPI(
@@ -218,6 +232,7 @@ class AlphaLoop:
             max_drawdown_stop_pct=self.params.get(
                 "risk_rules.max_drawdown_stop_pct", 0.0
             ),
+            exit_fee_measurer=self._measure_exit_cost,
         )
         # `self.portfolio` reste celui du témoin : le dashboard, l'API et les
         # 36 trades historiques continuent de le lire sans migration.
@@ -354,6 +369,7 @@ class AlphaLoop:
         # APRÈS le flush : le relâchement lit l'entonnoir, y compris les lignes
         # de ce cycle-ci.
         self._relax_inactive_arms()
+        self._recalibrate_quota()
         # Un seul appel par cycle : le reporter décide lui-même si son lot ou
         # son rapport sont dus, et absorbe toute panne.
         self.reporter.tick(self.arms)
@@ -388,6 +404,19 @@ class AlphaLoop:
             for change in arm.learning._relax_from_inactivity():
                 print(f"🧠{arm.label} {change}")
 
+    def _recalibrate_quota(self) -> None:
+        """Ajuste le débit des lookups sociaux sur le rythme de budget mesuré.
+
+        Même cadence que `_relax_inactive_arms` : la demande brute vs servie
+        (`record_demand`, dans `_scan_all_arms`) s'accumule à chaque cycle,
+        mais la décision elle-même n'a besoin d'être reconsidérée qu'au même
+        rythme que le reste des ajustements automatiques du dépôt.
+        """
+        if self.cycle_count % INACTIVITY_CHECK_EVERY != 0:
+            return
+        for change in self.quota_agent.recalibrate(self.budgets):
+            print(f"🧠[QUOTA] {change}")
+
     def _scan_all_arms(self) -> ScanResult:
         """Une collecte, N évaluations. Retourne celle du bras témoin.
 
@@ -409,6 +438,13 @@ class AlphaLoop:
             limit=self.params.get("scan.social_max_lookups_per_cycle", 2),
         )
         social = self.pipeline.enrich_social(batch.enriched, addresses)
+
+        # Demande BRUTE (avant le plafond par cycle) vs ce qui a pu être servi
+        # — le signal dont `QuotaAgent` a besoin pour distinguer « le plafond
+        # est trop bas » (demande non servie) de « le plafond ne sert à rien »
+        # (personne n'en veut). Voir `src/core/quota_agent.py`.
+        raw_wanted = len(set().union(*(ev.wishlist for ev in pre.values()))) if pre else 0
+        self.quota_agent.record_demand("twitter", wanted=raw_wanted, served=len(addresses))
 
         evaluations = {
             arm.name: self.pipeline.evaluate(
@@ -998,6 +1034,17 @@ class AlphaLoop:
                 print(f"     · {reason}")
             if verdict.passed:
                 self._open_position(candidate, arm)
+
+    def _measure_exit_cost(self, token_address: str, size_usd: float):
+        """Coût réel d'une clôture, maintenant. Injecté dans les 6 `PaperPortfolio`.
+
+        UN SEUL CALLABLE PARTAGÉ, pas une mesure par bras : le coût de sortie
+        ne dépend pas de la stratégie qui a acheté, seulement du token et du
+        montant. Voir `src/core/exit_fees.py` pour ce qui est mesuré et ce qui
+        est une hypothèse documentée (le budget de CU du priority fee).
+        """
+        sol_price = self.jupiter.price(SOL_MINT) or 0.0
+        return measure_exit_cost(self.jupiter, self.helius, token_address, size_usd, sol_price)
 
     def _economics_guard(
         self, candidate: Candidate, size_usd: float, arm

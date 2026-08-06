@@ -25,6 +25,8 @@ class TradeJournal:
         fraction: float,
         reason: str,
         is_final: bool,
+        exit_cost_pct: Optional[float] = None,
+        exit_cost_partial: Optional[bool] = None,
     ) -> dict[str, Any]:
         row = {
             "id": f"{position.id}-{len(position.exit_reasons)}",
@@ -70,6 +72,13 @@ class TradeJournal:
             "price_change_5m_at_entry": position.price_change_5m_at_entry,
             "stop_loss_target_pct": position.stop_loss_pct,
             "stop_loss_trigger_pct": position.effective_stop_loss_pct,
+            # Coût réel déduit à la sortie (impact de prix + priority fee),
+            # voir `src/core/exit_fees.py`. `None` = non mesuré à ce moment,
+            # distinct de « mesuré et nul » — même invariant que le reste.
+            "exit_cost_pct": (
+                round(exit_cost_pct, 3) if exit_cost_pct is not None else None
+            ),
+            "exit_cost_partial": exit_cost_partial,
         }
         self._append(row)
         return row
@@ -121,6 +130,15 @@ class TradeJournal:
         Une ligne sans `position_id` (journal ancien ou écrit à la main) ne
         peut être rattachée à rien : elle vaut une position à elle seule.
         Surtout pas de repli sur `id`, qui n'est unique que par jambe.
+
+        Une position dont la jambe finale porte `excluded_from_learning` est
+        ignorée ici aussi (incident du 2026-08-06 : seuil de stop loss effectif
+        positif sur 4 bras, sorties en ~12s sans trajectoire de prix observée
+        après l'entrée — aucune donnée pour reconstruire ce qui se serait
+        « vraiment » passé, donc exclue plutôt qu'inventée). La ligne brute
+        reste dans le fichier : `read_all()` la voit toujours, seule
+        `read_positions()` — la source unique du capital, des stats et de
+        l'apprentissage — l'écarte.
         """
         grouped: dict[Any, list[dict[str, Any]]] = {}
         order: list[Any] = []
@@ -136,6 +154,8 @@ class TradeJournal:
             legs = grouped[key]
             final = next((leg for leg in legs if leg.get("is_final_exit")), None)
             if final is None:
+                continue
+            if final.get("excluded_from_learning"):
                 continue
 
             pnl_usd = sum(leg.get("pnl_usd", 0) or 0 for leg in legs)

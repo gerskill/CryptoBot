@@ -188,10 +188,19 @@ def evaluate_exits(
     return actions
 
 
-def apply_exit(position: Position, action: ExitAction, price: float) -> Position:
-    """Applique une sortie et retourne la nouvelle position (immuable)."""
+def apply_exit(
+    position: Position, action: ExitAction, price: float, cost_pct: float = 0.0
+) -> Position:
+    """Applique une sortie et retourne la nouvelle position (immuable).
+
+    `cost_pct` : coût RÉEL mesuré (impact de prix + priority fee, voir
+    `src/core/exit_fees.py`), en points de pourcentage, positif = coûte.
+    0.0 par défaut = comportement d'origine (prix nu, aucun frais).
+    Reste PUR — aucun I/O ici : le coût est mesuré par l'appelant et transmis,
+    jamais recalculé depuis ce module.
+    """
     fraction = min(action.fraction, position.remaining_fraction)
-    pnl_pct = position.pnl_pct(price)
+    pnl_pct = position.pnl_pct(price) - cost_pct
     realized = position.size_usd * fraction * pnl_pct / 100
 
     updates = {

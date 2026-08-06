@@ -6,8 +6,11 @@ Applique les règles de sécurité non négociables de la spec :
   - pause forcée de 2h après 3 pertes consécutives
   - un token déjà en position ne peut pas être racheté
 
-Mode PAPER uniquement. Les prix de sortie sont les prix observés, sans
-slippage ni frais — le P&L papier est donc OPTIMISTE par construction.
+Mode PAPER : les prix de sortie sont les prix observés. Le P&L de la sortie
+FINALE est corrigé du coût réel mesuré (impact de prix + priority fee) quand
+`exit_fee_measurer` est fourni — voir `src/core/exit_fees.py`. Sans lui
+(tests, ou clients Jupiter/Helius désactivés), il reste optimiste par
+construction, exactement comme avant.
 """
 
 import json
@@ -16,7 +19,7 @@ import tempfile
 import time
 from dataclasses import asdict, fields
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from src.core.journal import TradeJournal
 from src.core.models import Candidate
@@ -49,8 +52,9 @@ def _parse_iso(value: Any) -> Optional[float]:
 
 
 SLIPPAGE_NOTE = (
-    "P&L papier sans slippage ni frais. En réel, un memecoin à 20K de liquidité "
-    "coûte plusieurs % à l'aller comme au retour."
+    "P&L papier sans slippage ni frais QUAND `exit_fee_measurer` est absent "
+    "(tests, ou clients Jupiter/Helius désactivés). Avec lui, la sortie "
+    "finale déduit le coût réel mesuré — voir src/core/exit_fees.py."
 )
 
 
@@ -65,6 +69,7 @@ class PaperPortfolio:
         cooldown_hours: float = COOLDOWN_HOURS,
         losses_trigger: int = CONSECUTIVE_LOSSES_TRIGGER,
         max_drawdown_stop_pct: float = 0.0,
+        exit_fee_measurer: Optional[Callable[[str, float], Optional[Any]]] = None,
     ):
         # COUPE-CIRCUIT. Le cooldown réagit à 3 pertes CONSÉCUTIVES ; il ne
         # voit rien d'une érosion lente qui alterne gains et pertes. Sur ce
@@ -79,6 +84,11 @@ class PaperPortfolio:
         self.journal = journal
         self.notifier = notifier
         self.mode = mode
+        # Coût réel à la sortie FINALE, mesuré en direct (`(token_address,
+        # size_usd) -> ExitCost | None`). Callable injecté, pas de clients
+        # I/O tenus ici : `portfolio.py` reste testable sans réseau, comme le
+        # reste du dépôt. `None` = comportement d'origine (prix nu).
+        self.exit_fee_measurer = exit_fee_measurer
         self.positions_path = positions_path
         self.positions: dict[str, Position] = {}
         # Écriture différée : `update()` sauvegardait à CHAQUE tick, même sans
@@ -314,8 +324,38 @@ class PaperPortfolio:
             fraction = min(action.fraction, position.remaining_fraction)
             if fraction <= 1e-9:
                 continue
-            pnl_pct = position.pnl_pct(price)
-            position = apply_exit(position, action, price)
+
+            # COÛT RÉEL, MESURÉ UNE SEULE FOIS PAR POSITION, SUR LA JAMBE
+            # FINALE. `action.is_final` implique `fraction == remaining_fraction`
+            # (voir `evaluate_exits`) : c'est le seul point où « ce qui sort »
+            # coïncide avec « tout ce qui reste », donc le seul où mesurer
+            # coûte un devis unique plutôt qu'un par jambe partielle (TP1,
+            # TP2). Les jambes partielles restent au prix nu, comme avant.
+            exit_cost = None
+            cost_pct = 0.0
+            if action.is_final and self.exit_fee_measurer is not None:
+                # Notionnel COURANT, pas `size_usd` (figé à l'entrée) : sur une
+                # position qui a fait x3, vendre `fraction` des tokens vaut
+                # `fraction * (price / entry_price)` fois la mise initiale, pas
+                # `fraction` fois. Coder l'ancien montant sous-dimensionnait le
+                # devis d'impact de prix sur tout gagnant ayant déjà pris un TP
+                # partiel — trouvé en revue adversariale Codex.
+                exit_notional = (
+                    position.size_usd * fraction * (price / position.entry_price)
+                    if position.entry_price > 0
+                    else position.size_usd * fraction
+                )
+                try:
+                    exit_cost = self.exit_fee_measurer(position.token_address, exit_notional)
+                except Exception:  # noqa: BLE001
+                    # Une mesure de coût ne doit jamais empêcher une clôture
+                    # réelle. Invariant « la boucle ne meurt jamais ».
+                    exit_cost = None
+                if exit_cost is not None:
+                    cost_pct = exit_cost.total_cost_pct
+
+            pnl_pct = position.pnl_pct(price) - cost_pct
+            position = apply_exit(position, action, price, cost_pct=cost_pct)
             self.positions[position_id] = position
 
             self.capital += position.size_usd * fraction * (1 + pnl_pct / 100)
@@ -328,6 +368,8 @@ class PaperPortfolio:
                     fraction=fraction,
                     reason=action.reason,
                     is_final=not position.is_open,
+                    exit_cost_pct=exit_cost.total_cost_pct if exit_cost else None,
+                    exit_cost_partial=exit_cost.partial if exit_cost else None,
                 )
             )
             if not position.is_open:
@@ -354,14 +396,40 @@ class PaperPortfolio:
     def force_close(
         self, position_id: str, price: float, reason: str = "MANUAL_STOP"
     ) -> Optional[dict[str, Any]]:
-        """Sortie totale immédiate, hors règles — utilisée par le panic button."""
+        """Sortie totale immédiate, hors règles — utilisée par le panic button.
+
+        Route par le MÊME mesureur de coût que `update()` : un panic close
+        arrive précisément dans les moments où le slippage et les priority
+        fees sont les pires (congestion, marché stressé) — c'est le pire
+        endroit pour laisser le P&L au prix nu. Trouvé en revue adversariale
+        Codex, classé `medium` là-bas ; traité ici au même niveau que la
+        sortie finale normale, pas en dessous.
+        """
         position = self.positions.get(position_id)
         if position is None or price <= 0:
             return None
 
         fraction = position.remaining_fraction
-        pnl_pct = position.pnl_pct(price)
-        position = apply_exit(position, ExitAction(fraction, reason, is_final=True), price)
+
+        exit_cost = None
+        cost_pct = 0.0
+        if self.exit_fee_measurer is not None:
+            exit_notional = (
+                position.size_usd * fraction * (price / position.entry_price)
+                if position.entry_price > 0
+                else position.size_usd * fraction
+            )
+            try:
+                exit_cost = self.exit_fee_measurer(position.token_address, exit_notional)
+            except Exception:  # noqa: BLE001
+                exit_cost = None
+            if exit_cost is not None:
+                cost_pct = exit_cost.total_cost_pct
+
+        pnl_pct = position.pnl_pct(price) - cost_pct
+        position = apply_exit(
+            position, ExitAction(fraction, reason, is_final=True), price, cost_pct=cost_pct
+        )
         self.positions[position_id] = position
         self.capital += position.size_usd * fraction * (1 + pnl_pct / 100)
 
@@ -372,6 +440,8 @@ class PaperPortfolio:
             fraction=fraction,
             reason=reason,
             is_final=True,
+            exit_cost_pct=exit_cost.total_cost_pct if exit_cost else None,
+            exit_cost_partial=exit_cost.partial if exit_cost else None,
         )
         self._finalize(position, price)
         return row

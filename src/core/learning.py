@@ -124,6 +124,19 @@ PARAM_BOUNDS: dict[str, tuple[float, float]] = {
     "scan.alpha_score_entry_threshold": (55, 90),
 }
 
+# GARDE-FOU CROISÉ, absent du 2026-08-03 au 2026-08-06. `stop_loss_pct` et le
+# tampon sont ajustés par DEUX mécanismes indépendants (`_adjust_exits` resserre
+# le premier, `_recalibrate_slippage_buffer` augmente le second), chacun borné
+# SEUL contre `PARAM_BOUNDS` — rien ne vérifiait leur SOMME. Mesuré sur `quality`
+# le 2026-08-06 : stop_loss_pct au plancher (-10) + tampon au plafond (15.0) =
+# seuil effectif (`Position.effective_stop_loss_pct`) à +5 %. Un stop loss
+# positif sort quasi toute position dans les secondes suivant l'entrée (139
+# trades perdus en une journée, durée médiane 0.2 min). Le seuil effectif doit
+# rester un stop RÉEL, jamais nul ni positif.
+MIN_EFFECTIVE_STOP_LOSS_PCT = -1.0
+STOP_LOSS_PCT_PATH = "exit_rules.stop_loss_pct"
+STOP_LOSS_BUFFER_PATH = "exit_rules.stop_loss_slippage_buffer_pct"
+
 # --- ANTI-BOUCLE DE RÉTROACTION NÉGATIVE ---
 #
 # LA CAUSE RACINE DU PROJET, prouvée par l'historique : 6 resserrages en 13 h,
@@ -258,6 +271,14 @@ class LearningEngine:
         # Bornes par stratégie : un bras expérimental doit pouvoir explorer un
         # stop loss à -35% pendant que le bras témoin reste dans (-50, -10).
         self.bounds = {**PARAM_BOUNDS, **(bounds or {})}
+
+    def _stop_loss_ceiling(self, other_value: float) -> float:
+        """Valeur max pour `stop_loss_pct` OU le tampon, l'autre étant fixé,
+        pour que leur somme (le seuil effectif) reste <=
+        `MIN_EFFECTIVE_STOP_LOSS_PCT` — un stop réel, jamais nul ni positif.
+        Symétrique : sert aux deux mécanismes qui les ajustent séparément.
+        """
+        return MIN_EFFECTIVE_STOP_LOSS_PCT - other_value
 
     def _bounded_set(
         self, path: str, value: float, reason: str, sample: int
@@ -670,10 +691,12 @@ class LearningEngine:
             # et surtout pas le réduire sur ce seul signal.
             return None
 
-        courant = self.params.get("exit_rules.stop_loss_slippage_buffer_pct", 0.0) or 0.0
+        courant = self.params.get(STOP_LOSS_BUFFER_PATH, 0.0) or 0.0
+        stop_loss_pct = self.params.get(STOP_LOSS_PCT_PATH, -25)
+        proposed = min(round(courant + residu, 1), self._stop_loss_ceiling(stop_loss_pct))
         return self._bounded_set(
-            "exit_rules.stop_loss_slippage_buffer_pct",
-            round(courant + residu, 1),
+            STOP_LOSS_BUFFER_PATH,
+            proposed,
             f"tampon augmenté : {len(stop_loss_rows)} sorties stop loss "
             f"dépassent encore leur seuil effectif de {residu:.2f} pts "
             f"(médiane) même avec le tampon actuel de {courant:.1f}",
@@ -692,11 +715,15 @@ class LearningEngine:
             changes.append(buffer_change)
 
         # Pertes bien plus grandes que le SL -> le SL n'est pas atteignable
-        # (gap ou rug) : le resserrer pour sortir plus tôt.
+        # (gap ou rug) : le resserrer pour sortir plus tôt. Plafonné par le
+        # tampon ACTUEL (relu après un éventuel changement ci-dessus) pour que
+        # stop_loss_pct + tampon reste un stop réel — voir `_stop_loss_ceiling`.
         if avg_loss and avg_loss < stop_loss - 10:
+            buffer = self.params.get(STOP_LOSS_BUFFER_PATH, 0.0) or 0.0
+            proposed = min(round(stop_loss + 5, 1), self._stop_loss_ceiling(buffer))
             change = self._bounded_set(
-                "exit_rules.stop_loss_pct",
-                round(stop_loss + 5, 1),
+                STOP_LOSS_PCT_PATH,
+                proposed,
                 f"perte moyenne {avg_loss}% bien au-delà du SL {stop_loss}%",
                 learning.get("losing_trades", 0),
             )

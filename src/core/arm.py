@@ -296,6 +296,7 @@ def attach_portfolios(
     cooldown_hours: float = 0.0,
     losses_trigger: int = 3,
     max_drawdown_stop_pct: float = 0.0,
+    exit_fee_measurer: Optional[Any] = None,
 ) -> None:
     """Donne à chaque stratégie son portefeuille.
 
@@ -327,6 +328,11 @@ def attach_portfolios(
             cooldown_hours=cooldown_hours,
             losses_trigger=losses_trigger,
             max_drawdown_stop_pct=max_drawdown_stop_pct,
+            # PARTAGÉ, IDENTIQUE POUR LES 6 BRAS : la mesure de coût réel
+            # (impact de prix + priority fee) ne dépend pas de la stratégie,
+            # seulement du token et du montant. Un seul callable, injecté
+            # une fois par `main.py`, pas reconstruit par bras.
+            exit_fee_measurer=exit_fee_measurer,
         )
 
 

@@ -23,7 +23,12 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.core.journal import TradeJournal  # noqa: E402
-from src.core.learning import MIN_SEGMENT_SAMPLE, PARAM_BOUNDS, LearningEngine  # noqa: E402
+from src.core.learning import (  # noqa: E402
+    MIN_EFFECTIVE_STOP_LOSS_PCT,
+    MIN_SEGMENT_SAMPLE,
+    PARAM_BOUNDS,
+    LearningEngine,
+)
 from src.core.params import ParamsStore  # noqa: E402
 
 PARAMS = {
@@ -147,6 +152,69 @@ class TestRecalibration(Base):
             any("stop_loss_slippage_buffer_pct" in h.get("param_name", "")
                 for h in historique)
         )
+
+
+class TestGardeFouCroise(unittest.TestCase):
+    """Régression du 2026-08-06 sur `quality` : `stop_loss_pct` (resserré par
+    `_adjust_exits`) et le tampon (augmenté par `_recalibrate_slippage_buffer`)
+    sont deux mécanismes indépendants, chacun borné seul. Sans garde croisé,
+    stop_loss_pct au plancher (-10) + tampon au plafond (15.0) = seuil effectif
+    +5 % — un stop loss positif qui sort quasi toute position en quelques
+    secondes. 139 trades perdus en une journée sur ce bras avant le fix.
+    """
+
+    def _engine(self, stop_loss_pct: float, buffer: float) -> tuple[LearningEngine, ParamsStore, TradeJournal]:
+        tmp = tempfile.mkdtemp()
+        chemin = os.path.join(tmp, "params.json")
+        with open(chemin, "w", encoding="utf-8") as fh:
+            import json
+            json.dump(
+                {
+                    "version": "test",
+                    "filters": {},
+                    "exit_rules": {
+                        "stop_loss_pct": stop_loss_pct,
+                        "stop_loss_slippage_buffer_pct": buffer,
+                    },
+                    "learning": {},
+                },
+                fh,
+            )
+        params = ParamsStore(chemin)
+        journal = TradeJournal(os.path.join(tmp, "trades.jsonl"))
+        return LearningEngine(params, journal), params, journal
+
+    def test_le_tampon_ne_peut_pas_faire_franchir_zero(self):
+        """stop_loss_pct au plancher (-10, borne dure) : le tampon ne doit
+        jamais pouvoir grandir au point que la somme atteigne ou dépasse
+        `MIN_EFFECTIVE_STOP_LOSS_PCT`, même si sa PROPRE borne (15.0) le
+        permettrait et que le résidu mesuré le justifierait."""
+        engine, params, _ = self._engine(stop_loss_pct=-10, buffer=0.0)
+        rows = [_sl_row(f"p{i}", -10.0, -40.0) for i in range(MIN_SEGMENT_SAMPLE)]
+        engine._recalibrate_slippage_buffer(rows)
+        buffer_final = params.get("exit_rules.stop_loss_slippage_buffer_pct")
+        self.assertLessEqual(buffer_final, 15.0)  # borne propre toujours respectée
+        self.assertLessEqual(
+            -10 + buffer_final,
+            MIN_EFFECTIVE_STOP_LOSS_PCT,
+            "le seuil effectif ne doit jamais devenir nul ou positif",
+        )
+
+    def test_le_resserrage_du_stop_ne_peut_pas_faire_franchir_zero(self):
+        """Tampon déjà à 15.0 (plafond) : resserrer stop_loss_pct vers -10
+        (borne dure) le ferait franchir zéro. Le resserrage doit être plafonné
+        par le tampon en place, pas seulement par sa propre borne (-50, -10)."""
+        engine, params, _ = self._engine(stop_loss_pct=-20, buffer=15.0)
+        changes = engine._adjust_exits({"avg_loss_pct": -35, "losing_trades": 20})
+        stop_loss_final = params.get("exit_rules.stop_loss_pct")
+        self.assertLessEqual(
+            stop_loss_final + 15.0,
+            MIN_EFFECTIVE_STOP_LOSS_PCT,
+            "le seuil effectif ne doit jamais devenir nul ou positif",
+        )
+        # Le tampon, lui, n'a pas bougé : le garde-fou plafonne le paramètre
+        # qui bouge à cet instant, jamais celui déjà posé (jamais réduit).
+        self.assertEqual(params.get("exit_rules.stop_loss_slippage_buffer_pct"), 15.0)
 
 
 class TestValidationParBacktest(Base):
