@@ -40,7 +40,7 @@
     "max_tax_buy": 5,
     "max_tax_sell": 5,
     "max_age_hours": 12.0,
-    "min_age_hours": 1.0,
+    "min_age_hours": 0.5,
     "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose.",
     "max_bundler_rate": 0.35,
     "max_insider_rate": 0.15,
@@ -2008,39 +2008,31 @@
         },
         "reason": "backtest : P&L/trade -1.3368 → -1.3368, pas d'amélioration ≥ 10% — annulé",
         "trades_sample_size": 20
+      },
+      {
+        "timestamp": "2026-08-06T16:50:21.624107+00:00",
+        "param_name": "filters.min_age_hours",
+        "old_value": 1.0,
+        "new_value": 0.5,
+        "reason": "25.3% des rejets 'age_min' auraient fait +100% (pic moyen 120.7%)",
+        "trades_sample_size": 158
       }
     ],
-    "total_trades": 122,
-    "winning_trades": 14,
-    "losing_trades": 108,
-    "avg_win_pct": 117.76,
-    "avg_loss_pct": -17.31,
+    "total_trades": 1,
+    "winning_trades": 1,
+    "losing_trades": 0,
+    "avg_win_pct": 28.31,
+    "avg_loss_pct": 0,
     "win_rate_by_age": {
-      "2-4h": {
-        "win_rate": 4.5,
-        "sample": 44
-      },
       "4h+": {
-        "win_rate": 20.0,
-        "sample": 35
-      },
-      "1-2h": {
-        "win_rate": 11.6,
-        "sample": 43
+        "win_rate": 100.0,
+        "sample": 1
       }
     },
     "win_rate_by_liquidity": {
       "30-50K": {
-        "win_rate": 9.8,
-        "sample": 51
-      },
-      ">50K": {
-        "win_rate": 25.0,
-        "sample": 12
-      },
-      "10-30K": {
-        "win_rate": 10.2,
-        "sample": 59
+        "win_rate": 100.0,
+        "sample": 1
       }
     },
     "win_rate_by_social_score": {},

@@ -1,7 +1,7 @@
 {
   "version": "2.0",
   "mode": "PAPER",
-  "capital_total": 0,
+  "capital_total": 7000.0,
   "risk_per_trade": 0.015,
   "max_concurrent_positions": 3,
   "scan": {
@@ -40,7 +40,7 @@
     "max_tax_buy": 5,
     "max_tax_sell": 5,
     "max_age_hours": 6,
-    "min_age_hours": 1.5,
+    "min_age_hours": 1.0,
     "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose."
   },
   "entry_rules": {
@@ -76,51 +76,26 @@
     "rugcheck": 0.15
   },
   "learning": {
-    "total_trades": 70,
-    "winning_trades": 8,
-    "losing_trades": 62,
-    "avg_win_pct": 123.5,
-    "avg_loss_pct": -28.15,
+    "total_trades": 1,
+    "winning_trades": 0,
+    "losing_trades": 1,
+    "avg_win_pct": 0,
+    "avg_loss_pct": -24.56,
     "best_performer_filter": null,
     "worst_performer_filter": null,
     "win_rate_by_age": {
-      "2-4h": {
-        "win_rate": 23.8,
-        "sample": 21
-      },
-      "1-2h": {
-        "win_rate": 8.3,
-        "sample": 24
-      },
-      "0-1h": {
-        "win_rate": 7.7,
-        "sample": 13
-      },
       "4h+": {
         "win_rate": 0.0,
-        "sample": 12
+        "sample": 1
       }
     },
     "win_rate_by_liquidity": {
       ">50K": {
-        "win_rate": 44.4,
-        "sample": 9
-      },
-      "30-50K": {
-        "win_rate": 7.5,
-        "sample": 40
-      },
-      "10-30K": {
-        "win_rate": 4.8,
-        "sample": 21
-      }
-    },
-    "win_rate_by_social_score": {
-      "fort": {
         "win_rate": 0.0,
-        "sample": 2
+        "sample": 1
       }
     },
+    "win_rate_by_social_score": {},
     "parameter_adjustment_history": [
       {
         "timestamp": "2026-07-30T18:34:08.721676+00:00",
@@ -713,6 +688,14 @@
         },
         "reason": "backtest : P&L/trade -3.0809 → -3.0809, pas d'amélioration ≥ 10% — annulé",
         "trades_sample_size": 20
+      },
+      {
+        "timestamp": "2026-08-06T16:47:10.323436+00:00",
+        "param_name": "filters.min_age_hours",
+        "old_value": 1.5,
+        "new_value": 1.0,
+        "reason": "27.0% des rejets 'age_min' auraient fait +100% (pic moyen 163.5%)",
+        "trades_sample_size": 37
       }
     ],
     "last_adjustment_at": {
