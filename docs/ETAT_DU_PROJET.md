@@ -4,7 +4,8 @@
 > travail sans contexte préalable. Chaque chiffre cité a été **mesuré**, pas
 > estimé ; les sources sont indiquées.
 >
-> Dernière mise à jour : 2026-08-02
+> Dernière mise à jour : 2026-08-07 (voir §13 pour les changements depuis le
+> 2026-08-02)
 
 ---
 
@@ -686,3 +687,51 @@ seuils, c'est toute sa raison d'être.
   sont deux états différents.
 - **Les commentaires expliquent le POURQUOI**, souvent en citant le bug évité.
 - Docstrings et tests en français, noms de tests décrivant le bug verrouillé.
+
+---
+
+## 13. Mise à jour du 2026-08-07
+
+### 13.1 Corrections effectuées depuis le 2026-08-02
+
+Liste établie sur `git log`, la plus récente en dernier :
+
+| date | correctif |
+|---|---|
+| 08-03 | `narrative` désactivé — seul bras dont l'IC95 du P&L/trade exclut zéro, du mauvais côté (4 trades, WR 0 %, PF 0,00, −8,94 $/trade). Voir ADR 011 |
+| 08-03 | Cooldown réarmé, tampon de glissement calibré sur le résidu mesuré (au lieu d'une constante) |
+| 08-03 | Recalibrage automatique du tampon de glissement, notifications routées pour les sept bras (pas seulement le témoin) |
+| 08-03 | Courbe d'équité et ghost tracker du dashboard, qui plafonnaient à 100 lignes, corrigés |
+| 08-03 | Témoin dégelé : `frozen=False` pour `baseline` (§4.1) — décision explicite du propriétaire |
+| 08-03 | `TelegramReporterAgent` : point de sortie Telegram unique pour les sept bras, au lieu de chemins d'envoi dispersés |
+| 08-04 | Paramètres appris resynchronisés sur tous les bras ; dépôt GitHub initialisé |
+| 08-06 | **Frais réels à la sortie** (`exit_fees.py`) — impact de prix Jupiter + priority fee Helius déduits du P&L sur la jambe finale de chaque position. Voir ADR 009 et ADR 010 |
+| 08-06 | Garde-fou croisé `stop_loss_pct` / tampon de glissement dans `learning.py` — trouvé en prod : sur 4 bras le stop loss **effectif** était devenu positif (jusqu'à +5 %), sortant toute position en ~12 s. 364 trades affectés marqués `excluded_from_learning` plutôt que réécrits |
+| 08-06 | Rapport hebdomadaire multi-bras (`scripts_rapport_hebdo.py`), câblé sur `journal.read_positions()` — la même source que le dashboard et le verrou LIVE |
+| 08-06 | Correction live du garde-fou buffer sur `consensus`/`quality`/`runner`/`scalp` + `capital_total` remis à 7000 $ (était retombé à 0) |
+| 08-06 | Dashboard : +4 vues (live, hebdomadaire, config, backtester) + barre de navigation |
+| 08-07 | Plancher du stop loss effectif remonté de **−1,0 % à −6,0 %** (`MIN_EFFECTIVE_STOP_LOSS_PCT`) — le plancher posé le 08-06 était trop proche de zéro : 4 bras (`consensus`, `quality`, `scalp`, `runner`) l'avaient déjà atteint, stop déclenché sur le bruit normal du marché (WR mesuré 9–17 % sur ces bras) plutôt que sur une thèse invalidée |
+| 08-07 | Garde-fou croisé stop_loss/buffer déplacé **dans** `_bounded_set()` lui-même — un troisième chemin d'écriture (`_search_exits`, recherche SL × TP1 par rejeu backtest) posait `stop_loss_pct` sans jamais calculer le plafond croisé. Trouvé en direct sur `baseline` (buffer 15,0, stop posé à −10 → seuil effectif +5,0) |
+| 08-07 | Correctifs dashboard mineurs : `usd()` dans `PriceRow`, scroll horizontal de la NavBar mobile, bornage des arrays longs dans `ParamValue` (ConfigEditor), zones de clic et états tactiles sur les contrôles |
+
+### 13.2 État actuel de chaque bras
+
+D'après `config/strategies.json` :
+
+| bras | rôle | état | note |
+|---|---|---|---|
+| `baseline` | voter (référence) | actif, `frozen=False` depuis le 08-03 | référence de `verdict_vs_reference` ; apprend comme les autres depuis le 08-03 |
+| `sniper` | voter | actif | seul bras au-dessus de 15 trades début 08-02 ; touché par l'incident de tampon du 08-06/08-07 |
+| `scalp` | voter | actif | touché par l'incident de tampon du 08-06/08-07, recalé |
+| `runner` | voter | actif | touché par l'incident de tampon du 08-06/08-07, recalé |
+| `quality` | voter | actif | touché par l'incident de tampon du 08-06/08-07, recalé |
+| `narrative` | voter | **désactivé** (`enabled: false`) depuis le 08-03 | `disabled_reason` dans le manifeste : IC95 `[-11,54 .. -7,56]` vs témoin, seul verdict statistiquement concluant sur les sept bras. Fichiers de paramètres et journal conservés, non supprimés. `capital_pct` redistribué sur les six bras restants. Voir ADR 011 |
+| `consensus` | consensus (min_confluence = 2) | actif | touché par l'incident de tampon du 08-06/08-07, recalé ; pas encore assez de trades pour pondérer ses votants (`MIN_TRADES_FOR_WEIGHTS`) |
+
+### 13.3 Prochaines étapes
+
+- **Surveiller le tampon de glissement** : `_recalibrate_slippage_buffer` est un cliquet à sens unique (ne diminue jamais), documenté comme cause directe des deux incidents de stop loss positif des 08-06 et 08-07. Le plancher à −6,0 % limite les dégâts mais ne corrige pas la tendance du tampon à grimper en continu.
+- **`§11 Décisions ouvertes` contient une ligne obsolète** : « narrative et consensus bloqués au seuil alpha » date d'avant la désactivation de `narrative` (08-03) — à corriger ou retirer lors de la prochaine passe sur ce document.
+- **Revalider les verdicts `verdict_vs_reference`** avec l'échantillon élargi depuis le 08-02, main­tenant que `baseline` apprend et que les frais réels de sortie (ADR 009) corrigent le P&L des jambes finales.
+- **Continuer le suivi de l'entonnoir et du shadow** pour les six bras restants — leur shadow log est plus jeune que celui du témoin (§10, point 7).
+- Sujets déjà ouverts et toujours d'actualité : Birdeye Lite (39 $/mois), suivi de wallets étape 2, découpage de `main.py` — voir §11 pour le détail.
