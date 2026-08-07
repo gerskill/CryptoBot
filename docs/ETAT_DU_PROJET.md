@@ -315,7 +315,7 @@ témoin (gelé) : 825.93 $ | -174.07 $ | WR 10.3% | PF 0.28 | 39 trades
 ### Les bras ont commencé à trader
 
 Contredit la version précédente de cette section. Mesuré par
-`python3 scripts_analyse_sorties.py` :
+`python3 -m scripts.analyse_sorties` :
 
 | bras | trades | WR | $/trade | PF | pic méd | creux méd |
 |---|---|---|---|---|---|---|
@@ -361,7 +361,7 @@ zéro candidat. Il est en avance sur ses dépendances.
 ### Mais l'entonnoir seul désigne le mauvais coupable
 
 « Motif dominant : l'âge » invite à élargir la fenêtre d'âge. Le shadow dit
-l'inverse. `python3 scripts_analyse_shadow.py --bras baseline`, 399 rejets
+l'inverse. `python3 -m scripts.analyse_shadow --bras baseline`, 399 rejets
 jugés, seuil +100 % :
 
 ```
@@ -551,10 +551,10 @@ src/apis/jupiter.py      prix par lot, devis, honeypot
 config/strategies.json   manifeste des 7 bras
 config/arms/<nom>.json   document params par bras (propriété du bras)
 
-scripts_analyse_sorties.py   perdants, gagnants, atteignabilité, grille
-scripts_analyse_rejets.py    entonnoir : où meurent les candidats
-scripts_analyse_shadow.py    ce que les filtres ont coûté, IC95 par famille
-scripts_export_vault.py      journal -> notes Obsidian reliées
+scripts/analyse_sorties.py   perdants, gagnants, atteignabilité, grille
+scripts/analyse_rejets.py    entonnoir : où meurent les candidats
+scripts/analyse_shadow.py    ce que les filtres ont coûté, IC95 par famille
+scripts/export_vault.py      journal -> notes Obsidian reliées
 ```
 
 ---
