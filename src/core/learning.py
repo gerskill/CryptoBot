@@ -299,6 +299,22 @@ class LearningEngine:
             print(f"🧠 {blocage}")
             return None
 
+        # GARDE-FOU CROISÉ, ici pour de bon. `_recalibrate_slippage_buffer` et
+        # la branche resserrage de `_adjust_exits` calculaient chacune leur
+        # propre plafond avant d'appeler `_bounded_set` — mais `_search_exits`
+        # (recherche SL x TP1 par rejeu) écrit `stop_loss_pct` directement ici
+        # SANS ce calcul. Résultat mesuré sur `baseline` le 2026-08-07 : buffer
+        # déjà à 15.0, `_search_exits` a posé stop_loss_pct à -10 sans le
+        # savoir → seuil effectif +5.0 (stop positif, sort toute position
+        # dans la seconde). Le garde-fou doit vivre au point de passage
+        # commun, pas être recopié dans chaque appelant.
+        if path == STOP_LOSS_PCT_PATH:
+            other = self.params.get(STOP_LOSS_BUFFER_PATH, 0.0) or 0.0
+            value = min(value, self._stop_loss_ceiling(other))
+        elif path == STOP_LOSS_BUFFER_PATH:
+            other = self.params.get(STOP_LOSS_PCT_PATH, -25.0) or -25.0
+            value = min(value, self._stop_loss_ceiling(other))
+
         low, high = self.bounds.get(path, (float("-inf"), float("inf")))
         clamped = max(low, min(high, value))
         current = self.params.get(path)
