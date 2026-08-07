@@ -133,7 +133,17 @@ PARAM_BOUNDS: dict[str, tuple[float, float]] = {
 # positif sort quasi toute position dans les secondes suivant l'entrée (139
 # trades perdus en une journée, durée médiane 0.2 min). Le seuil effectif doit
 # rester un stop RÉEL, jamais nul ni positif.
-MIN_EFFECTIVE_STOP_LOSS_PCT = -1.0
+#
+# -1.0 ÉTAIT TROP PRÈS DE ZÉRO, trouvé le 2026-08-07 : `_recalibrate_slippage_
+# buffer` ne redescend JAMAIS le tampon (voir sa docstring), donc dès que le
+# glissement mesuré reste positif — ce qui arrive en continu sur du memecoin,
+# où le prix bouge de plusieurs points entre deux mesures à 5 s — le tampon
+# grimpe cycle après cycle jusqu'à ce plancher. 4 bras sur 6 (consensus,
+# quality, scalp, runner) l'avaient atteint : seuil effectif à -1.0 %, donc
+# stop déclenché sur le bruit normal du marché plutôt que sur une thèse
+# invalidée. Win rate mesuré 9-17 % sur ces bras ce jour-là. Remonté à -6.0 :
+# garde un stop réel avec de la marge, sans permettre au cliquet de l'annuler.
+MIN_EFFECTIVE_STOP_LOSS_PCT = -6.0
 STOP_LOSS_PCT_PATH = "exit_rules.stop_loss_pct"
 STOP_LOSS_BUFFER_PATH = "exit_rules.stop_loss_slippage_buffer_pct"
 
