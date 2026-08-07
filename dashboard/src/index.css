@@ -95,6 +95,10 @@ body::after {
 /* Chiffres alignés partout : une colonne de montants qui danse est illisible. */
 .tabular, .font-mono { font-variant-numeric: tabular-nums; }
 
+/* Les explications courtes (hints, empty states) ne doivent pas laisser un
+   mot seul sur la dernière ligne. */
+p { text-wrap: pretty; }
+
 /* Le pouls du prix : SEUL usage animé de la couleur sémantique. */
 @keyframes pulse-up   { 0% { color: var(--color-toxic); } 100% { color: inherit; } }
 @keyframes pulse-down { 0% { color: var(--color-blood); } 100% { color: inherit; } }

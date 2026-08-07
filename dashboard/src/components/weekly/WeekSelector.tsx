@@ -11,7 +11,7 @@ export function WeekSelector({ weekOffset, onChange }: Props) {
       <button
         onClick={() => onChange(weekOffset - 1)}
         aria-label="Semaine précédente"
-        className="rounded px-2 py-1 font-mono text-[11px] text-dim ring-1 ring-edge/60 transition-colors hover:text-ink hover:ring-edge-strong"
+        className="flex h-8 w-8 items-center justify-center rounded font-mono text-[11px] text-dim ring-1 ring-edge/60 transition-[color,transform] duration-150 hover:text-ink hover:ring-edge-strong active:scale-[0.94]"
       >
         ←
       </button>
@@ -20,7 +20,7 @@ export function WeekSelector({ weekOffset, onChange }: Props) {
         onClick={() => onChange(weekOffset + 1)}
         disabled={weekOffset === 0}
         aria-label="Semaine suivante"
-        className="rounded px-2 py-1 font-mono text-[11px] text-dim ring-1 ring-edge/60 transition-colors hover:text-ink hover:ring-edge-strong disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:text-dim disabled:hover:ring-edge/60"
+        className="flex h-8 w-8 items-center justify-center rounded font-mono text-[11px] text-dim ring-1 ring-edge/60 transition-[color,transform] duration-150 hover:text-ink hover:ring-edge-strong active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:text-dim disabled:hover:ring-edge/60 disabled:active:scale-100"
       >
         →
       </button>

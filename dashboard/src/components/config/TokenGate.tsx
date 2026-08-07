@@ -25,11 +25,11 @@ export function TokenGate({ onSubmit }: Props) {
         onChange={(event) => setValue(event.target.value)}
         placeholder="jeton"
         autoComplete="off"
-        className="mt-3 w-full rounded-md bg-void px-3 py-2 font-mono text-xs text-ink outline-none ring-1 ring-edge/60 focus:ring-gem/60"
+        className="mt-3 w-full rounded-md bg-void px-3 py-2 font-mono text-xs text-ink outline-none ring-1 ring-edge/60 transition-shadow duration-150 focus:ring-gem/60"
       />
       <button
         type="submit"
-        className="mt-2 w-full rounded-md px-3 py-1.5 font-mono text-[11px] uppercase tracking-wide text-dim ring-1 ring-edge/60 transition-colors hover:text-ink hover:ring-edge-strong"
+        className="mt-2 h-10 w-full rounded-md px-3 font-mono text-[11px] uppercase tracking-wide text-dim ring-1 ring-edge/60 transition-[color,transform] duration-150 hover:text-ink hover:ring-edge-strong active:scale-[0.98]"
       >
         Valider
       </button>

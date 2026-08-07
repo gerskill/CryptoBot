@@ -17,7 +17,7 @@ export function ArmToggle({ arms, colors, visible, onToggle }: Props) {
             key={arm}
             onClick={() => onToggle(arm)}
             aria-pressed={checked}
-            className="rounded border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide transition-colors"
+            className="rounded border px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-wide transition-[color,background-color,border-color,transform] duration-150 active:scale-[0.94]"
             style={{
               color: checked ? color : 'var(--color-dim)',
               borderColor: checked ? color : 'var(--color-edge)',

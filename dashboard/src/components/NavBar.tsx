@@ -26,7 +26,8 @@ export function NavBar() {
               key={tab.id}
               onClick={() => setView(tab.id)}
               className={[
-                'relative shrink-0 px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.15em] transition-colors',
+                'relative shrink-0 px-4 py-3 font-mono text-[10px] uppercase tracking-[0.15em]',
+                'transition-[color,transform] duration-150 active:scale-[0.97]',
                 active
                   ? 'text-ink'
                   : 'text-dim hover:text-ink',
