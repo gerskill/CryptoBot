@@ -18,7 +18,7 @@ export function NavBar() {
       aria-label="Navigation principale"
       className="border-b border-edge/60"
     >
-      <div className="mx-auto flex max-w-[1800px] gap-0 px-5">
+      <div className="mx-auto flex max-w-[1800px] gap-0 overflow-x-auto px-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {TABS.map((tab) => {
           const active = tab.id === view
           return (
@@ -26,7 +26,7 @@ export function NavBar() {
               key={tab.id}
               onClick={() => setView(tab.id)}
               className={[
-                'relative px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.15em] transition-colors',
+                'relative shrink-0 px-4 py-2.5 font-mono text-[10px] uppercase tracking-[0.15em] transition-colors',
                 active
                   ? 'text-ink'
                   : 'text-dim hover:text-ink',

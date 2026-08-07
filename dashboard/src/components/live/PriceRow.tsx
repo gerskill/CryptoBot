@@ -1,5 +1,5 @@
 import { usePulse } from '../../lib/useLiveState'
-import { price, pct, compact, pnlColor } from '../../lib/format'
+import { price, pct, compact, pnlColor, usd } from '../../lib/format'
 import type { Position, Candidate } from '../../lib/types'
 
 type PositionRowProps = {
@@ -30,7 +30,7 @@ export function PositionRow({ position }: PositionRowProps) {
           {position.current_price != null ? price(position.current_price) : '—'}
         </div>
         <div className={`font-mono text-[10px] tabular-nums ${pnlColor(position.pnl_pct)}`}>
-          {pct(position.pnl_pct)} · {position.pnl_usd >= 0 ? '+' : ''}${position.pnl_usd.toFixed(2)}
+          {pct(position.pnl_pct)} · {position.pnl_usd >= 0 ? '+' : ''}{usd(position.pnl_usd, 2)}
         </div>
       </div>
     </li>
