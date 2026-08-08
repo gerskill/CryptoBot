@@ -36,6 +36,7 @@ class Position:
     entry_time: float = field(default_factory=time.time)
 
     alpha_score: float = 0.0
+    alpha_score_absolute: float = 0.0
     liquidity_at_entry: float = 0.0
     holders_at_entry: Optional[int] = None
     volume_1h_at_entry: float = 0.0

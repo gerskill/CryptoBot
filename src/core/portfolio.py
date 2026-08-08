@@ -282,6 +282,7 @@ class PaperPortfolio:
             size_usd=size_usd,
             mode=self.mode,
             alpha_score=candidate.alpha_score,
+            alpha_score_absolute=candidate.alpha_score_absolute,
             liquidity_at_entry=candidate.liquidity_usd,
             holders_at_entry=candidate.holders,
             volume_1h_at_entry=candidate.volume_1h,

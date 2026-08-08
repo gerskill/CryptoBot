@@ -49,6 +49,7 @@ class TradeJournal:
             "duration_min": round(position.duration_minutes(), 1),
             "exit_reason": reason,
             "score_alpha": position.alpha_score,
+            "score_alpha_absolute": position.alpha_score_absolute,
             "liquidity_at_entry": position.liquidity_at_entry,
             "holders_at_entry": position.holders_at_entry,
             "volume_1h_at_entry": position.volume_1h_at_entry,
