@@ -314,6 +314,16 @@ class LearningEngine:
         elif path == STOP_LOSS_BUFFER_PATH:
             other = self.params.get(STOP_LOSS_PCT_PATH, -25.0) or -25.0
             value = min(value, self._stop_loss_ceiling(other))
+        elif path == "exit_rules.take_profit_1":
+            # take_profit_2 n'est JAMAIS écrit par ce moteur (statique,
+            # posé une fois dans config/strategies.json) — rien ne l'a
+            # jamais fait suivre quand `_search_exits` déplace take_profit_1
+            # par rejeu. Mesuré le 2026-08-08 : consensus et quality ont
+            # atterri avec TP1 == TP2 (150 == 150), rendant TP2 mort (TP1
+            # se déclenche toujours en premier au même seuil).
+            tp2 = self.params.get("exit_rules.take_profit_2")
+            if tp2 is not None and value >= tp2:
+                value = tp2 - 1.0
 
         low, high = self.bounds.get(path, (float("-inf"), float("inf")))
         clamped = max(low, min(high, value))
@@ -325,6 +335,28 @@ class LearningEngine:
             return None
 
         self.params.set(path, clamped, reason, sample)
+
+        # SYNCHRO trailing_stop_activation / take_profit_1. `evaluate_exits`
+        # (positions.py) coche TRAILING_STOP avant TAKE_PROFIT — si le trailing
+        # s'active à un pourcentage sous take_profit_1, un pic suivi d'un
+        # repli peut sortir la position AVANT qu'elle atteigne le TP qu'il est
+        # censé protéger. `trailing_stop_activation` n'est écrit nulle part
+        # ailleurs dans ce fichier : rien ne le fait suivre quand
+        # `_search_exits` déplace take_profit_1 par rejeu. Mesuré le
+        # 2026-08-08 : 4 bras sur 6 avec trailing_activation < TP1 après une
+        # nuit d'ajustements automatiques.
+        if path == "exit_rules.take_profit_1":
+            trailing_path = "exit_rules.trailing_stop_activation"
+            trailing = self.params.get(trailing_path, 200.0) or 200.0
+            if trailing < clamped:
+                self.params.set(
+                    trailing_path,
+                    clamped,
+                    f"synchronisé avec take_profit_1 ({clamped}) — le trailing stop ne "
+                    "doit jamais pouvoir se déclencher avant le take profit qu'il protège",
+                    sample,
+                )
+
         return f"{path} -> {clamped}"
 
     def _tightens(self, path: str, value: float, current: float) -> Optional[bool]:
