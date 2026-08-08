@@ -110,7 +110,7 @@ Birdeye donne la valeur exacte en un appel et passe en premier.
 Le champ existe, le filtre est inactif, le composant de score est exclu.
 
 **Le journal de trades n'est pas versionné.** `data/` est gitignoré — c'est la
-mémoire du bot et elle n'est protégée que par `./scripts_backup.sh`.
+mémoire du bot et elle n'est protégée que par `./scripts/backup.sh`.
 
 ---
 

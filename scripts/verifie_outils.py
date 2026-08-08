@@ -18,7 +18,7 @@ import os
 import subprocess
 import sys
 
-LOCK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools.lock.json")
+LOCK = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools.lock.json")
 
 
 def installed_version(package: str) -> str | None:

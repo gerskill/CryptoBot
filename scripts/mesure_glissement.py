@@ -17,7 +17,7 @@ gagnants, l'atteignabilité des seuils et le comparatif entre stratégies.
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 if __name__ == "__main__":
     print(
@@ -25,6 +25,6 @@ if __name__ == "__main__":
         "  python3 scripts_analyse_sorties.py              # rapport complet\n"
         "  python3 scripts_analyse_sorties.py --sections 2 # glissement du stop loss seul\n"
     )
-    from scripts_analyse_sorties import main
+    from scripts.analyse_sorties import main
 
     main()

@@ -1,5 +1,5 @@
 {
-  "_note": "CLI EXTERNES EPINGLES. Ces deux binaires sont executes en sous-processus par le bot et peuvent, dans leurs versions completes, signer des transactions. Un 'npm i -g' sans version installe silencieusement une version nouvelle : c'est une surface de supply chain, pas une commodite. Verifier avec : python3 scripts_verifie_outils.py",
+  "_note": "CLI EXTERNES EPINGLES. Ces deux binaires sont executes en sous-processus par le bot et peuvent, dans leurs versions completes, signer des transactions. Un 'npm i -g' sans version installe silencieusement une version nouvelle : c'est une surface de supply chain, pas une commodite. Verifier avec : python3 -m scripts.verifie_outils",
   "_note_confiance": "Le bot n'appelle QUE des commandes de lecture, verifiees par liste blanche AVANT le sous-processus (ALLOWED_COMMANDS dans src/apis/gmgn.py, ALLOWED_PATHS dans src/apis/jupiter.py). L'epinglage protege d'un autre risque : une version compromise qui detournerait une commande de lecture.",
   "tools": {
     "gmgn-cli": {
