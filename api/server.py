@@ -19,10 +19,12 @@ from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 
 from src import settings
 from src.core.arm import load_manifest
 from src.core.journal import TradeJournal
+from src.monitoring.metrics import generate_metrics_text
 
 
 # Jeton facultatif. Absent = pas d'authentification, et l'API le DIT au
@@ -235,6 +237,21 @@ def get_params(arm: Optional[str] = None, token: Optional[str] = None) -> dict[s
     params = _read_json(settings.arm_paths(_resolve_arm(arm))["params"]) or {}
     history = (params.get("learning") or {}).get("parameter_adjustment_history", [])
     return {"params": params, "history": list(reversed(history))[:50]}
+
+
+@app.get("/api/metrics")
+def get_metrics() -> PlainTextResponse:
+    """Métriques de supervision au format texte Prometheus.
+
+    Lecture seule, mêmes sources que le reste de cette API (`state.json`,
+    journaux par bras) — voir `src/monitoring/metrics.py`. Distinct de
+    `/api/health` : celui-ci reste le battement de cœur consommé par le
+    dashboard et le monitoring manuel, inchangé.
+    """
+    return PlainTextResponse(
+        generate_metrics_text(),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
 
 
 @app.get("/api/health")
