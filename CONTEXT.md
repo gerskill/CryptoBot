@@ -65,6 +65,20 @@ Un trade = **une** sortie finale (`is_final_exit: true`). TP1 et TP2 vendent
 des fractions et écrivent des lignes de journal intermédiaires. Compter
 toutes les lignes double le nombre de trades : utiliser `read_final_exits()`.
 
+### Coût de sortie réel
+Impact de prix Jupiter (deux devis réels, achat + vente) + priority fee
+Helius, déduits du P&L **une seule fois par position, sur la jambe finale**
+(`action.is_final` — stop loss, time stop, trailing, TP3, rug pull, ou
+`force_close`). Les jambes partielles (TP1, TP2) restent au prix nu. Voir
+`src/core/exit_fees.py`, ADR 009 et ADR 010.
+
+### Bras désactivé
+Un bras (`enabled: false` dans `config/strategies.json`) est exclu de
+`bootstrap_arms()` mais son fichier de paramètres et son journal restent sur
+disque. Ne se produit que sur un verdict `verdict_vs_reference` **concluant
+et défavorable** (IC95 entièrement négatif contre le témoin) — jamais sur une
+sous-performance simple ou un P&L négatif brut. Voir ADR 011.
+
 ---
 
 ## Invariants
@@ -90,9 +104,12 @@ toutes les lignes double le nombre de trades : utiliser `read_final_exits()`.
 
 ## Pièges connus
 
-**Le P&L papier est optimiste.** Sorties au prix observé, sans slippage ni
-frais. Sur 20K de liquidité, l'aller-retour coûte plusieurs pour cent en réel.
-Un win rate papier de 45% ne vaut pas un win rate réel de 45%.
+**Le P&L papier reste partiellement optimiste.** Depuis le 2026-08-06
+(`exit_fees.py`), la jambe finale d'une position déduit un coût réel mesuré
+(devis Jupiter + priority fee Helius, voir ADR 009). Mais les jambes
+partielles (TP1, TP2) restent au prix nu, sans coût déduit — un trade sorti
+en plusieurs jambes n'est corrigé que sur la dernière. Sur 20K de liquidité,
+l'aller-retour coûte plusieurs pour cent en réel (médiane 3,06 % mesurée).
 
 **Le stop loss sort sous son seuil.** Échantillonnage discret : mesuré à
 -27.2% pour un SL réglé à -25%. Réduire `monitor_interval_seconds` diminue
