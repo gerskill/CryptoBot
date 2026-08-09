@@ -77,8 +77,8 @@
     "trailing_stop_activation": 100,
     "trailing_stop_distance_pct": 80,
     "max_hold_time_minutes": 360,
-    "stop_loss_slippage_buffer_pct": 13.3,
-    "_note_sl_buffer": "CORRECTION MANUELLE 2026-08-08. Effective stop etait tombe a -6.0% (stop_loss_pct -20.8 + buffer 14.8), le plancher dur MIN_EFFECTIVE_STOP_LOSS_PCT de learning.py, via un ratchet du buffer (6.6->8.8->11.2->11.9->14.8) qui augmente a chaque depassement mesure sans jamais redescendre. -6% est plus serre que le bruit normal d'un memecoin (trough moyen mesure -15.28% sur les stops declenches) : runner se faisait sortir avant meme d'approcher son trailing stop (activation +100%), d'ou 0% win rate sur 15 trades. Remonte a stop_loss_pct -25.0 + buffer 7.0 (~ overshoot median mesure a l'origine) = effectif -18.0%, coherent avec le design 'laisse courir les gagnants' de ce bras. Le ratchet du buffer dans learning.py n'est pas corrige : cette valeur peut re-deriver vers -6% d'ici quelques cycles EXIT_CADENCE si la logique n'est pas revue."
+    "stop_loss_slippage_buffer_pct": 1.3,
+    "_note_sl_buffer": "CORRECTION 2026-08-09 (2e passage). La correction du 2026-08-08 (effectif -18.0%) avait re-derive vers -6.0% en ~24h, EXACTEMENT comme prevenu dans la note precedente : le cliquet du buffer (learning.py _recalibrate_slippage_buffer) augmente a chaque depassement mesure et ne redescend jamais, il converge donc vers MIN_EFFECTIVE_STOP_LOSS_PCT quel qu'il soit. Cette fois la cause racine est corrigee (MIN_EFFECTIVE_STOP_LOSS_PCT remonte de -6.0 a -15.0 dans learning.py), pas seulement la valeur. Buffer remis a 1.3 pour restaurer l'effectif a -18.0% (stop_loss_pct -19.3 + buffer 1.3), coherent avec le design 'laisse courir les gagnants' de ce bras et avec le win rate mesure a 43% sur cette configuration avant la re-derive. Si cette valeur reconverge encore dans plusieurs semaines, c'est le meme mecanisme qui recommence au nouveau plafond -15.0%, pas un nouveau bug."
   },
   "scoring_weights": {
     "liquidity": 0.2,

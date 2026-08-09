@@ -118,7 +118,13 @@ class TestRecalibration(Base):
         )
 
     def test_le_resultat_reste_borne_a_15(self):
-        rows = [_sl_row(f"p{i}", -25.0, -60.0) for i in range(MIN_SEGMENT_SAMPLE)]
+        """stop_loss_pct large (-40) pour isoler la PROPRE borne du tampon
+        (15.0) de celle du garde-fou croise (`MIN_EFFECTIVE_STOP_LOSS_PCT`) :
+        a -25 les deux se chevauchent depuis que le plafond est monte a
+        -15.0 (voir TestGardeFouCroise), ce test ne verifierait plus la
+        meme chose."""
+        self.params.set("exit_rules.stop_loss_pct", -40.0, "setup", 0)
+        rows = [_sl_row(f"p{i}", -40.0, -75.0) for i in range(MIN_SEGMENT_SAMPLE)]
         self.engine._recalibrate_slippage_buffer(rows)
         self.assertEqual(
             self.params.get("exit_rules.stop_loss_slippage_buffer_pct"), 15.0
@@ -188,15 +194,25 @@ class TestGardeFouCroise(unittest.TestCase):
         """stop_loss_pct au plancher (-10, borne dure) : le tampon ne doit
         jamais pouvoir grandir au point que la somme atteigne ou dépasse
         `MIN_EFFECTIVE_STOP_LOSS_PCT`, même si sa PROPRE borne (15.0) le
-        permettrait et que le résidu mesuré le justifierait."""
+        permettrait et que le résidu mesuré le justifierait.
+
+        Depuis que le plafond est monté à -15.0, -10 (borne dure de
+        `stop_loss_pct` seul) est DÉJÀ plus serré que le plafond visé — le
+        tampon ne peut pas widen ce que `stop_loss_pct` seul a déjà cassé
+        (il ne fait qu'ajouter, jamais retrancher). Le garde-fou refuse
+        alors tout ajustement (`buffer` reste à 0) plutôt que de produire un
+        tampon négatif absurde. L'invariant réellement garanti — jamais nul
+        ni positif — tient toujours ; atteindre precisement -15.0 ne l'est
+        plus dans ce cas de figure extrême."""
         engine, params, _ = self._engine(stop_loss_pct=-10, buffer=0.0)
         rows = [_sl_row(f"p{i}", -10.0, -40.0) for i in range(MIN_SEGMENT_SAMPLE)]
         engine._recalibrate_slippage_buffer(rows)
         buffer_final = params.get("exit_rules.stop_loss_slippage_buffer_pct")
         self.assertLessEqual(buffer_final, 15.0)  # borne propre toujours respectée
-        self.assertLessEqual(
+        self.assertGreaterEqual(buffer_final, 0.0)  # jamais negatif
+        self.assertLess(
             -10 + buffer_final,
-            MIN_EFFECTIVE_STOP_LOSS_PCT,
+            0.0,
             "le seuil effectif ne doit jamais devenir nul ou positif",
         )
 

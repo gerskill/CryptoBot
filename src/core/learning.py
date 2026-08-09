@@ -143,7 +143,20 @@ PARAM_BOUNDS: dict[str, tuple[float, float]] = {
 # stop déclenché sur le bruit normal du marché plutôt que sur une thèse
 # invalidée. Win rate mesuré 9-17 % sur ces bras ce jour-là. Remonté à -6.0 :
 # garde un stop réel avec de la marge, sans permettre au cliquet de l'annuler.
-MIN_EFFECTIVE_STOP_LOSS_PCT = -6.0
+#
+# RÉCIDIVE LE 2026-08-09 : -6.0 a rejoué EXACTEMENT le même scénario. Le
+# cliquet n'a pas de palier stable en dessous du plafond — `_recalibrate_
+# slippage_buffer` augmente le tampon dès qu'un résidu de glissement positif
+# est mesuré, ce qui arrive presque systématiquement sur un memecoin peu
+# liquide. Il converge donc vers CE plafond, quel qu'il soit, en quelques
+# jours. `runner` remonté manuellement à -18.0 % ce jour-là (win rate
+# 8 % -> 43 % sur les trades suivants) était retombé à -6.0 % en ~24h.
+# Remonté à -15.0 %, aligné sur le creux moyen mesuré au moment du stop loss
+# (-15.28 % sur les sorties SL du 2026-08-08, voir rapport de session) :
+# le stop laisse enfin de la place au bruit normal. Ceci n'est PAS un
+# plafond définitif — si le cliquet reconverge ici dans quelques semaines,
+# c'est le même mécanisme qui recommence, pas un nouveau bug.
+MIN_EFFECTIVE_STOP_LOSS_PCT = -15.0
 STOP_LOSS_PCT_PATH = "exit_rules.stop_loss_pct"
 STOP_LOSS_BUFFER_PATH = "exit_rules.stop_loss_slippage_buffer_pct"
 

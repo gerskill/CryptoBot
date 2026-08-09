@@ -70,7 +70,7 @@
     "trailing_stop_activation": 150.0,
     "trailing_stop_distance_pct": 35,
     "max_hold_time_minutes": 180,
-    "stop_loss_slippage_buffer_pct": 15.0,
+    "stop_loss_slippage_buffer_pct": 6.0,
     "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
   },
   "scoring_weights": {
