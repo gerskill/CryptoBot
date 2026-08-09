@@ -40,7 +40,7 @@
     "max_tax_buy": 5,
     "max_tax_sell": 5,
     "max_age_hours": 1.5,
-    "min_age_hours": 0.525,
+    "min_age_hours": 1.025,
     "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose.",
     "max_bundler_rate": 0.3,
     "max_insider_rate": 0.15,
@@ -69,16 +69,16 @@
   },
   "exit_rules": {
     "stop_loss_pct": -25.0,
-    "take_profit_1": 50.0,
+    "take_profit_1": 25.0,
     "take_profit_2": 120,
     "take_profit_3": 400,
     "breakeven_trigger": 100,
     "partial_sell_tp1_pct": 0.5,
     "partial_sell_tp2_pct": 0.5,
     "trailing_stop_activation": 100.0,
-    "trailing_stop_distance_pct": 65,
+    "trailing_stop_distance_pct": 75,
     "max_hold_time_minutes": 60,
-    "stop_loss_slippage_buffer_pct": 15.0,
+    "stop_loss_slippage_buffer_pct": 10.0,
     "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
   },
   "scoring_weights": {
@@ -726,31 +726,79 @@
         },
         "reason": "backtest sorties : P&L/trade -4.2128 → -4.2128, pas d'amélioration ≥ 10% — annulé",
         "trades_sample_size": 40
+      },
+      {
+        "timestamp": "2026-08-09T16:25:00.040175+00:00",
+        "param_name": "filters.min_age_hours",
+        "old_value": 0.525,
+        "new_value": 1.025,
+        "reason": "WR 12.5% sur tokens 0-1h",
+        "trades_sample_size": 72
+      },
+      {
+        "timestamp": "2026-08-09T16:25:00.071357+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 9000,
+        "new_value": 14000,
+        "reason": "WR 12.0% sous 30K",
+        "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-08-09T16:25:00.078632+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 14000,
+        "new_value": 9000,
+        "reason": "31.2% des rejets 'liquidity' auraient fait +100% (pic moyen 146.3%)",
+        "trades_sample_size": 16
+      },
+      {
+        "timestamp": "2026-08-09T16:25:00.083511+00:00",
+        "param_name": "exit_rules.stop_loss_slippage_buffer_pct",
+        "old_value": 15.0,
+        "new_value": 10.0,
+        "reason": "tampon augmenté : 93 sorties stop loss dépassent encore leur seuil effectif de 9.10 pts (médiane) même avec le tampon actuel de 15.0",
+        "trades_sample_size": 93
+      },
+      {
+        "timestamp": "2026-08-09T16:25:00.084238+00:00",
+        "param_name": "exit_rules.trailing_stop_distance_pct",
+        "old_value": 65,
+        "new_value": 75,
+        "reason": "12 sorties trailing quasi toutes gagnantes : trop serré",
+        "trades_sample_size": 12
+      },
+      {
+        "timestamp": "2026-08-09T16:25:00.129875+00:00",
+        "param_name": "exit_rules.take_profit_1",
+        "old_value": 50.0,
+        "new_value": 25.0,
+        "reason": "rejeu sur 40 positions : P&L/trade -4.7575 → -3.2998 (4 ambiguës)",
+        "trades_sample_size": 40
       }
     ],
-    "total_trades": 109,
-    "winning_trades": 12,
+    "total_trades": 112,
+    "winning_trades": 15,
     "losing_trades": 97,
-    "avg_win_pct": 103.43,
+    "avg_win_pct": 93.22,
     "avg_loss_pct": -24.04,
     "win_rate_by_age": {
       "0-1h": {
-        "win_rate": 11.3,
-        "sample": 71
+        "win_rate": 13.7,
+        "sample": 73
       },
       "1-2h": {
-        "win_rate": 10.5,
-        "sample": 38
+        "win_rate": 12.8,
+        "sample": 39
       }
     },
     "win_rate_by_liquidity": {
       "10-30K": {
-        "win_rate": 11.0,
-        "sample": 91
+        "win_rate": 12.0,
+        "sample": 92
       },
       "30-50K": {
-        "win_rate": 7.1,
-        "sample": 14
+        "win_rate": 13.3,
+        "sample": 15
       },
       "<10K": {
         "win_rate": 0.0,
@@ -758,15 +806,15 @@
       },
       ">50K": {
         "win_rate": 100.0,
-        "sample": 1
+        "sample": 2
       }
     },
     "win_rate_by_social_score": {},
     "last_adjustment_at": {
-      "filters": 106,
-      "weights": 101,
-      "exits": 101,
-      "risk": 91
+      "filters": 111,
+      "weights": 111,
+      "exits": 111,
+      "risk": 111
     }
   },
   "risk_rules": {

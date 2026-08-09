@@ -61,7 +61,7 @@
   },
   "exit_rules": {
     "stop_loss_pct": -21.0,
-    "take_profit_1": 40.0,
+    "take_profit_1": 100.0,
     "take_profit_2": 250.0,
     "take_profit_3": 400,
     "breakeven_trigger": 100,
@@ -82,41 +82,41 @@
     "wallet_reliability": 0.08
   },
   "learning": {
-    "total_trades": 87,
-    "winning_trades": 10,
-    "losing_trades": 77,
-    "avg_win_pct": 52.49,
-    "avg_loss_pct": -18.27,
+    "total_trades": 94,
+    "winning_trades": 13,
+    "losing_trades": 81,
+    "avg_win_pct": 52.29,
+    "avg_loss_pct": -18.43,
     "win_rate_by_age": {
       "1-2h": {
-        "win_rate": 20.0,
-        "sample": 30
+        "win_rate": 21.9,
+        "sample": 32
       },
       "4h+": {
         "win_rate": 0.0,
-        "sample": 22
+        "sample": 23
       },
       "0-1h": {
         "win_rate": 0.0,
         "sample": 6
       },
       "2-4h": {
-        "win_rate": 13.8,
-        "sample": 29
+        "win_rate": 18.2,
+        "sample": 33
       }
     },
     "win_rate_by_liquidity": {
       "30-50K": {
-        "win_rate": 6.2,
-        "sample": 32
+        "win_rate": 6.1,
+        "sample": 33
       },
       ">50K": {
-        "win_rate": 8.7,
-        "sample": 23
+        "win_rate": 17.9,
+        "sample": 28
       },
       "10-30K": {
-        "win_rate": 18.8,
-        "sample": 32
+        "win_rate": 18.2,
+        "sample": 33
       }
     },
     "win_rate_by_social_score": {},
@@ -1810,13 +1810,145 @@
         },
         "reason": "backtest : P&L/trade -15.0381 → -15.0381, pas d'amélioration ≥ 10% — annulé",
         "trades_sample_size": 20
+      },
+      {
+        "timestamp": "2026-08-09T17:38:54.196058+00:00",
+        "param_name": "filters.max_age_hours",
+        "old_value": 23.5,
+        "new_value": 23.0,
+        "reason": "WR 0.0% sur tokens 4h+",
+        "trades_sample_size": 22
+      },
+      {
+        "timestamp": "2026-08-09T17:38:54.230186+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 9000,
+        "new_value": 14000,
+        "reason": "WR 18.2% sous 30K",
+        "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-08-09T17:38:54.239247+00:00",
+        "param_name": "filters",
+        "old_value": {
+          "min_liquidity_usd": 14000,
+          "min_holders": 40,
+          "min_volume_1h": 2000,
+          "max_dev_wallet_pct": 10,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 20,
+          "min_social_mentions_1h": 0,
+          "min_smart_money_buys_30min": 0,
+          "max_tax_buy": 5,
+          "max_tax_sell": 5,
+          "max_age_hours": 23.0,
+          "min_age_hours": 0.525,
+          "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose.",
+          "max_bundler_rate": 0.5,
+          "max_insider_rate": 0.25,
+          "reject_wash_trading": true,
+          "reject_creator_sold": true,
+          "min_swaps": 50
+        },
+        "new_value": {
+          "min_liquidity_usd": 9000,
+          "min_holders": 40,
+          "min_volume_1h": 2000,
+          "max_dev_wallet_pct": 10,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 20,
+          "min_social_mentions_1h": 0,
+          "min_smart_money_buys_30min": 0,
+          "max_tax_buy": 5,
+          "max_tax_sell": 5,
+          "max_age_hours": 23.5,
+          "min_age_hours": 0.525,
+          "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose.",
+          "max_bundler_rate": 0.5,
+          "max_insider_rate": 0.25,
+          "reject_wash_trading": true,
+          "reject_creator_sold": true,
+          "min_swaps": 50
+        },
+        "reason": "backtest : P&L/trade -10.8066 → -10.8066, pas d'amélioration ≥ 10% — annulé",
+        "trades_sample_size": 20
+      },
+      {
+        "timestamp": "2026-08-09T20:03:43.384981+00:00",
+        "param_name": "filters.max_age_hours",
+        "old_value": 23.5,
+        "new_value": 23.0,
+        "reason": "WR 0.0% sur tokens 4h+",
+        "trades_sample_size": 23
+      },
+      {
+        "timestamp": "2026-08-09T20:03:43.411638+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 9000,
+        "new_value": 14000,
+        "reason": "WR 18.2% sous 30K",
+        "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-08-09T20:03:43.419295+00:00",
+        "param_name": "filters",
+        "old_value": {
+          "min_liquidity_usd": 14000,
+          "min_holders": 40,
+          "min_volume_1h": 2000,
+          "max_dev_wallet_pct": 10,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 20,
+          "min_social_mentions_1h": 0,
+          "min_smart_money_buys_30min": 0,
+          "max_tax_buy": 5,
+          "max_tax_sell": 5,
+          "max_age_hours": 23.0,
+          "min_age_hours": 0.525,
+          "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose.",
+          "max_bundler_rate": 0.5,
+          "max_insider_rate": 0.25,
+          "reject_wash_trading": true,
+          "reject_creator_sold": true,
+          "min_swaps": 50
+        },
+        "new_value": {
+          "min_liquidity_usd": 9000,
+          "min_holders": 40,
+          "min_volume_1h": 2000,
+          "max_dev_wallet_pct": 10,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 20,
+          "min_social_mentions_1h": 0,
+          "min_smart_money_buys_30min": 0,
+          "max_tax_buy": 5,
+          "max_tax_sell": 5,
+          "max_age_hours": 23.5,
+          "min_age_hours": 0.525,
+          "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose.",
+          "max_bundler_rate": 0.5,
+          "max_insider_rate": 0.25,
+          "reject_wash_trading": true,
+          "reject_creator_sold": true,
+          "min_swaps": 50
+        },
+        "reason": "backtest : P&L/trade -4.9418 → -4.9418, pas d'amélioration ≥ 10% — annulé",
+        "trades_sample_size": 20
+      },
+      {
+        "timestamp": "2026-08-09T20:03:43.469085+00:00",
+        "param_name": "exit_rules.take_profit_1",
+        "old_value": 40.0,
+        "new_value": 100.0,
+        "reason": "rejeu sur 40 positions : P&L/trade -5.1064 → -3.228 (1 ambiguës)",
+        "trades_sample_size": 40
       }
     ],
     "last_adjustment_at": {
-      "filters": 84,
-      "weights": 84,
-      "exits": 84,
-      "risk": 74
+      "filters": 94,
+      "weights": 94,
+      "exits": 94,
+      "risk": 94
     }
   },
   "risk_rules": {
