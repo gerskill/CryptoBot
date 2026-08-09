@@ -2,7 +2,7 @@
   "version": "2.0",
   "mode": "PAPER",
   "capital_total": 7000.0,
-  "risk_per_trade": 0.015,
+  "risk_per_trade": 0.01,
   "max_concurrent_positions": 3,
   "scan": {
     "interval_seconds": 90,
@@ -12,7 +12,7 @@
     ],
     "cache_ttl_minutes": 30,
     "max_candidates_enriched": 25,
-    "alpha_score_entry_threshold": 72.5,
+    "alpha_score_entry_threshold": 55,
     "social_lookup_min_alpha": 70,
     "social_max_lookups_per_cycle": 2,
     "_note_monitor": "5s au lieu de 20s : mesure sur 10 trades, 8 sorties SL sur 8 depassaient leur seuil de 4.6 points en moyenne (pire -40.5% pour un SL a -25%). Cout : 1 requete par position et par tick, quota DexScreener 300/min.",
@@ -40,7 +40,7 @@
     "max_tax_buy": 5,
     "max_tax_sell": 5,
     "max_age_hours": 6,
-    "min_age_hours": 1.0,
+    "min_age_hours": 0.0,
     "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose."
   },
   "entry_rules": {
@@ -55,8 +55,8 @@
     "structure_mode": "balanced"
   },
   "exit_rules": {
-    "stop_loss_pct": -25.0,
-    "take_profit_1": 150.0,
+    "stop_loss_pct": -25,
+    "take_profit_1": 50.0,
     "take_profit_2": 300,
     "take_profit_3": 500,
     "breakeven_trigger": 100,
@@ -65,34 +65,51 @@
     "trailing_stop_activation": 200,
     "trailing_stop_distance_pct": 50,
     "max_hold_time_minutes": 240,
-    "stop_loss_slippage_buffer_pct": 8.5,
+    "stop_loss_slippage_buffer_pct": 15.0,
     "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
   },
   "scoring_weights": {
     "liquidity": 0.2,
     "volume_momentum": 0.25,
     "social_sentiment": 0.2,
-    "smart_money": 0.2,
-    "rugcheck": 0.15
+    "smart_money": 0.12,
+    "rugcheck": 0.15,
+    "wallet_reliability": 0.08
   },
   "learning": {
-    "total_trades": 1,
-    "winning_trades": 0,
-    "losing_trades": 1,
-    "avg_win_pct": 0,
-    "avg_loss_pct": -24.56,
+    "total_trades": 23,
+    "winning_trades": 2,
+    "losing_trades": 21,
+    "avg_win_pct": 128.7,
+    "avg_loss_pct": -27.83,
     "best_performer_filter": null,
     "worst_performer_filter": null,
     "win_rate_by_age": {
       "4h+": {
         "win_rate": 0.0,
-        "sample": 1
+        "sample": 3
+      },
+      "0-1h": {
+        "win_rate": 0.0,
+        "sample": 8
+      },
+      "1-2h": {
+        "win_rate": 12.5,
+        "sample": 8
+      },
+      "2-4h": {
+        "win_rate": 25.0,
+        "sample": 4
       }
     },
     "win_rate_by_liquidity": {
       ">50K": {
+        "win_rate": 25.0,
+        "sample": 8
+      },
+      "30-50K": {
         "win_rate": 0.0,
-        "sample": 1
+        "sample": 15
       }
     },
     "win_rate_by_social_score": {},
@@ -696,13 +713,133 @@
         "new_value": 1.0,
         "reason": "27.0% des rejets 'age_min' auraient fait +100% (pic moyen 163.5%)",
         "trades_sample_size": 37
+      },
+      {
+        "timestamp": "2026-08-06T17:42:07.793460+00:00",
+        "param_name": "filters.min_age_hours",
+        "old_value": 1.0,
+        "new_value": 0.5,
+        "reason": "27.0% des rejets 'age_min' auraient fait +100% (pic moyen 163.5%)",
+        "trades_sample_size": 37
+      },
+      {
+        "timestamp": "2026-08-06T17:56:58.468140+00:00",
+        "param_name": "filters.min_age_hours",
+        "old_value": 0.5,
+        "new_value": 0.0,
+        "reason": "27.0% des rejets 'age_min' auraient fait +100% (pic moyen 163.5%)",
+        "trades_sample_size": 37
+      },
+      {
+        "timestamp": "2026-08-07T15:43:07.889110+00:00",
+        "param_name": "exit_rules.stop_loss_slippage_buffer_pct",
+        "old_value": 8.5,
+        "new_value": 15.0,
+        "reason": "tampon augmenté : 19 sorties stop loss dépassent encore leur seuil effectif de 8.50 pts (médiane) même avec le tampon actuel de 8.5",
+        "trades_sample_size": 19
+      },
+      {
+        "timestamp": "2026-08-07T15:43:07.901536+00:00",
+        "param_name": "exit_rules.stop_loss_pct",
+        "old_value": -25.0,
+        "new_value": -10,
+        "reason": "rejeu sur 40 positions : P&L/trade -3.7952 → 0.0408 (7 ambiguës)",
+        "trades_sample_size": 40
+      },
+      {
+        "timestamp": "2026-08-07T15:43:07.902511+00:00",
+        "param_name": "exit_rules.take_profit_1",
+        "old_value": 150.0,
+        "new_value": 50.0,
+        "reason": "rejeu sur 40 positions : P&L/trade -3.7952 → 0.0408 (7 ambiguës)",
+        "trades_sample_size": 40
+      },
+      {
+        "timestamp": "2026-08-07T15:43:07.908210+00:00",
+        "param_name": "risk_per_trade",
+        "old_value": 0.015,
+        "new_value": 0.01,
+        "reason": "WR 10%, drawdown 6%",
+        "trades_sample_size": 21
+      },
+      {
+        "timestamp": "2026-08-07T15:58:51.393830+00:00",
+        "param_name": "exit_rules.stop_loss_pct",
+        "old_value": -10,
+        "new_value": -21.0,
+        "reason": "correction manuelle post-diagnostic 2026-08-07 (bug garde-fou croisé) : _search_exits écrivait stop_loss_pct sans vérifier le buffer déjà en place, produisant un seuil effectif positif (+5.0%). Resserré au plafond -6.0 avec le buffer actuel inchangé. Fix du garde-fou dans _bounded_set (learning.py).",
+        "trades_sample_size": 0
+      },
+      {
+        "timestamp": "2026-08-07T16:04:18.004408+00:00",
+        "param_name": "exit_rules.stop_loss_pct",
+        "old_value": -21.0,
+        "new_value": -25,
+        "reason": "remis à -25% (minimum demandé) : consensus/quality/scalp étaient descendus à -10% via le rejeu automatique, trop serré. Point de départ commun pour que l'apprentissage réajuste ensuite selon les résultats réels de chaque bras.",
+        "trades_sample_size": 0
+      },
+      {
+        "timestamp": "2026-08-08T04:33:31.657907+00:00",
+        "param_name": "scan.alpha_score_entry_threshold",
+        "old_value": 72.5,
+        "new_value": 70.0,
+        "reason": "inactif depuis 315 cycles sans entrée (seuil 300) — motif « alpha N< N »",
+        "trades_sample_size": 315
+      },
+      {
+        "timestamp": "2026-08-08T05:48:31.805585+00:00",
+        "param_name": "scan.alpha_score_entry_threshold",
+        "old_value": 70.0,
+        "new_value": 67.5,
+        "reason": "inactif depuis 365 cycles sans entrée (seuil 300) — motif « alpha N< N »",
+        "trades_sample_size": 365
+      },
+      {
+        "timestamp": "2026-08-08T07:03:33.031129+00:00",
+        "param_name": "scan.alpha_score_entry_threshold",
+        "old_value": 67.5,
+        "new_value": 65.0,
+        "reason": "inactif depuis 415 cycles sans entrée (seuil 300) — motif « alpha N< N »",
+        "trades_sample_size": 415
+      },
+      {
+        "timestamp": "2026-08-08T08:18:32.953494+00:00",
+        "param_name": "scan.alpha_score_entry_threshold",
+        "old_value": 65.0,
+        "new_value": 62.5,
+        "reason": "inactif depuis 463 cycles sans entrée (seuil 300) — motif « alpha N< N »",
+        "trades_sample_size": 463
+      },
+      {
+        "timestamp": "2026-08-08T09:33:33.310139+00:00",
+        "param_name": "scan.alpha_score_entry_threshold",
+        "old_value": 62.5,
+        "new_value": 60.0,
+        "reason": "inactif depuis 470 cycles sans entrée (seuil 300) — motif « alpha N< N »",
+        "trades_sample_size": 470
+      },
+      {
+        "timestamp": "2026-08-08T10:48:35.977574+00:00",
+        "param_name": "scan.alpha_score_entry_threshold",
+        "old_value": 60.0,
+        "new_value": 57.5,
+        "reason": "inactif depuis 468 cycles sans entrée (seuil 300) — motif « alpha N< N »",
+        "trades_sample_size": 468
+      },
+      {
+        "timestamp": "2026-08-08T14:52:42.045227+00:00",
+        "param_name": "scan.alpha_score_entry_threshold",
+        "old_value": 57.5,
+        "new_value": 55,
+        "reason": "inactif depuis 443 cycles sans entrée (seuil 300) — motif « alpha N< N »",
+        "trades_sample_size": 443
       }
     ],
     "last_adjustment_at": {
-      "filters": 68,
-      "weights": 63,
-      "exits": 63,
-      "risk": 60
+      "filters": 21,
+      "weights": 21,
+      "exits": 21,
+      "risk": 21
     }
   },
   "risk_rules": {

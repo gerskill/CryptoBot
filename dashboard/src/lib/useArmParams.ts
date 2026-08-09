@@ -35,9 +35,11 @@ export function useArmParams(arm: string | null, token: string): ArmParamsState 
     setState({ status: 'loading' })
 
     const query = new URLSearchParams({ arm })
-    if (token) query.set('token', token)
 
-    fetch(`/api/params?${query.toString()}`, { signal: controller.signal })
+    fetch(`/api/params?${query.toString()}`, {
+      signal: controller.signal,
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    })
       .then(async (response) => {
         if (response.status === 401) {
           setState({ status: 'unauthorized' })

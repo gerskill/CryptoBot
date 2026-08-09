@@ -11,6 +11,7 @@ Lancement : python -m src.main
 Arrêt     : Ctrl-C, ou /STOP depuis Telegram (ferme toutes les positions).
 """
 
+import math
 import signal
 import time
 from datetime import datetime, timezone
@@ -159,6 +160,12 @@ class AlphaLoop:
             settings.BUDGET_PATH,
             {k: v for k, v in (self.params.get("api_budgets", {}) or {}).items()
              if isinstance(v, int)},
+            # `self.telegram` n'existe pas encore à cet instant de `__init__` :
+            # la fermeture ne le lit qu'au premier épuisement réel, jamais ici.
+            on_exhausted=lambda name: self.telegram.send(
+                f"⚠️ <b>Quota mensuel épuisé</b> : {name} — collecte désactivée "
+                f"jusqu'au mois prochain."
+            ),
         )
         # Ajuste le débit (`scan.social_max_lookups_per_cycle`) sur le RYTHME
         # de consommation mesuré, plutôt que sur une constante réglée une fois
@@ -239,6 +246,12 @@ class AlphaLoop:
         self.portfolio = self.baseline.portfolio
         self.learning = self.baseline.learning
         self.shadow = self.baseline.shadow
+        # Câblé ici et non à la construction de `self.pipeline` : `journal`,
+        # `wallets` et le `shadow` définitif (celui du témoin) n'existent pas
+        # encore à ce moment de `__init__`.
+        self.pipeline.wallets = self.wallets
+        self.pipeline.journal = self.journal
+        self.pipeline.shadow = self.shadow
         self.market = CycleMarketCache()
 
         self.cycle_count = 0
@@ -796,7 +809,7 @@ class AlphaLoop:
                 price = self.market.price(position.token_address) or self._current_price(
                     position.token_address, position.chain, position.pair_address
                 )
-                if price is None:
+                if price is None or not math.isfinite(price):
                     print(
                         f"  ⚠️{arm.label} {position.symbol} : prix indisponible, "
                         f"position NON fermée"
@@ -857,7 +870,10 @@ class AlphaLoop:
             price, _ = self.market.get(
                 position.chain, position.pair_address, position.token_address
             )
-            if price is None:
+            # NaN/inf passeraient tous les seuils de sortie sans jamais les
+            # déclencher (une comparaison avec NaN est toujours False en
+            # Python) : traité comme "prix indisponible", pas comme un prix.
+            if price is None or not math.isfinite(price):
                 if verbose:
                     print(
                         f"[Monitor]{arm.label} {position.symbol} : prix indisponible, "

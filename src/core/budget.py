@@ -26,7 +26,7 @@ import tempfile
 import threading
 from calendar import monthrange
 from datetime import date
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 # Part du budget mensuel gardée en réserve, non consommable par le lissage
 # quotidien. Évite qu'un pic d'activité en début de mois assèche la fin.
@@ -36,10 +36,21 @@ RESERVE_FRACTION = 0.10
 class MonthlyBudget:
     """Compteur d'appels borné au mois, avec lissage quotidien."""
 
-    def __init__(self, path: str, name: str, monthly_limit: int):
+    def __init__(
+        self,
+        path: str,
+        name: str,
+        monthly_limit: int,
+        on_exhausted: Optional[Callable[[str], None]] = None,
+    ):
         self.path = path
         self.name = name
         self.monthly_limit = max(0, int(monthly_limit))
+        # Appelé UNE FOIS par mois, au premier refus dû au plafond mensuel
+        # (pas au lissage quotidien, qui refuse en routine sans que le
+        # budget soit épuisé). Permet d'alerter au-delà du simple print().
+        self.on_exhausted = on_exhausted
+        self._notified_exhausted = False
         self._lock = threading.Lock()
         self._month = self._current_month()
         self._used = 0
@@ -67,6 +78,7 @@ class MonthlyBudget:
         with self._lock:
             self._roll_over()
             if self._used + count > self.monthly_limit:
+                self._notify_exhausted()
                 return False
             if self._used_today + count > self._daily_allowance():
                 return False
@@ -74,6 +86,18 @@ class MonthlyBudget:
             self._used_today += count
             self._save()
             return True
+
+    def _notify_exhausted(self) -> None:
+        """Alerte une seule fois par mois — pas à chaque appel refusé."""
+        if self._notified_exhausted:
+            return
+        self._notified_exhausted = True
+        if self.on_exhausted is None:
+            return
+        try:
+            self.on_exhausted(self.name)
+        except Exception as exc:  # une notif ratée ne doit jamais casser le budget
+            print(f"[Budget] notification d'épuisement échouée pour {self.name} : {exc}")
 
     def _daily_allowance(self) -> int:
         """Part du jour, calculée sur le budget disponible à l'OUVERTURE du jour.
@@ -127,6 +151,7 @@ class MonthlyBudget:
         if month != self._month:
             self._month, self._used = month, 0
             self._used_today, self._day = 0, date.today().isoformat()
+            self._notified_exhausted = False
             self._save()
             return
         today = date.today().isoformat()
@@ -173,10 +198,14 @@ class MonthlyBudget:
                 os.unlink(tmp_path)
 
 
-def load_budgets(path: str, limits: dict[str, int]) -> dict[str, MonthlyBudget]:
+def load_budgets(
+    path: str,
+    limits: dict[str, int],
+    on_exhausted: Optional[Callable[[str], None]] = None,
+) -> dict[str, MonthlyBudget]:
     """Construit les budgets déclarés dans params.json."""
     return {
-        name: MonthlyBudget(path, name, limit)
+        name: MonthlyBudget(path, name, limit, on_exhausted=on_exhausted)
         for name, limit in limits.items()
         if limit and limit > 0
     }

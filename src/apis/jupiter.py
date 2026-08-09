@@ -33,6 +33,7 @@ from src.core.ratelimit import RateLimiter
 
 BASE_URL = "https://api.jup.ag"
 TIMEOUT = 10
+MAX_RETRIES = 3
 
 # Palier Free = 1 requête/seconde, fenêtre glissante de 60 s.
 DEFAULT_RPS = 1
@@ -114,35 +115,43 @@ class JupiterAPI:
             self.skipped_no_budget += 1
             return None
 
-        self.rate_limiter.acquire()
-        try:
-            response = self.session.get(
-                f"{BASE_URL}{path}",
-                params=params,
-                headers={"x-api-key": self.api_key, "Accept": "application/json"},
-                timeout=TIMEOUT,
-            )
-            self.request_count += 1
+        for attempt in range(MAX_RETRIES):
+            self.rate_limiter.acquire()
+            try:
+                response = self.session.get(
+                    f"{BASE_URL}{path}",
+                    params=params,
+                    headers={"x-api-key": self.api_key, "Accept": "application/json"},
+                    timeout=TIMEOUT,
+                )
+                self.request_count += 1
 
-            if response.status_code == 401:
-                # Ne jamais logger la clé, seulement le fait qu'elle est refusée.
-                print("[Jupiter] clé refusée (401) — module désactivé")
-                self.enabled = False
-                return None
-            if response.status_code == 429:
-                print("[Jupiter] 429 — quota de débit atteint, appel abandonné")
-                return None
-            if response.status_code >= 400:
-                print(f"[Jupiter] {path} HTTP {response.status_code}")
-                return None
-            return response.json()
+                if response.status_code == 401:
+                    # Ne jamais logger la clé, seulement le fait qu'elle est refusée.
+                    print("[Jupiter] clé refusée (401) — module désactivé")
+                    self.enabled = False
+                    return None
+                if response.status_code == 429:
+                    retry_after = response.headers.get("Retry-After")
+                    try:
+                        backoff = float(retry_after) if retry_after is not None else 2 ** (attempt + 1)
+                    except ValueError:
+                        backoff = 2 ** (attempt + 1)
+                    print(f"[Jupiter] 429 — quota de débit atteint, pause {backoff:.0f}s")
+                    time.sleep(backoff)
+                    continue
+                if response.status_code >= 400:
+                    print(f"[Jupiter] {path} HTTP {response.status_code}")
+                    return None
+                return response.json()
 
-        except requests.RequestException as exc:
-            print(f"[Jupiter] {path} erreur réseau : {type(exc).__name__}")
-            return None
-        except ValueError:
-            print(f"[Jupiter] {path} réponse non-JSON")
-            return None
+            except requests.RequestException as exc:
+                print(f"[Jupiter] {path} erreur réseau : {type(exc).__name__}")
+                return None
+            except ValueError:
+                print(f"[Jupiter] {path} réponse non-JSON")
+                return None
+        return None
 
     # ------------------------------------------------------------ prix
 

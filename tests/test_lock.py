@@ -3,8 +3,9 @@
 `TestInstanceLock` dans test_core.py verrouille déjà : première acquisition,
 refus d'une deuxième instance, reprise d'un verrou périmé (PID mort) ou
 corrompu, suppression au `release()`. Ce fichier ajoute les cas restants :
-comportement de `release()` avant toute acquisition, non-suppression du
-verrou d'un SUCCESSEUR, la sémantique de `_is_alive`, et la création du
+comportement de `release()` avant toute acquisition, exclusion mutuelle
+RÉELLE entre deux instances (le verrou est désormais un `flock` noyau,
+atomique — voir le docstring de `src/core/lock.py`), et la création du
 dossier parent.
 """
 
@@ -37,38 +38,41 @@ class TestReleaseSansAcquisition(unittest.TestCase):
         self.assertTrue(os.path.exists(self.path))
 
 
-class TestReleaseNeSupprimeQueSonPropreVerrou(unittest.TestCase):
-    """Un process qui a repris un verrou périmé ne doit pas effacer celui
-    de son successeur — c'est exactement le scénario documenté dans le
-    docstring du module."""
+class TestExclusionMutuelleReelle(unittest.TestCase):
+    """Le bug corrigé : deux instances ne doivent JAMAIS acquérir en même
+    temps. Avec l'ancien design (lire le PID puis écrire), une fenêtre de
+    course existait entre les deux ; `flock` la ferme au niveau noyau."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.path = os.path.join(self.tmp, "loop.pid")
 
-    def test_release_preserve_le_verrou_dun_successeur(self):
+    def test_deuxieme_instance_refusee_tant_que_la_premiere_tient_le_verrou(self):
+        first = InstanceLock(self.path)
+        second = InstanceLock(self.path)
+
+        self.assertIsNone(first.acquire())
+        self.assertTrue(first.acquired)
+
+        holder = second.acquire()
+        self.assertIsNotNone(holder)  # occupé : jamais None pour la deuxième
+        self.assertFalse(second.acquired)
+
+    def test_liberation_permet_a_la_suivante_dacquerir(self):
+        first = InstanceLock(self.path)
+        second = InstanceLock(self.path)
+
+        self.assertIsNone(first.acquire())
+        first.release()
+
+        self.assertIsNone(second.acquire())
+        self.assertTrue(second.acquired)
+
+    def test_release_supprime_le_fichier_de_verrou(self):
         lock = InstanceLock(self.path)
         self.assertIsNone(lock.acquire())
-        self.assertTrue(lock.acquired)
-
-        # Un autre process a repris ce fichier entre-temps (verrou périmé
-        # puis relance) : le PID sur disque n'est plus le nôtre.
-        with open(self.path, "w", encoding="utf-8") as fh:
-            fh.write("999999999")
-
         lock.release()
-        # Le contenu écrit par le successeur doit survivre.
-        with open(self.path, encoding="utf-8") as fh:
-            self.assertEqual(fh.read().strip(), "999999999")
-
-
-class TestIsAlive(unittest.TestCase):
-    def test_pid_courant_est_vivant(self):
-        self.assertTrue(InstanceLock._is_alive(os.getpid()))
-
-    def test_pid_extreme_improbable_est_mort(self):
-        # PID hors de la plage utilisable par le système : ProcessLookupError.
-        self.assertFalse(InstanceLock._is_alive(2**30))
+        self.assertFalse(os.path.exists(self.path))
 
 
 class TestAcquireCreeLeDossierParent(unittest.TestCase):

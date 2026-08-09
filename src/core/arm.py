@@ -279,13 +279,20 @@ def _inactivity_reader(arm_name: str):
 
 
 def load_manifest(path: Optional[str] = None) -> list[dict[str, Any]]:
-    """Lit `config/strategies.json`. Absent = un seul bras, le témoin."""
+    """Lit `config/strategies.json`. Absent = un seul bras, le témoin.
+
+    Un fichier JSON corrompu (surpris en cours d'écriture) ne doit pas faire
+    planter l'appelant : liste vide, comme un manifeste sans bras déclarés.
+    """
     path = path or settings.STRATEGIES_PATH
     if not os.path.exists(path):
         return [{"name": settings.BASELINE_ARM, "role": VOTER, "capital_pct": 1.0,
                  "notify": "all"}]
-    with open(path, encoding="utf-8") as fh:
-        return json.load(fh).get("arms", [])
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh).get("arms", [])
+    except (json.JSONDecodeError, OSError):
+        return []
 
 
 def attach_portfolios(

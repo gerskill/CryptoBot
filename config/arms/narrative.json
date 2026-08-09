@@ -82,8 +82,9 @@
     "liquidity": 0.2,
     "volume_momentum": 0.25,
     "social_sentiment": 0.2,
-    "smart_money": 0.2,
-    "rugcheck": 0.15
+    "smart_money": 0.12,
+    "rugcheck": 0.15,
+    "wallet_reliability": 0.08
   },
   "learning": {
     "parameter_adjustment_history": [

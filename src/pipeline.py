@@ -28,9 +28,13 @@ from src.apis.helius import HeliusAPI
 from src.apis.rugcheck import RugCheckAPI
 from src.apis.twitter import TwitterAPI
 from src.core.cache import RUGPULL_BLACKLIST_HOURS, TokenCache
+from src.core.journal import TradeJournal
 from src.core.models import Candidate, ScanResult
 from src.core.params import ParamsStore
 from src.core.scoring import score_candidates
+from src.core.shadow import ShadowTracker
+from src.core.wallet_scoreboard import score_wallets
+from src.core.wallets import WalletRegistry
 
 MAX_ENRICH_WORKERS = 5
 AUDIT_TTL_SECONDS = 900  # un audit sécurité ne change pas toutes les 90s
@@ -234,6 +238,9 @@ class ScanPipeline:
         twitter: Optional[TwitterAPI] = None,
         gmgn: Optional[GmgnAPI] = None,
         history: Optional[PriceHistory] = None,
+        wallets: Optional[WalletRegistry] = None,
+        journal: Optional[TradeJournal] = None,
+        shadow: Optional[ShadowTracker] = None,
     ):
         self.params = params
         self.cache = cache
@@ -244,6 +251,9 @@ class ScanPipeline:
         self.twitter = twitter
         self.gmgn = gmgn
         self.history = history or PriceHistory()
+        self.wallets = wallets
+        self.journal = journal
+        self.shadow = shadow
         self._audit_cache: dict[str, tuple[float, dict]] = {}
 
     # ------------------------------------------------------------ collecte
@@ -275,7 +285,9 @@ class ScanPipeline:
         scanned_count = len(raw)
         raw = self._trim(raw, watched, scan_cfg.get("max_candidates_enriched", 25))
 
-        enriched = self._enrich_smart_money(self._enrich_all(raw, envelope))
+        enriched = self._enrich_wallet_reliability(
+            self._enrich_smart_money(self._enrich_all(raw, envelope))
+        )
 
         # Historique de prix sur TOUS les enrichis, pas seulement les retenus :
         # ça ne coûte rien, et une stratégie qui relâche un filtre trouve son
@@ -604,6 +616,40 @@ class ScanPipeline:
             )
         if touched:
             print(f"[GMGN] {touched}/{len(candidates)} candidats avec activité smart money")
+        return enriched
+
+    def _enrich_wallet_reliability(self, candidates: list[Candidate]) -> list[Candidate]:
+        """Meilleur wallet PROUVÉ fiable en avance sur chaque candidat.
+
+        Recalculé à chaque cycle, sans appel API (voir wallet_scoreboard.py,
+        coût zéro documenté dans wallets.py) : le journal et le shadow log
+        s'enrichissent en continu, un wallet pas encore jugeable hier peut
+        l'être aujourd'hui.
+        """
+        if not (self.wallets and self.journal and self.shadow) or not candidates:
+            return candidates
+
+        scores = {
+            s.wallet: s
+            for s in score_wallets(self.wallets, self.journal, self.shadow)
+            if s.actionable
+        }
+        if not scores:
+            return candidates
+
+        enriched = []
+        for candidate in candidates:
+            best = None
+            for row in self.wallets.wallets_for(candidate.token_address):
+                score = scores.get(row.get("wallet"))
+                if score is None:
+                    continue
+                if best is None or (score.hit_rate or 0) > (best.hit_rate or 0):
+                    best = score
+            if best is None:
+                enriched.append(candidate)
+            else:
+                enriched.append(candidate.with_fields(wallet_reliability_score=best.hit_rate))
         return enriched
 
     def _gmgn_activity_kwargs(self) -> dict:

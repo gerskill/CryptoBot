@@ -29,6 +29,8 @@ SOCIAL_SATURATION_AUTHORS = 30
 SOCIAL_SATURATION_ENGAGEMENT = 1000
 SPAM_RATIO_FLOOR = 0.5  # au-dessus de 50% d'auteurs distincts, aucune pénalité
 SMART_MONEY_SATURATION_BUYS = 10
+# Cohérent avec le seuil "fiable" de WalletScore.verdict (wallet_scoreboard.py).
+WALLET_RELIABILITY_SATURATION_HIT_RATE = 40.0
 
 
 def _clamp(value: float, low: float = 0.0, high: float = 100.0) -> float:
@@ -120,6 +122,21 @@ def rugcheck_absolute(candidate: Candidate) -> Optional[float]:
     return None if candidate.rugcheck_score is None else _clamp(candidate.rugcheck_score)
 
 
+def wallet_reliability_absolute(candidate: Candidate) -> Optional[float]:
+    """Meilleur wallet PROUVÉ fiable (voir wallet_scoreboard.py) en avance ici.
+
+    `None` = aucun wallet ayant assez d'historique jugé n'a touché ce token
+    en avance — ne dégrade jamais le score, même logique que rugcheck/
+    smart_money. Un wallet fiable l'est dans l'absolu : pas de comparaison
+    au batch, comme rugcheck.
+    """
+    if candidate.wallet_reliability_score is None:
+        return None
+    return _clamp(
+        100 * candidate.wallet_reliability_score / WALLET_RELIABILITY_SATURATION_HIT_RATE
+    )
+
+
 # Composant -> (fonction de score absolu, valeur utilisée pour le rang relatif)
 COMPONENTS = {
     "liquidity": (liquidity_absolute, lambda c: c.liquidity_usd),
@@ -128,6 +145,7 @@ COMPONENTS = {
     "smart_money": (smart_money_absolute, lambda c: float(c.smart_money_buys_30m or 0)),
     # La sûreté ne se compare pas au batch : un token sûr l'est dans l'absolu.
     "rugcheck": (rugcheck_absolute, None),
+    "wallet_reliability": (wallet_reliability_absolute, None),
 }
 
 

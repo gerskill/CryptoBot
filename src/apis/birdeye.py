@@ -126,13 +126,21 @@ class BirdeyeAPI:
         if not data:
             return None
         holder = data.get("holder")
+        # `_f(x) or None` collapserait une liquidité VRAIMENT à 0 (marché
+        # mort, doit échouer le filtre de liquidité) dans le même « non
+        # mesuré » qu'un champ absent — distinguer les deux : valeur brute
+        # présente (même 0) -> 0.0 gardé, valeur absente/nulle -> None.
+        liquidity_raw = data.get("liquidity")
+        price_raw = data.get("price")
+        volume_raw = data.get("v1hUSD")
+        market_cap_raw = data.get("marketCap")
         return OverviewStats(
             holder_count=int(holder) if holder is not None else None,
-            liquidity_usd=_f(data.get("liquidity")) or None,
-            price_usd=_f(data.get("price")) or None,
-            volume_1h_usd=_f(data.get("v1hUSD")) or None,
+            liquidity_usd=_f(liquidity_raw) if liquidity_raw is not None else None,
+            price_usd=_f(price_raw) if price_raw is not None else None,
+            volume_1h_usd=_f(volume_raw) if volume_raw is not None else None,
             price_change_1h=data.get("priceChange1hPercent"),
-            market_cap=_f(data.get("marketCap")) or None,
+            market_cap=_f(market_cap_raw) if market_cap_raw is not None else None,
         )
 
     def get_price(self, token_address: str) -> Optional[float]:

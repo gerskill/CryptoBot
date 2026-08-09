@@ -17,7 +17,7 @@ import secrets
 import time
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
@@ -43,11 +43,28 @@ if API_TOKEN is None:
     )
 
 
-def _require_token(token: Optional[str]) -> None:
-    """Compare en temps constant : une comparaison naïve fuit la longueur."""
+def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
+    """Jeton porté par `Authorization: Bearer <jeton>` — jamais dans l'URL,
+    donc jamais dans les logs d'accès uvicorn ni l'historique du navigateur."""
+    if not authorization:
+        return None
+    scheme, _, value = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not value:
+        return None
+    return value
+
+
+def _require_token(token: Optional[str] = None, authorization: Optional[str] = None) -> None:
+    """Compare en temps constant : une comparaison naïve fuit la longueur.
+
+    Le header `Authorization` est la voie normale ; `token` en query string
+    reste accepté en repli pour ne pas casser d'éventuels appels existants,
+    mais ne doit plus être utilisé par le dashboard lui-même.
+    """
     if API_TOKEN is None:
         return
-    if token is None or not secrets.compare_digest(token, API_TOKEN):
+    candidate = _extract_bearer(authorization) or token
+    if candidate is None or not secrets.compare_digest(candidate, API_TOKEN):
         raise HTTPException(status_code=401, detail="jeton invalide ou absent")
 
 
@@ -227,13 +244,17 @@ def get_shadow(limit: int = 100, arm: Optional[str] = None) -> dict[str, Any]:
 
 
 @app.get("/api/params")
-def get_params(arm: Optional[str] = None, token: Optional[str] = None) -> dict[str, Any]:
+def get_params(
+    arm: Optional[str] = None,
+    token: Optional[str] = None,
+    authorization: Optional[str] = Header(default=None),
+) -> dict[str, Any]:
     """Endpoint le plus sensible : il rend la STRATÉGIE COMPLÈTE.
 
     Les autres exposent des résultats ; celui-ci expose les règles. C'est le
     seul dont la fuite permet de reproduire le bot.
     """
-    _require_token(token)
+    _require_token(token, authorization)
     params = _read_json(settings.arm_paths(_resolve_arm(arm))["params"]) or {}
     history = (params.get("learning") or {}).get("parameter_adjustment_history", [])
     return {"params": params, "history": list(reversed(history))[:50]}

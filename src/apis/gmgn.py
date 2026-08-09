@@ -278,7 +278,13 @@ class GmgnAPI:
             ):
                 skipped += 1
                 continue
-            if buys_only and not _is_buy(trade):
+            is_buy = _is_buy(trade)
+            if is_buy is None:
+                # Sens du trade non reconnu : l'exclure plutôt que le
+                # compter à tort comme un achat (ou une vente).
+                skipped += 1
+                continue
+            if buys_only and not is_buy:
                 skipped += 1
                 continue
 
@@ -287,7 +293,7 @@ class GmgnAPI:
                 {"buys": 0, "sells": 0, "wallets": set(), "volume": 0.0,
                  "weighted": 0.0, "newest": None},
             )
-            if _is_buy(trade):
+            if is_buy:
                 bucket["buys"] += 1
                 # Poids linéaire sur la fenêtre : 1.0 à l'instant, 0 au bord.
                 # Un horodatage manquant vaut 0.5 — ni rejeté, ni privilégié.
@@ -504,14 +510,14 @@ def _timestamp(trade: dict[str, Any]) -> Optional[float]:
     return None
 
 
-def _is_buy(trade: dict[str, Any]) -> bool:
+def _is_buy(trade: dict[str, Any]) -> Optional[bool]:
     for key in ("side", "event", "type", "direction"):
         value = str(trade.get(key, "")).lower()
         if "buy" in value:
             return True
         if "sell" in value:
             return False
-    return True  # défaut prudent : compté comme achat, tracé par les tests
+    return None  # forme non reconnue : ni achat ni vente, exclu par l'appelant
 
 
 def _wallet_address(trade: dict[str, Any]) -> Optional[str]:

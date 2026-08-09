@@ -50,7 +50,13 @@ export function useLiveState() {
       socket.onopen = () => setConnected(true)
 
       socket.onmessage = (event) => {
-        const state = JSON.parse(event.data)
+        let state
+        try {
+          state = JSON.parse(event.data)
+        } catch (error) {
+          console.warn('[useLiveState] frame WebSocket non-JSON ignorée', error)
+          return
+        }
         setState(state)
         // Recharger les trades seulement quand leur nombre change. Compté
         // sur la FLOTTE (`aggregate`), pas sur le seul témoin : sinon un

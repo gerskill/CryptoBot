@@ -63,6 +63,13 @@ class Candidate:
     smart_money_weighted_buys: Optional[float] = None
     smart_money_newest_age_min: Optional[float] = None
 
+    # --- Fiabilité wallet (registre propre au bot, voir wallet_scoreboard.py) ---
+    # Distinct du smart money GMGN ci-dessus : celui-là vient d'un tag
+    # tiers-partie, celui-ci vient de CE bot ayant jugé CES wallets sur CES
+    # tokens précis. `None` = aucun wallet PROUVÉ fiable n'a touché ce token
+    # en avance, ne dégrade jamais le score.
+    wallet_reliability_score: Optional[float] = None
+
     # --- Manipulation et qualité du carnet (GMGN market trending) ---
     # Tous rendus par le MÊME appel que la découverte : les filtrer ne coûte
     # aucune requête. `None` = donnée absente et ne rejette jamais.

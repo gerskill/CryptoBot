@@ -53,7 +53,15 @@ class DexScreenerAPI:
                 self.request_count += 1
 
                 if response.status_code == 429:
-                    backoff = float(response.headers.get("Retry-After", 2 ** (attempt + 1)))
+                    # `Retry-After` peut être une date HTTP plutôt qu'un
+                    # entier de secondes (RFC 7231) : `float()` lève alors
+                    # une ValueError qui tombait dans le handler générique
+                    # ci-dessous et annulait la retentative à tort.
+                    retry_after = response.headers.get("Retry-After")
+                    try:
+                        backoff = float(retry_after) if retry_after is not None else 2 ** (attempt + 1)
+                    except ValueError:
+                        backoff = 2 ** (attempt + 1)
                     print(f"[DexScreener] 429 rate limit -> pause {backoff:.0f}s")
                     time.sleep(backoff)
                     continue
