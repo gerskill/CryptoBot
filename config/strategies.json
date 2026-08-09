@@ -16,7 +16,7 @@
       "name": "sniper",
       "role": "voter",
       "enabled": true,
-      "capital_pct": 0.2105,
+      "capital_pct": 0.10525,
       "notify": "none",
       "description": "1m30 a 30 min. Teste l'hypothese que la tranche 0-1h (1 gagnant sur 22) echouait a cause du stop a -10, pas de son age : creux median -22.8% contre -11.6% a 2-4h. Liquidite 4000 car au-dessus il n'y a litteralement aucun token de moins de 30 min.",
       "bounds": {
@@ -60,6 +60,15 @@
         "filters.require_social": true,
         "filters.max_price_change_1h": 400
       }
+    },
+    {
+      "name": "sniper_young",
+      "role": "voter",
+      "enabled": true,
+      "capital_pct": 0.10525,
+      "notify": "none",
+      "description": "Fork de sniper, une seule variable changee : filters.min_age_hours 1.025h -> 0.5125h (mi-chemin vers la borne basse de PARAM_BOUNDS, 0.0h). config/arms/sniper_young.json est pre-cree comme copie EXACTE du document VIVANT de sniper (pas du snapshot d'overrides ci-dessus, qui date de la creation initiale et ne reflete plus l'etat appris) -- seuls filters.min_age_hours et le nom changent. Les 'overrides' de ce bloc ne s'appliquent donc jamais (materialise_arm_params ne regenere pas un fichier existant) ; ils sont laisses vides a dessein pour ne pas laisser croire a un deuxieme jeu de valeurs. Reference de comparaison : sniper (tout identique sinon), pas le temoin. Erreur corrigee le 2026-08-09 : un premier essai (runner_young) forkait runner sur la valeur PERIMEE du manifeste (1.0h) alors que runner avait deja appris jusqu'a 0.0h (comme baseline, scalp et quality) -- sniper (1.025h vecu) et consensus (0.525h vecu) sont les deux seuls bras avec encore de la marge ; sniper choisi car role voter (isole), pas consensus (depend du vote des autres bras).",
+      "overrides": {}
     },
     {
       "name": "scalp",
