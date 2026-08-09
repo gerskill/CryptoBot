@@ -24,3 +24,8 @@ data/rsi_log.jsonl
 data/volatility_log.jsonl
 data/microstructure_log.jsonl
 data/counterfactual_log.jsonl
+# Logs de process et rapports generes : ephemere, meme nature que data/*.jsonl.
+data/*.log
+data/*.md
+# Snapshots manuels pre-reset (arms, etc.) : meme nature que backups/.
+archive/
