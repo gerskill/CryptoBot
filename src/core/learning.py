@@ -160,6 +160,21 @@ MIN_EFFECTIVE_STOP_LOSS_PCT = -15.0
 STOP_LOSS_PCT_PATH = "exit_rules.stop_loss_pct"
 STOP_LOSS_BUFFER_PATH = "exit_rules.stop_loss_slippage_buffer_pct"
 
+# LE CLIQUET LUI-MÊME, pas seulement son plafond — demandé explicitement par
+# le propriétaire le 2026-08-09 après la 2e récidive documentée ci-dessus.
+# `_recalibrate_slippage_buffer` ne resserre QUE le tampon ; rien ne le
+# desserre jamais, même quand le glissement mesuré tombe largement sous le
+# tampon en place. Remonter le plafond (fait deux fois déjà) traite le
+# symptôme : le tampon reconverge vers CE plafond, quel qu'il soit, en
+# quelques jours. `_relax_slippage_buffer` ferme le trou en miroir exact de
+# `_recalibrate_slippage_buffer` — même mesure (`measured_slippage`), même
+# garde d'échantillon (MIN_SEGMENT_SAMPLE), même pas borné, sens inverse.
+# Marge minimale avant d'agir : le glissement mesuré est bruyant sur du
+# memecoin, une marge de quelques dixièmes ne doit pas déclencher un
+# ajustement — seulement une marge franche, mesurée sur plusieurs sorties.
+SLIPPAGE_BUFFER_SLACK_PCT = 2.0
+MAX_BUFFER_RELAX_STEP = 3.0
+
 # --- ANTI-BOUCLE DE RÉTROACTION NÉGATIVE ---
 #
 # LA CAUSE RACINE DU PROJET, prouvée par l'historique : 6 resserrages en 13 h,
@@ -774,6 +789,49 @@ class LearningEngine:
             len(stop_loss_rows),
         )
 
+    def _relax_slippage_buffer(self, rows: list[dict[str, Any]]) -> Optional[str]:
+        """Diminue le tampon quand les sorties récentes montrent une marge inutilisée.
+
+        Miroir exact de `_recalibrate_slippage_buffer`, sens inverse. Celle-ci
+        ne resserre le tampon QUE sur un dépassement mesuré ; jamais l'inverse
+        — voir sa docstring. Résultat mesuré deux fois (2026-08-07, 2026-08-09,
+        voir le commentaire sur `MIN_EFFECTIVE_STOP_LOSS_PCT`) : le tampon
+        converge vers son plafond et y reste, quel que soit le plafond, parce
+        que rien ne peut jamais le faire redescendre. Remonter le plafond
+        traite le symptôme à chaque récidive ; ceci traite le mécanisme.
+
+        Safe par construction : réduire le tampon élargit le stop effectif
+        (l'éloigne de `MIN_EFFECTIVE_STOP_LOSS_PCT`), jamais l'inverse — la
+        seule chose que `_bounded_set` interdit. Le risque n'est pas
+        « stop positif », c'est « tolérer une perte réelle plus large » :
+        exactement pourquoi ce n'est déclenché QUE sur une marge mesurée
+        (`SLIPPAGE_BUFFER_SLACK_PCT`), jamais par défaut ou sur intuition.
+        """
+        stop_loss_rows = [
+            r for r in rows if str(r.get("exit_reason", "")).startswith("STOP_LOSS")
+        ]
+        if len(stop_loss_rows) < MIN_SEGMENT_SAMPLE:
+            return None
+
+        marge = self.measured_slippage(stop_loss_rows)
+        courant = self.params.get(STOP_LOSS_BUFFER_PATH, 0.0) or 0.0
+        if marge <= SLIPPAGE_BUFFER_SLACK_PCT or courant <= 0:
+            # Pas de marge franche mesurée, ou rien à réduire.
+            return None
+
+        step = min(round(marge - SLIPPAGE_BUFFER_SLACK_PCT, 1), MAX_BUFFER_RELAX_STEP)
+        proposed = max(0.0, round(courant - step, 1))
+        if abs(proposed - courant) < 1e-9:
+            return None
+        return self._bounded_set(
+            STOP_LOSS_BUFFER_PATH,
+            proposed,
+            f"tampon réduit : {len(stop_loss_rows)} sorties stop loss atterrissent "
+            f"{marge:.2f} pts AU-DESSUS de leur seuil effectif (médiane) — marge "
+            f"mesurée sur le vécu réel, tampon actuel {courant:.1f}",
+            len(stop_loss_rows),
+        )
+
     def _adjust_exits(self, learning: dict) -> list[str]:
         """Étape 6.3.C — recalibre stop loss et take profit sur le vécu."""
         changes = []
@@ -784,6 +842,13 @@ class LearningEngine:
         buffer_change = self._recalibrate_slippage_buffer(rows)
         if buffer_change:
             changes.append(buffer_change)
+        else:
+            # Pas de resserrage ce cycle : regarder si le vécu justifie au
+            # contraire un desserrage (voir `_relax_slippage_buffer`). Jamais
+            # les deux le même cycle sur le même paramètre.
+            relax_change = self._relax_slippage_buffer(rows)
+            if relax_change:
+                changes.append(relax_change)
 
         # Pertes bien plus grandes que le SL -> le SL n'est pas atteignable
         # (gap ou rug) : le resserrer pour sortir plus tôt. Plafonné par le

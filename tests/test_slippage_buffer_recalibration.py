@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.core.journal import TradeJournal  # noqa: E402
 from src.core.learning import (  # noqa: E402
+    MAX_BUFFER_RELAX_STEP,
     MIN_EFFECTIVE_STOP_LOSS_PCT,
     MIN_SEGMENT_SAMPLE,
     PARAM_BOUNDS,
@@ -157,6 +158,89 @@ class TestRecalibration(Base):
         self.assertTrue(
             any("stop_loss_slippage_buffer_pct" in h.get("param_name", "")
                 for h in historique)
+        )
+
+
+class TestRelaxation(Base):
+    """`_relax_slippage_buffer` — le miroir qui manquait. `_recalibrate_
+    slippage_buffer` ne resserre jamais QUE, ce qui fait converger le tampon
+    vers son plafond (quel qu'il soit) et l'y laisse pour toujours, même
+    quand le vécu montre une marge inutilisée. Régression du 2026-08-09 :
+    `runner` remonté manuellement de -6.0% à -18.0% effectif était retombé à
+    -6.0% en ~24h via `_recalibrate_slippage_buffer` seul — rien ne pouvait
+    jamais le faire redescendre une fois monté."""
+
+    def test_sous_le_seuil_dechantillon_rien_ne_bouge(self):
+        self.params.set("exit_rules.stop_loss_slippage_buffer_pct", 10.0, "setup", 0)
+        rows = [_sl_row(f"p{i}", -25.0, -20.0) for i in range(MIN_SEGMENT_SAMPLE - 1)]
+        self.assertIsNone(self.engine._relax_slippage_buffer(rows))
+
+    def test_une_marge_franche_reduit_le_tampon(self):
+        """Trigger -25 (tampon 10 actif), realise -20 : marge 5.0 au-dessus
+        du seuil effectif -> largement au-dela de SLIPPAGE_BUFFER_SLACK_PCT
+        (2.0)."""
+        self.params.set("exit_rules.stop_loss_slippage_buffer_pct", 10.0, "setup", 0)
+        rows = [_sl_row(f"p{i}", -25.0, -20.0) for i in range(MIN_SEGMENT_SAMPLE)]
+        change = self.engine._relax_slippage_buffer(rows)
+        self.assertIsNotNone(change)
+        self.assertLess(
+            self.params.get("exit_rules.stop_loss_slippage_buffer_pct"), 10.0
+        )
+
+    def test_une_marge_faible_ne_declenche_rien(self):
+        """Marge de 1.0, sous SLIPPAGE_BUFFER_SLACK_PCT (2.0) : bruit de
+        mesure sur du memecoin, pas un signal."""
+        self.params.set("exit_rules.stop_loss_slippage_buffer_pct", 10.0, "setup", 0)
+        rows = [_sl_row(f"p{i}", -25.0, -24.0) for i in range(MIN_SEGMENT_SAMPLE)]
+        self.assertIsNone(self.engine._relax_slippage_buffer(rows))
+        self.assertEqual(
+            self.params.get("exit_rules.stop_loss_slippage_buffer_pct"), 10.0
+        )
+
+    def test_ne_descend_jamais_sous_zero(self):
+        self.params.set("exit_rules.stop_loss_slippage_buffer_pct", 1.0, "setup", 0)
+        rows = [_sl_row(f"p{i}", -25.0, -15.0) for i in range(MIN_SEGMENT_SAMPLE)]
+        self.engine._relax_slippage_buffer(rows)
+        self.assertGreaterEqual(
+            self.params.get("exit_rules.stop_loss_slippage_buffer_pct"), 0.0
+        )
+
+    def test_un_tampon_deja_a_zero_ne_bouge_pas(self):
+        rows = [_sl_row(f"p{i}", -25.0, -15.0) for i in range(MIN_SEGMENT_SAMPLE)]
+        self.assertIsNone(self.engine._relax_slippage_buffer(rows))
+
+    def test_le_pas_est_borne_a_max_buffer_relax_step(self):
+        """Marge enorme (20 pts) : le pas de reduction reste borne, pas de
+        saut brutal en un seul cycle. stop_loss_pct tres negatif (-60) pour
+        isoler la PROPRE borne du pas de relachement de celle du garde-fou
+        croise (meme precaution que test_le_resultat_reste_borne_a_15)."""
+        self.params.set("exit_rules.stop_loss_pct", -60.0, "setup", 0)
+        self.params.set("exit_rules.stop_loss_slippage_buffer_pct", 15.0, "setup", 0)
+        rows = [_sl_row(f"p{i}", -25.0, -5.0) for i in range(MIN_SEGMENT_SAMPLE)]
+        self.engine._relax_slippage_buffer(rows)
+        buffer_final = self.params.get("exit_rules.stop_loss_slippage_buffer_pct")
+        self.assertGreaterEqual(buffer_final, 15.0 - MAX_BUFFER_RELAX_STEP)
+
+    def test_est_appele_depuis_adjust_exits_quand_rien_a_resserrer(self):
+        """Le desserrage se declenche vraiment au fil de l'apprentissage
+        normal quand aucun resserrage n'a eu lieu ce cycle."""
+        self.params.set("exit_rules.stop_loss_slippage_buffer_pct", 10.0, "setup", 0)
+        self._ecrire([_sl_row(f"p{i}", -25.0, -20.0) for i in range(MIN_SEGMENT_SAMPLE)])
+        self.engine._adjust_exits({"avg_loss_pct": 0})
+        self.assertLess(
+            self.params.get("exit_rules.stop_loss_slippage_buffer_pct"), 10.0
+        )
+
+    def test_resserrage_et_desserrage_jamais_le_meme_cycle(self):
+        """Un residu positif fait resserrer -> le desserrage ne doit pas
+        aussi s'appliquer dans le meme appel a _adjust_exits."""
+        self.params.set("exit_rules.stop_loss_slippage_buffer_pct", 0.0, "setup", 0)
+        self._ecrire([_sl_row(f"p{i}", -25.0, -34.75) for i in range(MIN_SEGMENT_SAMPLE)])
+        self.engine._adjust_exits({"avg_loss_pct": 0})
+        # Le residu positif (9.75) doit avoir fait AUGMENTER le tampon, pas
+        # laisser le desserrage l'annuler dans la foulee.
+        self.assertGreater(
+            self.params.get("exit_rules.stop_loss_slippage_buffer_pct"), 0.0
         )
 
 
