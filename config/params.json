@@ -5,7 +5,7 @@
   "risk_per_trade": 0.01,
   "max_concurrent_positions": 3,
   "scan": {
-    "interval_seconds": 90,
+    "interval_seconds": 45,
     "monitor_interval_seconds": 5,
     "chains": [
       "solana"
@@ -14,7 +14,7 @@
     "max_candidates_enriched": 25,
     "alpha_score_entry_threshold": 55,
     "social_lookup_min_alpha": 70,
-    "social_max_lookups_per_cycle": 2,
+    "social_max_lookups_per_cycle": 6,
     "_note_monitor": "5s au lieu de 20s : mesure sur 10 trades, 8 sorties SL sur 8 depassaient leur seuil de 4.6 points en moyenne (pire -40.5% pour un SL a -25%). Cout : 1 requete par position et par tick, quota DexScreener 300/min.",
     "gmgn_intervals": [
       "5m",
@@ -29,17 +29,17 @@
     "_note_gmgn": "Decouverte GMGN filtree cote serveur. Mesure 2026-08-01 : le flux DexScreener /token-profiles est de la promo payante, liquidite mediane 1634$. GMGN rend liquidite + holders + top10 + smart money en UN appel deja filtre, donc on n enrichit plus du dechet. 3 intervalles = 3 appels par cycle."
   },
   "filters": {
-    "min_liquidity_usd": 35000,
-    "min_holders": 75,
-    "min_volume_1h": 8000,
+    "min_liquidity_usd": 5000,
+    "min_holders": 25,
+    "min_volume_1h": 2000,
     "max_dev_wallet_pct": 10,
     "min_rugcheck_score": 70,
-    "max_top_wallet_concentration": 20,
+    "max_top_wallet_concentration": 40,
     "min_social_mentions_1h": 0,
     "min_smart_money_buys_30min": 0,
     "max_tax_buy": 5,
     "max_tax_sell": 5,
-    "max_age_hours": 6,
+    "max_age_hours": 24.0,
     "min_age_hours": 0.0,
     "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose."
   },
@@ -77,11 +77,11 @@
     "wallet_reliability": 0.08
   },
   "learning": {
-    "total_trades": 23,
-    "winning_trades": 2,
-    "losing_trades": 21,
-    "avg_win_pct": 128.7,
-    "avg_loss_pct": -27.83,
+    "total_trades": 34,
+    "winning_trades": 4,
+    "losing_trades": 30,
+    "avg_win_pct": 93.17,
+    "avg_loss_pct": -34.29,
     "best_performer_filter": null,
     "worst_performer_filter": null,
     "win_rate_by_age": {
@@ -90,16 +90,16 @@
         "sample": 3
       },
       "0-1h": {
-        "win_rate": 0.0,
-        "sample": 8
+        "win_rate": 8.3,
+        "sample": 12
       },
       "1-2h": {
-        "win_rate": 12.5,
-        "sample": 8
+        "win_rate": 14.3,
+        "sample": 14
       },
       "2-4h": {
-        "win_rate": 25.0,
-        "sample": 4
+        "win_rate": 20.0,
+        "sample": 5
       }
     },
     "win_rate_by_liquidity": {
@@ -109,7 +109,11 @@
       },
       "30-50K": {
         "win_rate": 0.0,
-        "sample": 15
+        "sample": 20
+      },
+      "10-30K": {
+        "win_rate": 33.3,
+        "sample": 6
       }
     },
     "win_rate_by_social_score": {},
@@ -833,12 +837,338 @@
         "new_value": 55,
         "reason": "inactif depuis 443 cycles sans entrée (seuil 300) — motif « alpha N< N »",
         "trades_sample_size": 443
+      },
+      {
+        "timestamp": "2026-08-09T21:30:20.491976+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 35000,
+        "new_value": 30000,
+        "reason": "inactif depuis 311 cycles sans entrée (seuil 300) — motif « liquidité N < N »",
+        "trades_sample_size": 311
+      },
+      {
+        "timestamp": "2026-08-09T22:46:28.222880+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 30000,
+        "new_value": 25000,
+        "reason": "inactif depuis 303 cycles sans entrée (seuil 300) — motif « liquidité N < N »",
+        "trades_sample_size": 303
+      },
+      {
+        "timestamp": "2026-08-10T01:01:00.519761+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 25000,
+        "new_value": 20000,
+        "reason": "inactif depuis 310 cycles sans entrée (seuil 300) — motif « liquidité N < N »",
+        "trades_sample_size": 310
+      },
+      {
+        "timestamp": "2026-08-10T03:15:21.843005+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 20000,
+        "new_value": 15000,
+        "reason": "inactif depuis 326 cycles sans entrée (seuil 300) — motif « liquidité N < N »",
+        "trades_sample_size": 326
+      },
+      {
+        "timestamp": "2026-08-10T05:03:49.078344+00:00",
+        "param_name": "filters.max_age_hours",
+        "old_value": 6,
+        "new_value": 8,
+        "reason": "inactif depuis 338 cycles sans entrée (seuil 300) — motif « âge Nh > Nh »",
+        "trades_sample_size": 338
+      },
+      {
+        "timestamp": "2026-08-10T07:27:05.011101+00:00",
+        "param_name": "filters.max_age_hours",
+        "old_value": 8,
+        "new_value": 10,
+        "reason": "inactif depuis 334 cycles sans entrée (seuil 300) — motif « âge Nh > Nh »",
+        "trades_sample_size": 334
+      },
+      {
+        "timestamp": "2026-08-10T09:46:59.471277+00:00",
+        "param_name": "filters.max_age_hours",
+        "old_value": 10,
+        "new_value": 12,
+        "reason": "inactif depuis 313 cycles sans entrée (seuil 300) — motif « âge Nh > Nh »",
+        "trades_sample_size": 313
+      },
+      {
+        "timestamp": "2026-08-12T22:06:11.867535+00:00",
+        "param_name": "scan.social_max_lookups_per_cycle",
+        "old_value": 2,
+        "new_value": 3,
+        "reason": "rythme twitter froid : 25.0% consommé pour 41.9% attendu (jour 13/31), demande non servie (4.8 voulus vs 2.0 servis en moyenne) — scan.social_max_lookups_per_cycle desserré",
+        "trades_sample_size": 40
+      },
+      {
+        "timestamp": "2026-08-12T23:38:28.490209+00:00",
+        "param_name": "scan.social_max_lookups_per_cycle",
+        "old_value": 3,
+        "new_value": 4,
+        "reason": "rythme twitter froid : 25.0% consommé pour 41.9% attendu (jour 13/31), demande non servie (4.5 voulus vs 3.0 servis en moyenne) — scan.social_max_lookups_per_cycle desserré",
+        "trades_sample_size": 40
+      },
+      {
+        "timestamp": "2026-08-13T00:53:43.041939+00:00",
+        "param_name": "scan.social_max_lookups_per_cycle",
+        "old_value": 4,
+        "new_value": 5,
+        "reason": "rythme twitter froid : 25.0% consommé pour 41.9% attendu (jour 13/31), demande non servie (3.5 voulus vs 3.2 servis en moyenne) — scan.social_max_lookups_per_cycle desserré",
+        "trades_sample_size": 40
+      },
+      {
+        "timestamp": "2026-08-13T02:08:33.793767+00:00",
+        "param_name": "filters.max_age_hours",
+        "old_value": 12,
+        "new_value": 14,
+        "reason": "inactif depuis 300 cycles sans entrée (seuil 300) — motif « âge Nh > Nh »",
+        "trades_sample_size": 300
+      },
+      {
+        "timestamp": "2026-08-13T03:40:05.809100+00:00",
+        "param_name": "filters.max_age_hours",
+        "old_value": 14,
+        "new_value": 16,
+        "reason": "inactif depuis 319 cycles sans entrée (seuil 300) — motif « âge Nh > Nh »",
+        "trades_sample_size": 319
+      },
+      {
+        "timestamp": "2026-08-13T04:55:01.035366+00:00",
+        "param_name": "filters.max_age_hours",
+        "old_value": 16,
+        "new_value": 18,
+        "reason": "inactif depuis 316 cycles sans entrée (seuil 300) — motif « âge Nh > Nh »",
+        "trades_sample_size": 316
+      },
+      {
+        "timestamp": "2026-08-13T04:55:01.566994+00:00",
+        "param_name": "scan.social_max_lookups_per_cycle",
+        "old_value": 5,
+        "new_value": 6,
+        "reason": "rythme twitter froid : 25.0% consommé pour 41.9% attendu (jour 13/31), demande non servie (4.1 voulus vs 4.0 servis en moyenne) — scan.social_max_lookups_per_cycle desserré",
+        "trades_sample_size": 40
+      },
+      {
+        "timestamp": "2026-08-13T06:10:03.218771+00:00",
+        "param_name": "filters.max_age_hours",
+        "old_value": 18,
+        "new_value": 20,
+        "reason": "inactif depuis 312 cycles sans entrée (seuil 300) — motif « âge Nh > Nh »",
+        "trades_sample_size": 312
+      },
+      {
+        "timestamp": "2026-08-13T07:25:22.994615+00:00",
+        "param_name": "filters.max_age_hours",
+        "old_value": 20,
+        "new_value": 22,
+        "reason": "inactif depuis 302 cycles sans entrée (seuil 300) — motif « âge Nh > Nh »",
+        "trades_sample_size": 302
+      },
+      {
+        "timestamp": "2026-08-14T11:14:40.380006+00:00",
+        "param_name": "filters.min_volume_1h",
+        "old_value": 8000,
+        "new_value": 6000,
+        "reason": "inactif depuis 316 cycles sans entrée (seuil 300) — motif « volume Nh N < N »",
+        "trades_sample_size": 316
+      },
+      {
+        "timestamp": "2026-08-14T12:46:32.476313+00:00",
+        "param_name": "filters.min_volume_1h",
+        "old_value": 6000,
+        "new_value": 4000,
+        "reason": "inactif depuis 326 cycles sans entrée (seuil 300) — motif « volume Nh N < N »",
+        "trades_sample_size": 326
+      },
+      {
+        "timestamp": "2026-08-14T14:21:59.452484+00:00",
+        "param_name": "filters.min_volume_1h",
+        "old_value": 4000,
+        "new_value": 2000,
+        "reason": "inactif depuis 332 cycles sans entrée (seuil 300) — motif « volume Nh N < N »",
+        "trades_sample_size": 332
+      },
+      {
+        "timestamp": "2026-08-14T15:52:54.821102+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 15000,
+        "new_value": 10000,
+        "reason": "inactif depuis 349 cycles sans entrée (seuil 300) — motif « liquidité N < N »",
+        "trades_sample_size": 349
+      },
+      {
+        "timestamp": "2026-08-14T17:23:46.039523+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 10000,
+        "new_value": 5000,
+        "reason": "inactif depuis 342 cycles sans entrée (seuil 300) — motif « liquidité N < N »",
+        "trades_sample_size": 342
+      },
+      {
+        "timestamp": "2026-08-14T19:19:30.868072+00:00",
+        "param_name": "filters.max_age_hours",
+        "old_value": 22,
+        "new_value": 24.0,
+        "reason": "inactif depuis 322 cycles sans entrée (seuil 300) — motif « âge Nh > Nh »",
+        "trades_sample_size": 322
+      },
+      {
+        "timestamp": "2026-08-14T23:57:23.744443+00:00",
+        "param_name": "filters.max_top_wallet_concentration",
+        "old_value": 20,
+        "new_value": 25,
+        "reason": "inactif depuis 311 cycles sans entrée (seuil 300) — motif « top wallet N > N »",
+        "trades_sample_size": 311
+      },
+      {
+        "timestamp": "2026-08-15T01:28:44.957135+00:00",
+        "param_name": "filters.max_top_wallet_concentration",
+        "old_value": 25,
+        "new_value": 30,
+        "reason": "inactif depuis 314 cycles sans entrée (seuil 300) — motif « top wallet N > N »",
+        "trades_sample_size": 314
+      },
+      {
+        "timestamp": "2026-08-15T02:58:57.015333+00:00",
+        "param_name": "filters.max_top_wallet_concentration",
+        "old_value": 30,
+        "new_value": 35,
+        "reason": "inactif depuis 317 cycles sans entrée (seuil 300) — motif « top wallet N > N »",
+        "trades_sample_size": 317
+      },
+      {
+        "timestamp": "2026-08-15T04:31:13.573537+00:00",
+        "param_name": "filters.max_top_wallet_concentration",
+        "old_value": 35,
+        "new_value": 40,
+        "reason": "inactif depuis 315 cycles sans entrée (seuil 300) — motif « top wallet N > N »",
+        "trades_sample_size": 315
+      },
+      {
+        "timestamp": "2026-08-16T04:31:38.408421+00:00",
+        "param_name": "filters.min_holders",
+        "old_value": 75,
+        "new_value": 50,
+        "reason": "inactif depuis 332 cycles sans entrée (seuil 300) — motif « holders N< N »",
+        "trades_sample_size": 332
+      },
+      {
+        "timestamp": "2026-08-16T05:09:56.256690+00:00",
+        "param_name": "filters.min_holders",
+        "old_value": 50,
+        "new_value": 25,
+        "reason": "inactif depuis 337 cycles sans entrée (seuil 300) — motif « holders N< N »",
+        "trades_sample_size": 337
+      },
+      {
+        "timestamp": "2026-08-17T11:58:49.278185+00:00",
+        "param_name": "filters.min_age_hours",
+        "old_value": 0.0,
+        "new_value": 0.5,
+        "reason": "WR 10.0% sur tokens 0-1h",
+        "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-08-17T11:58:49.298193+00:00",
+        "param_name": "filters.min_age_hours",
+        "old_value": 0.5,
+        "new_value": 0.0,
+        "reason": "25.0% des rejets 'age_min' auraient fait +100% (pic moyen 151.2%)",
+        "trades_sample_size": 40
+      },
+      {
+        "timestamp": "2026-08-17T11:58:49.299581+00:00",
+        "param_name": "filters",
+        "old_value": {
+          "min_liquidity_usd": 5000,
+          "min_holders": 25,
+          "min_volume_1h": 2000,
+          "max_dev_wallet_pct": 10,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 40,
+          "min_social_mentions_1h": 0,
+          "min_smart_money_buys_30min": 0,
+          "max_tax_buy": 5,
+          "max_tax_sell": 5,
+          "max_age_hours": 24.0,
+          "min_age_hours": 0.0,
+          "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose."
+        },
+        "new_value": {
+          "min_liquidity_usd": 5000,
+          "min_holders": 25,
+          "min_volume_1h": 2000,
+          "max_dev_wallet_pct": 10,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 40,
+          "min_social_mentions_1h": 0,
+          "min_smart_money_buys_30min": 0,
+          "max_tax_buy": 5,
+          "max_tax_sell": 5,
+          "max_age_hours": 24.0,
+          "min_age_hours": 0.0,
+          "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose."
+        },
+        "reason": "backtest : P&L/trade -8.5153 → -8.5153, pas d'amélioration ≥ 10% — annulé",
+        "trades_sample_size": 20
+      },
+      {
+        "timestamp": "2026-08-17T11:58:49.302601+00:00",
+        "param_name": "exit_rules.stop_loss_slippage_buffer_pct",
+        "old_value": 15.0,
+        "new_value": 10.0,
+        "reason": "tampon augmenté : 28 sorties stop loss dépassent encore leur seuil effectif de 11.65 pts (médiane) même avec le tampon actuel de 15.0",
+        "trades_sample_size": 28
+      },
+      {
+        "timestamp": "2026-08-17T11:58:49.339442+00:00",
+        "param_name": "exit_rules.take_profit_1",
+        "old_value": 50.0,
+        "new_value": 150.0,
+        "reason": "rejeu sur 40 positions : P&L/trade -8.2732 → -1.3602 (0 ambiguës)",
+        "trades_sample_size": 40
+      },
+      {
+        "timestamp": "2026-08-17T11:58:49.361523+00:00",
+        "param_name": "exit_rules",
+        "old_value": {
+          "stop_loss_pct": -25,
+          "take_profit_1": 150.0,
+          "take_profit_2": 300,
+          "take_profit_3": 500,
+          "breakeven_trigger": 100,
+          "partial_sell_tp1_pct": 0.5,
+          "partial_sell_tp2_pct": 0.5,
+          "trailing_stop_activation": 200,
+          "trailing_stop_distance_pct": 50,
+          "max_hold_time_minutes": 240,
+          "stop_loss_slippage_buffer_pct": 10.0,
+          "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
+        },
+        "new_value": {
+          "stop_loss_pct": -25,
+          "take_profit_1": 50.0,
+          "take_profit_2": 300,
+          "take_profit_3": 500,
+          "breakeven_trigger": 100,
+          "partial_sell_tp1_pct": 0.5,
+          "partial_sell_tp2_pct": 0.5,
+          "trailing_stop_activation": 200,
+          "trailing_stop_distance_pct": 50,
+          "max_hold_time_minutes": 240,
+          "stop_loss_slippage_buffer_pct": 15.0,
+          "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
+        },
+        "reason": "backtest sorties : P&L/trade -5.8686 → -6.7182, pas d'amélioration ≥ 10% — annulé",
+        "trades_sample_size": 40
       }
     ],
     "last_adjustment_at": {
-      "filters": 21,
-      "weights": 21,
-      "exits": 21,
+      "filters": 31,
+      "weights": 31,
+      "exits": 31,
       "risk": 21
     }
   },
