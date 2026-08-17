@@ -16,11 +16,19 @@ RUG_LIQUIDITY_DROP_PCT = -50.0
 
 @dataclass(frozen=True)
 class ExitAction:
-    """Une sortie à exécuter : quelle fraction de la position initiale, pourquoi."""
+    """Une sortie à exécuter : quelle fraction de la position initiale, pourquoi.
+
+    `rung` : index du barreau d'échelle qui a déclenché, quand la sortie vient
+    d'une échelle (`Position.ladder`). `apply_exit` s'en sert pour avancer
+    `ladder_filled` — sans lui il faudrait relire la raison en texte pour
+    savoir où on en est, ce que fait déjà `tp1_hit`/`tp2_hit` et qu'on ne veut
+    pas généraliser à N barreaux.
+    """
 
     fraction: float
     reason: str
     is_final: bool = False
+    rung: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -56,6 +64,36 @@ class Position:
     trailing_stop_activation: float = 200.0
     trailing_stop_distance_pct: float = 50.0
     max_hold_time_minutes: float = 240.0
+
+    # ÉCHELLE DE SORTIE — N barreaux `(niveau_pct, fraction)`, ordre croissant.
+    # Vide = comportement d'origine (TP1/TP2/TP3), et c'est le cas de tous les
+    # bras sauf ceux qui la configurent explicitement.
+    #
+    # POURQUOI ELLE EXISTE. Les trois take-profits ne permettent que DEUX
+    # sorties partielles, ce qui oblige à choisir entre « sortir tôt » et
+    # « laisser courir » au lieu de faire les deux. Mesuré sur les 196
+    # positions de `runner` : le plus-haut médian est +9 %, 46 % des trades
+    # touchent +10 %, mais seulement 6,6 % atteignent le TP1 à +75 % et AUCUN
+    # les +400 % du TP2. Le bras attendait un niveau qui n'arrive pas et
+    # encaissait le stop 86 % du temps.
+    ladder: tuple[tuple[float, float], ...] = ()
+    # Barreaux déjà consommés. Un entier plutôt qu'un booléen par barreau :
+    # l'échelle est ordonnée, donc « j'en ai rempli 3 » suffit à savoir où
+    # reprendre, et ça survit à la sérialisation JSON sans structure imbriquée.
+    ladder_filled: int = 0
+
+    # NIVEAU d'armement du breakeven, en % de P&L. `0` = désactivé.
+    #
+    # CE QUE ÇA CORRIGE. `breakeven_trigger` était présent dans les sept
+    # documents de bras depuis le début et n'était LU NULLE PART :
+    # `breakeven_moved` ne se posait qu'en effet de bord de TAKE_PROFIT_1.
+    # Conséquence — un bras ne pouvait protéger sa position qu'en vendant la
+    # moitié, et un bras dont le TP1 est haut (quality, consensus : +150)
+    # restait exposé au stop plein jusque-là.
+    #
+    # L'armement ne peut qu'être PLUS PRÉCOCE que l'ancien comportement,
+    # jamais plus tardif : TP1 continue d'armer le breakeven de son côté.
+    breakeven_trigger: float = 0.0
 
     # Meta (secteur) du token, FIGÉE À L'ENTRÉE. Décidée par
     # `src/core/correlation.py` à partir du symbole ET du nom ; le nom
@@ -128,6 +166,40 @@ class Position:
         return ((now or time.time()) - self.entry_time) / 60
 
 
+def _ladder_exits(position: Position, pnl: float) -> list[ExitAction]:
+    """Barreaux franchis depuis le dernier tick, dans l'ordre.
+
+    PLUSIEURS BARREAUX PEUVENT TOMBER SUR UN MÊME TICK. Le monitoring
+    échantillonne toutes les 5 à 20 s ; sur un memecoin, un tick peut passer
+    de +8 % à +140 %. Ne remplir qu'un barreau par tick laisserait les quatre
+    autres derrière alors que le prix les a tous traversés — et le suivant
+    s'exécuterait au prix redescendu.
+
+    Le DERNIER barreau qui épuise la fraction restante est marqué `is_final` :
+    c'est ce qui déclenche la mesure du coût réel de sortie côté portefeuille
+    (voir `PaperPortfolio.update`), qui ne doit se payer qu'une fois.
+    """
+    actions: list[ExitAction] = []
+    reste = position.remaining_fraction
+    for index in range(position.ladder_filled, len(position.ladder)):
+        niveau, fraction = position.ladder[index]
+        if pnl < niveau:
+            break
+        prise = min(fraction, reste)
+        if prise <= 1e-9:
+            break
+        reste -= prise
+        actions.append(
+            ExitAction(
+                prise,
+                f"LADDER_{index + 1} (+{niveau:.0f}% cible, {pnl:+.0f}% réel)",
+                is_final=reste <= 1e-9,
+                rung=index,
+            )
+        )
+    return actions
+
+
 def evaluate_exits(
     position: Position, price: float, liquidity_drop_pct: Optional[float] = None
 ) -> list[ExitAction]:
@@ -175,7 +247,13 @@ def evaluate_exits(
                 )
             ]
 
-    # 5. TAKE PROFITS — cascade possible sur un même tick si le prix a sauté
+    # 5. ÉCHELLE DE SORTIE, quand le bras en configure une. Elle REMPLACE les
+    #    trois take-profits — les mélanger ferait sortir deux fois la même
+    #    fraction au même tick.
+    if position.ladder:
+        return _ladder_exits(position, pnl)
+
+    # 5 bis. TAKE PROFITS — cascade possible sur un même tick si le prix a sauté
     actions: list[ExitAction] = []
     if pnl >= position.take_profit_3:
         actions.append(
@@ -216,7 +294,13 @@ def apply_exit(
         "realized_pnl_usd": position.realized_pnl_usd + realized,
         "exit_reasons": position.exit_reasons + (action.reason,),
     }
-    if action.reason.startswith("TAKE_PROFIT_1"):
+    if action.rung is not None:
+        # `max` et pas `+1` : plusieurs barreaux peuvent tomber au même tick,
+        # et `PaperPortfolio.update` les applique un par un. Repartir de
+        # l'index du barreau garantit qu'aucun ne sera rejoué même si l'ordre
+        # d'application changeait.
+        updates["ladder_filled"] = max(position.ladder_filled, action.rung + 1)
+    elif action.reason.startswith("TAKE_PROFIT_1"):
         updates["tp1_hit"] = True
         updates["breakeven_moved"] = True
     elif action.reason.startswith("TAKE_PROFIT_2"):
@@ -240,6 +324,21 @@ def update_water_marks(position: Position, price: float) -> Position:
         updates["high_water_at"] = time.time()
         if not position.trailing_active and pnl >= position.trailing_stop_activation:
             updates["trailing_active"] = True
+        # BREAKEVEN PAR NIVEAU, et non plus seulement en effet de bord du TP1.
+        # Armé ICI parce que c'est une transition d'ÉTAT provoquée par le
+        # prix, au même titre que le trailing juste au-dessus — pas une
+        # sortie. L'armer dans `evaluate_exits` le lierait à un tick où une
+        # sortie se produit, alors qu'un pic peut passer sans rien déclencher.
+        #
+        # Sur le plus-haut et pas sur le prix courant : un niveau franchi puis
+        # reperdu A ÉTÉ franchi, et c'est précisément là que la protection
+        # devait s'armer.
+        if (
+            not position.breakeven_moved
+            and position.breakeven_trigger > 0
+            and pnl >= position.breakeven_trigger
+        ):
+            updates["breakeven_moved"] = True
     if pnl < position.low_water_pct:
         updates["low_water_pct"] = pnl
         updates["low_water_at"] = time.time()

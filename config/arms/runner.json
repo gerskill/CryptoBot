@@ -71,14 +71,37 @@
     "take_profit_1": 75.0,
     "take_profit_2": 400,
     "take_profit_3": 800,
-    "breakeven_trigger": 100,
+    "breakeven_trigger": 30,
     "partial_sell_tp1_pct": 0.5,
     "partial_sell_tp2_pct": 0.5,
     "trailing_stop_activation": 150.0,
     "trailing_stop_distance_pct": 80,
     "max_hold_time_minutes": 360,
     "stop_loss_slippage_buffer_pct": 10.0,
-    "_note_sl_buffer": "CORRECTION 2026-08-09 (2e passage). La correction du 2026-08-08 (effectif -18.0%) avait re-derive vers -6.0% en ~24h, EXACTEMENT comme prevenu dans la note precedente : le cliquet du buffer (learning.py _recalibrate_slippage_buffer) augmente a chaque depassement mesure et ne redescend jamais, il converge donc vers MIN_EFFECTIVE_STOP_LOSS_PCT quel qu'il soit. Cette fois la cause racine est corrigee (MIN_EFFECTIVE_STOP_LOSS_PCT remonte de -6.0 a -15.0 dans learning.py), pas seulement la valeur. Buffer remis a 1.3 pour restaurer l'effectif a -18.0% (stop_loss_pct -19.3 + buffer 1.3), coherent avec le design 'laisse courir les gagnants' de ce bras et avec le win rate mesure a 43% sur cette configuration avant la re-derive. Si cette valeur reconverge encore dans plusieurs semaines, c'est le meme mecanisme qui recommence au nouveau plafond -15.0%, pas un nouveau bug."
+    "_note_sl_buffer": "CORRECTION 2026-08-09 (2e passage). La correction du 2026-08-08 (effectif -18.0%) avait re-derive vers -6.0% en ~24h, EXACTEMENT comme prevenu dans la note precedente : le cliquet du buffer (learning.py _recalibrate_slippage_buffer) augmente a chaque depassement mesure et ne redescend jamais, il converge donc vers MIN_EFFECTIVE_STOP_LOSS_PCT quel qu'il soit. Cette fois la cause racine est corrigee (MIN_EFFECTIVE_STOP_LOSS_PCT remonte de -6.0 a -15.0 dans learning.py), pas seulement la valeur. Buffer remis a 1.3 pour restaurer l'effectif a -18.0% (stop_loss_pct -19.3 + buffer 1.3), coherent avec le design 'laisse courir les gagnants' de ce bras et avec le win rate mesure a 43% sur cette configuration avant la re-derive. Si cette valeur reconverge encore dans plusieurs semaines, c'est le meme mecanisme qui recommence au nouveau plafond -15.0%, pas un nouveau bug.",
+    "ladder": [
+      [
+        10,
+        0.2
+      ],
+      [
+        20,
+        0.2
+      ],
+      [
+        35,
+        0.2
+      ],
+      [
+        60,
+        0.2
+      ],
+      [
+        120,
+        0.2
+      ]
+    ],
+    "_note_echelle": "ECHELLE DE SORTIE, 2026-08-17. Mesure sur les 196 positions du journal de ce bras : plus-haut MEDIAN +9%, +10% touche par 46.4% des trades, +20% par 31.6%, +30% par 25.5%, mais le TP1 a +75% par 6.6% seulement et le TP2 a +400% par AUCUN. Le bras attendait un niveau qui n arrive pas et encaissait le stop 86% du temps (WR 13.8%, mediane -18.8%, -3156 pts cumules). L echelle prend des gains la ou ils existent. Rejeu sur ces memes 196 trades (proxy peak/trough, cout A/R 3.06%, breakeven a -2.9% mesure) : -5.96 pts/trade contre -12.39 pour la configuration precedente. ATTENTION : les fractions somment a 1.0, donc la position est TOTALEMENT sortie a +120% et ce bras n a plus de moonbag ; take_profit_1/2/3 et le trailing ne sont plus atteints tant que ladder est non vide."
   },
   "scoring_weights": {
     "liquidity": 0.2,

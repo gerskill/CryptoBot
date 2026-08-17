@@ -41,6 +41,39 @@ KELLY_WIN_RATE_FLOOR = 0.40
 # Champs de Position typés `tuple` : JSON les rend en liste, il faut les
 # reconvertir à la restauration (voir `_load_positions`).
 TUPLE_FIELDS = ("exit_reasons",)
+# `ladder` est un tuple de TUPLES : la conversion plate ci-dessus laisserait
+# des listes à l'intérieur, et `_ladder_exits` dépaqueterait alors des listes
+# là où il attend des paires. Traité à part, pas ajouté à TUPLE_FIELDS.
+NESTED_TUPLE_FIELDS = ("ladder",)
+
+
+def normalise_ladder(raw: Any) -> tuple[tuple[float, float], ...]:
+    """`[[10, 0.2], [20, 0.2]]` -> `((10.0, 0.2), (20.0, 0.2))`, trié.
+
+    TRIÉ PAR NIVEAU, parce que `_ladder_exits` parcourt les barreaux dans
+    l'ordre et s'arrête au premier non atteint : une échelle saisie en
+    désordre bloquerait sur son premier barreau haut et n'en remplirait
+    jamais aucun autre.
+
+    Une entrée illisible est IGNORÉE et n'interrompt pas la lecture des
+    autres — une faute de frappe dans un document de bras ne doit pas
+    supprimer silencieusement toute la stratégie de sortie ni faire tomber
+    l'ouverture de position.
+    """
+    if not raw:
+        return ()
+    rungs: list[tuple[float, float]] = []
+    for entry in raw:
+        try:
+            niveau, fraction = entry[0], entry[1]
+            niveau, fraction = float(niveau), float(fraction)
+        except (TypeError, ValueError, IndexError, KeyError):
+            print(f"[Portfolio] barreau d'échelle ignoré (illisible) : {entry!r}")
+            continue
+        if fraction <= 0:
+            continue
+        rungs.append((niveau, fraction))
+    return tuple(sorted(rungs, key=lambda rung: rung[0]))
 
 def _parse_iso(value: Any) -> Optional[float]:
     """Horodatage ISO -> epoch. None si absent ou illisible."""
@@ -201,6 +234,9 @@ class PaperPortfolio:
                 for name in TUPLE_FIELDS:
                     if isinstance(clean.get(name), list):
                         clean[name] = tuple(clean[name])
+                for name in NESTED_TUPLE_FIELDS:
+                    if clean.get(name):
+                        clean[name] = normalise_ladder(clean[name])
                 position = Position(**clean)
                 restored[position.id] = position
             except (TypeError, ValueError) as exc:
@@ -307,6 +343,11 @@ class PaperPortfolio:
             # position — `Position` ne garde que `symbol`. Classer plus tard
             # perdrait « Pomeranian » derrière « PMR ».
             sector=classify_sector(candidate.symbol, candidate.name),
+            # Échelle de sortie et niveau de breakeven, figés à l'entrée comme
+            # toutes les autres règles. `normalise_ladder` trie et rejette le
+            # bruit : une échelle mal ordonnée sortirait dans le désordre.
+            ladder=normalise_ladder(exits.get("ladder")),
+            breakeven_trigger=float(exits.get("breakeven_trigger", 0) or 0),
         )
         self.positions[position.id] = position
         self.capital -= size_usd
