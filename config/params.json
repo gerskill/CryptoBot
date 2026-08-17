@@ -77,25 +77,25 @@
     "wallet_reliability": 0.08
   },
   "learning": {
-    "total_trades": 36,
-    "winning_trades": 5,
-    "losing_trades": 31,
-    "avg_win_pct": 78.8,
-    "avg_loss_pct": -33.59,
+    "total_trades": 39,
+    "winning_trades": 7,
+    "losing_trades": 32,
+    "avg_win_pct": 79.38,
+    "avg_loss_pct": -33.1,
     "best_performer_filter": null,
     "worst_performer_filter": null,
     "win_rate_by_age": {
       "4h+": {
-        "win_rate": 0.0,
-        "sample": 3
+        "win_rate": 25.0,
+        "sample": 4
       },
       "0-1h": {
-        "win_rate": 14.3,
-        "sample": 14
+        "win_rate": 13.3,
+        "sample": 15
       },
       "1-2h": {
-        "win_rate": 14.3,
-        "sample": 14
+        "win_rate": 20.0,
+        "sample": 15
       },
       "2-4h": {
         "win_rate": 20.0,
@@ -109,11 +109,11 @@
       },
       "30-50K": {
         "win_rate": 0.0,
-        "sample": 21
+        "sample": 22
       },
       "10-30K": {
-        "win_rate": 42.9,
-        "sample": 7
+        "win_rate": 55.6,
+        "sample": 9
       }
     },
     "win_rate_by_social_score": {},
