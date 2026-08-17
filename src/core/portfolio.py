@@ -361,18 +361,32 @@ class PaperPortfolio:
 
             self.capital += position.size_usd * fraction * (1 + pnl_pct / 100)
 
-            rows.append(
-                self.journal.record_exit(
-                    position=position,
-                    exit_price=price,
-                    pnl_pct=pnl_pct,
-                    fraction=fraction,
-                    reason=action.reason,
-                    is_final=not position.is_open,
-                    exit_cost_pct=exit_cost.total_cost_pct if exit_cost else None,
-                    exit_cost_partial=exit_cost.partial if exit_cost else None,
+            # Une écriture journal ratée ne doit JAMAIS empêcher la clôture
+            # réelle : sinon la position reste à `remaining_fraction == 0`
+            # dans `self.positions` pour toujours — invisible aux règles de
+            # sortie (`is_open` les court-circuite dès l'entrée d'
+            # `evaluate_exits`), mais encore servie au dashboard comme
+            # ouverte, gelée. Repéré sur 2 positions bloquées 6 jours après
+            # un TRAILING_STOP dont le journal n'avait jamais pu s'écrire.
+            try:
+                rows.append(
+                    self.journal.record_exit(
+                        position=position,
+                        exit_price=price,
+                        pnl_pct=pnl_pct,
+                        fraction=fraction,
+                        reason=action.reason,
+                        is_final=not position.is_open,
+                        exit_cost_pct=exit_cost.total_cost_pct if exit_cost else None,
+                        exit_cost_partial=exit_cost.partial if exit_cost else None,
+                    )
                 )
-            )
+            except Exception as exc:  # noqa: BLE001
+                print(
+                    f"[Portfolio] ⚠️ écriture journal impossible pour "
+                    f"{position.symbol} ({position.id}) — {type(exc).__name__}: {exc}"
+                )
+
             if not position.is_open:
                 self._finalize(position, price)
                 break
