@@ -754,6 +754,16 @@ class ScanPipeline:
         if c.dev_wallet_pct is not None and c.dev_wallet_pct > max_dev:
             return f"dev wallet {c.dev_wallet_pct}% > {max_dev}%"
 
+        # LP non verrouillée = le dev peut retirer la liquidité à tout
+        # moment, effondrant le prix en un tick. Récupéré depuis RugCheck
+        # depuis le début mais jamais comparé à rien : rugcheck_score,
+        # top_holder_pct et dev_wallet_pct filtraient déjà, pas ce vecteur-là
+        # — le plus classique du rug pull. Repéré en creusant pourquoi 37%
+        # des stops tombent en moins de 5 min (2026-08-17).
+        min_lp_locked = f.get("min_lp_locked_pct", 50)
+        if c.lp_locked_pct is not None and c.lp_locked_pct < min_lp_locked:
+            return f"LP verrouillée {c.lp_locked_pct:.0f}% < {min_lp_locked}%"
+
         if c.mint_authority_revoked is False:
             return "mint authority active"
         if c.freeze_authority_revoked is False:
