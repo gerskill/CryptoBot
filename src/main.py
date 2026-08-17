@@ -565,6 +565,13 @@ class AlphaLoop:
             positions = []
             for arm in self.arms:
                 for position in arm.portfolio.positions.values():
+                    # Garde-fou : une position fermée (`remaining_fraction`
+                    # à 0) ne doit jamais atteindre le dashboard, même si
+                    # elle traîne encore dans `arm.portfolio.positions`
+                    # (crash de finalisation). Sinon elle s'affiche gelée
+                    # pour de bon — figée, grisée, incompréhensible.
+                    if not position.is_open:
+                        continue
                     price = self._last_prices.get(position.token_address)
                     payload = position_to_dict(position, price)
                     payload["arm"] = arm.name
@@ -948,7 +955,18 @@ class AlphaLoop:
                 notifier.send_milestone(position, atteint, palier)
 
     def _current_market(self, position) -> tuple[Optional[float], Optional[float]]:
-        """Prix + liquidité. DexScreener d'abord (quota large), Birdeye en repli."""
+        """Prix + liquidité. DexScreener d'abord (quota large), Jupiter puis Birdeye en repli.
+
+        DexScreener exige `pair_address` — sans lui (positions ouvertes avant
+        que la découverte du pair soit fiable, ou jamais renseigné) le prix
+        n'était JAMAIS tenté : repli direct sur Birdeye, mort ce mois-ci
+        (quota épuisé). Résultat mesuré : 7 positions bloquées à "prix
+        indisponible" depuis leur ouverture, stop-loss jamais évalué, l'une
+        d'elles réellement à -99% sans que rien ne le sache. Jupiter price
+        par mint (pas de pair_address requis) comble ce trou — déjà actif et
+        utilisé ailleurs dans le bot (`_economics_guard`), juste jamais câblé
+        ici. Repéré 2026-08-17.
+        """
         if position.pair_address:
             data = self.dex.get_pair_data(position.chain, position.pair_address)
             pairs = data.get("pairs") or []
@@ -958,6 +976,9 @@ class AlphaLoop:
                 liquidity = float((pair.get("liquidity") or {}).get("usd") or 0)
                 if price > 0:
                     return price, liquidity
+        jupiter_price = self.jupiter.price(position.token_address) if self.jupiter else None
+        if jupiter_price:
+            return jupiter_price, None
         return self.birdeye.get_price(position.token_address), None
 
     def _current_price(self, token_address: str, chain: str, pair_address: Optional[str]):
@@ -965,6 +986,9 @@ class AlphaLoop:
             price = self.dex.get_price(chain, pair_address)
             if price:
                 return price
+        jupiter_price = self.jupiter.price(token_address) if self.jupiter else None
+        if jupiter_price:
+            return jupiter_price
         return self.birdeye.get_price(token_address)
 
     def _after_trade_closed(self, arm) -> None:
