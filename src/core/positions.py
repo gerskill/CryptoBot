@@ -57,6 +57,13 @@ class Position:
     trailing_stop_distance_pct: float = 50.0
     max_hold_time_minutes: float = 240.0
 
+    # Meta (secteur) du token, FIGÉE À L'ENTRÉE. Décidée par
+    # `src/core/correlation.py` à partir du symbole ET du nom ; le nom
+    # n'existe que sur `Candidate`, donc reclasser plus tard depuis le seul
+    # symbole donnerait un secteur différent et une exposition qui dépendrait
+    # du moment où on la regarde. `None` = non classé, jamais un secteur.
+    sector: Optional[str] = None
+
     # Tampon anticipant le glissement du stop loss (voir `effective_stop_loss_pct`)
     stop_loss_slippage_buffer_pct: float = 0.0
     # Contexte de prix à l'entrée — sert à comprendre ce que le score achète

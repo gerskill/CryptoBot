@@ -41,8 +41,9 @@ from src.agents import (
 )
 from src.core.arm import CONSENSUS, attach_portfolios, bootstrap_arms
 from src.apis.jupiter import SOL_MINT, JupiterAPI
-from src.core import economics
+from src.core import correlation, economics
 from src.core.budget import load_budgets
+from src.core.dev_watchdog import DevWatchdog
 from src.core.capabilities import build_registry
 from src.core.economics import size_for_cost
 from src.core.exit_fees import measure_exit_cost
@@ -60,6 +61,7 @@ from src.core.learning import LearningEngine
 from src.core.lock import InstanceLock
 from src.core.models import Candidate, ScanResult
 from src.core.params import ParamsStore
+from src.core.portfolio import MAX_POSITION_PCT_OF_CAPITAL
 from src.core.positions import RUG_LIQUIDITY_DROP_PCT
 from src.core.quota_agent import QuotaAgent
 from src.core.pricefeed import (
@@ -149,6 +151,13 @@ class AlphaLoop:
         self.counterfactual = CounterfactualTimingAgent(
             log_path=settings.COUNTERFACTUAL_LOG_PATH
         )
+        # CELUI-CI, LUI, DÉCIDE — contrairement aux cinq ci-dessus. Il ferme
+        # une position quand le créateur distribue pendant qu'on la détient
+        # (slow rug), là où `DevHistoryAgent` ne juge qu'à l'entrée et où le
+        # détecteur de rug ne voit que l'effondrement brutal de liquidité.
+        # `risk_rules.dev_dump_panic_exit` à `false` le remet en simple
+        # observateur : il mesure et alerte, sans fermer.
+        self.dev_watchdog = DevWatchdog(helius=self.helius)
         # Santé par CAPACITÉ, pas par API : ce qui compte n'est pas « Birdeye
         # est mort » mais « peut-on encore obtenir des bougies ». Publié dans
         # state.json pour que la dégradation soit visible au lieu d'être subie.
@@ -590,6 +599,11 @@ class AlphaLoop:
                     # `aggregate` donne la vue d'ensemble sans casser ça.
                     "stats": self.portfolio.stats(),
                     "aggregate": self._aggregate_stats(),
+                    # Concentration par meta sur les sept bras. Publiée pour
+                    # la même raison que `positions` l'a été : l'exposition
+                    # réelle est justement ce qu'un tableau de bord doit
+                    # montrer, et elle était invisible.
+                    "sector_exposure": self._fleet_exposure().as_dict(),
                     "positions": positions,
                     "candidates": [
                         candidate_to_dict(c) for c in (scan.candidates if scan else ())
@@ -835,6 +849,32 @@ class AlphaLoop:
     def _open_positions(self) -> list:
         return [p for arm in self.arms for p in arm.portfolio.positions.values()]
 
+    # ------------------------------------------------ concentration sectorielle
+
+    @property
+    def max_sector_positions(self) -> int:
+        """Plafond de positions simultanées dans une meta, TOUS BRAS CONFONDUS.
+
+        Lu sur le document GLOBAL (`self.params`) et non sur celui d'un bras :
+        la règle porte sur l'agrégat des sept, aucun bras ne peut donc en
+        détenir sa propre version sans que la garde perde son sens.
+        """
+        return self.params.get("risk_rules.max_sector_positions", 3)
+
+    @property
+    def max_sector_exposure_pct(self) -> float:
+        return self.params.get("risk_rules.max_sector_exposure_pct", 50.0)
+
+    def _fleet_exposure(self):
+        """Exposition par meta, agrégée sur les sept portefeuilles.
+
+        Recalculée à chaque candidat plutôt que mise en cache par cycle : une
+        entrée ouverte plus tôt DANS LE MÊME CYCLE doit compter tout de suite,
+        sinon sept bras qui évaluent le même lot ouvrent sept positions de la
+        même meta avant que la garde ne voie la première.
+        """
+        return correlation.measure(self._open_positions())
+
     def _monitor_positions(self, verbose: bool = True) -> None:
         """Un prix par PAIRE distincte, partagé par toutes les stratégies.
 
@@ -864,8 +904,105 @@ class AlphaLoop:
             self.history.record_raw(token_address, price=price, liquidity=liquidity or 0)
             self._last_prices[token_address] = price
 
+        # PAR TOKEN, PAS PAR POSITION, et avant les sorties normales : un
+        # créateur qui distribue concerne les sept bras à la fois, et la
+        # mesure coûte deux appels RPC qu'il serait absurde de payer sept
+        # fois. Même raisonnement que le prix partagé juste au-dessus.
+        self._watch_dev_dumps()
+
         for arm in self.arms:
             self._monitor_arm(arm, verbose=verbose)
+
+    # ------------------------------------------------------- slow rug (dev)
+
+    @property
+    def dev_dump_panic_exit(self) -> bool:
+        """La détection ferme-t-elle, ou se contente-t-elle d'alerter ?
+
+        `true` par défaut : une distribution du créateur est la seule cause de
+        perte que ni le stop loss ni le trailing n'anticipent — ils SUIVENT la
+        descente qu'elle provoque. Le mettre à `false` garde la mesure et
+        l'alerte sans jamais fermer, le temps de juger les seuils sur le
+        journal produit (ils ne sont calibrés sur rien, voir
+        `src/core/dev_watchdog.py`).
+        """
+        return bool(self.params.get("risk_rules.dev_dump_panic_exit", True))
+
+    def _watch_dev_dumps(self) -> None:
+        """Contrôle le solde du créateur des tokens détenus, et agit s'il chute.
+
+        Ne casse jamais le monitoring : une panne Helius rend « non mesuré »,
+        et une position sans mesure reste ouverte sous ses règles normales.
+        """
+        tenus = {p.token_address for p in self._open_positions()}
+        # Hygiène mémoire : un token dont plus rien n'est ouvert n'a plus de
+        # ligne de base à conserver, sur un processus qui tourne des semaines.
+        for oublie in [t for t in self.dev_watchdog.tracked_tokens() if t not in tenus]:
+            self.dev_watchdog.forget(oublie)
+
+        for token_address in tenus:
+            if self.dev_watchdog.already_flagged(token_address):
+                continue
+            try:
+                verdict = self.dev_watchdog.check(token_address)
+            except Exception as exc:  # noqa: BLE001
+                print(f"[DevWatchdog] {token_address[:8]} indisponible : {exc}")
+                continue
+            if not verdict.dumping:
+                continue
+
+            symbole = next(
+                (p.symbol for p in self._open_positions()
+                 if p.token_address == token_address),
+                token_address[:8],
+            )
+            print(f"🚨 SLOW RUG {symbole} — {verdict.reason}")
+            self.telegram.send(
+                f"🚨 <b>Distribution du créateur</b> — ${symbole}\n{verdict.reason}\n"
+                + ("Fermeture de toutes les positions." if self.dev_dump_panic_exit
+                   else "Observation seule (dev_dump_panic_exit désactivé).")
+            )
+            if self.dev_dump_panic_exit:
+                self._force_exit_token(token_address, "DEV_DUMP")
+
+    def _force_exit_token(self, token_address: str, reason: str) -> None:
+        """Sortie totale sur TOUS les bras détenant ce token.
+
+        Passe par `force_close`, donc par le même mesureur de coût réel que
+        les sorties normales : un panic close arrive précisément quand le
+        slippage est le pire, c'est le dernier endroit où laisser le P&L au
+        prix nu.
+        """
+        for arm in self.arms:
+            for position_id in list(arm.portfolio.positions):
+                position = arm.portfolio.positions.get(position_id)
+                if position is None or position.token_address != token_address:
+                    continue
+                price, _ = self.market.get(
+                    position.chain, position.pair_address, position.token_address
+                )
+                if price is None or not math.isfinite(price):
+                    # Sans prix, fermer inventerait un P&L. La position reste
+                    # ouverte et le token reste signalé : le prochain tick
+                    # avec un prix la fermera.
+                    print(
+                        f"[DevWatchdog]{arm.label} {position.symbol} : prix "
+                        f"indisponible, fermeture reportée"
+                    )
+                    self.dev_watchdog.unflag(token_address)
+                    continue
+                row = arm.portfolio.force_close(position_id, price, reason)
+                if not row:
+                    continue
+                self.funnel.record_exit(
+                    arm.name, position, price, reason, row["pnl_pct"], None
+                )
+                print(
+                    f"  💰{arm.label} {reason} | {position.symbol} "
+                    f"| {row['pnl_pct']:+.1f}% | {row['pnl_usd']:+.2f} $"
+                )
+                self._measure_hold(arm, position, row)
+                self._after_trade_closed(arm)
 
     def _monitor_arm(self, arm, verbose: bool = True) -> None:
         portfolio = arm.portfolio
@@ -1059,6 +1196,40 @@ class AlphaLoop:
             if blocker:
                 print(f"⏸️ {arm.label} {candidate.symbol} qualifié mais bloqué : {blocker}")
                 break
+
+            # CONCENTRATION SECTORIELLE, SUR LES SEPT BRAS À LA FOIS. Seule
+            # garde du dépôt qui regarde l'agrégat : `can_open` ne connaît que
+            # son propre portefeuille, et sept portefeuilles chacun dans les
+            # clous peuvent porter sept paris sur la même meta. Mesuré sur le
+            # journal : jusqu'à 7 positions simultanées en meta grenouille, et
+            # un état à 91 % d'exposition « ia » sur 4 positions ouvertes.
+            #
+            # `continue` ET NON `break`, contrairement au blocage
+            # portefeuille juste au-dessus. Celui-ci vaut pour TOUS les
+            # candidats (plus de place, cooldown, capital épuisé) : insister
+            # sur le suivant est inutile. Le refus sectoriel ne vaut que pour
+            # CE secteur — le candidat d'après peut être d'une autre meta, et
+            # `break` le sacrifierait sans raison.
+            sector = correlation.classify(candidate.symbol, candidate.name)
+            sector_blocker = correlation.verdict(
+                self._fleet_exposure(),
+                sector,
+                # Taille encore inconnue à ce stade (`_economics_guard` peut
+                # la réduire plus loin) : la borne haute du bras est
+                # l'estimation honnête, et elle ne peut que sur-estimer la
+                # part projetée, donc la garde ne laisse jamais passer ce
+                # qu'elle aurait dû refuser.
+                arm.portfolio.capital * MAX_POSITION_PCT_OF_CAPITAL,
+                max_sector_positions=self.max_sector_positions,
+                max_sector_exposure_pct=self.max_sector_exposure_pct,
+            )
+            self.funnel.record(
+                *trace, "correlation", not sector_blocker, sector_blocker or "",
+                {"sector": sector},
+            )
+            if sector_blocker:
+                print(f"⏸️ {arm.label} {candidate.symbol} — {sector_blocker}")
+                continue
 
             verdict = self._technical_verdict(candidate)
             self.funnel.record(
@@ -1270,6 +1441,14 @@ class AlphaLoop:
                 position.entry_price, time.time(), snapshots,
             )),
             ("dev_history", lambda: self.dev_history.observe(candidate)),
+            # LIGNE DE BASE DU SLOW RUG. Elle doit être prise ICI et pas au
+            # premier contrôle : ce qu'on veut mesurer est « ce que le
+            # créateur a cédé DEPUIS QU'ON EST ENTRÉ ». Une référence prise
+            # trois minutes plus tard aurait déjà avalé la première vague de
+            # distribution et l'aurait comptée comme normale.
+            ("dev_watchdog", lambda: self.dev_watchdog.establish_baseline(
+                position.token_address
+            )),
         ), position.symbol)
 
     def _measure_hold(self, arm, position, row: dict) -> None:

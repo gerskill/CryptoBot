@@ -31,6 +31,11 @@ GATES = (
     "seuil_alpha",
     "confluence",
     "portefeuille",
+    # APRÈS `portefeuille` et AVANT `technique` : la concentration sectorielle
+    # est une règle de RISQUE, elle se juge avec les autres (`can_open`), pas
+    # après une analyse technique qui coûte des appels pour rien quand la
+    # place est de toute façon refusée.
+    "correlation",
     "technique",
     "economie",
     "entree",

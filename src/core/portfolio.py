@@ -21,6 +21,7 @@ from dataclasses import asdict, fields
 from datetime import datetime
 from typing import Any, Callable, Optional
 
+from src.core.correlation import classify as classify_sector
 from src.core.journal import TradeJournal
 from src.core.models import Candidate
 from src.core.positions import (
@@ -301,6 +302,11 @@ class PaperPortfolio:
             max_hold_time_minutes=exits.get("max_hold_time_minutes", 240),
             stop_loss_slippage_buffer_pct=exits.get("stop_loss_slippage_buffer_pct", 0.0),
             price_change_5m_at_entry=candidate.price_change_5m,
+            # FIGÉ ICI, ET NULLE PART AILLEURS. C'est le seul point du dépôt
+            # où le `name` du token existe encore en même temps que la
+            # position — `Position` ne garde que `symbol`. Classer plus tard
+            # perdrait « Pomeranian » derrière « PMR ».
+            sector=classify_sector(candidate.symbol, candidate.name),
         )
         self.positions[position.id] = position
         self.capital -= size_usd

@@ -7,9 +7,19 @@ passe tous les filtres : il est neuf, sa liquidité est fraîche, ses autorités
 sont révoquées, RugCheck sort 99 comme sur tout token de moins d'une heure.
 
 CE QU'ON A RÉELLEMENT SOUS LA MAIN, vérifié champ par champ sur `Candidate`.
-Aucune API du projet ne rend l'adresse du créateur ni la liste de ses tokens :
-RugCheck expose `creatorBalance` (d'où `dev_wallet_pct`), et GMGN n'a pas
-d'API publique. Cet agent n'invente donc pas une requête qui n'existe pas — il
+Aucun CHAMP DE `Candidate` ne porte l'adresse du créateur ni la liste de ses
+tokens : RugCheck expose `creatorBalance` (d'où `dev_wallet_pct`), et GMGN n'a
+pas d'API publique.
+
+CORRECTIF 2026-08-17 — cette section affirmait « aucune API du projet ne rend
+l'adresse du créateur ». C'est FAUX : `HeliusAPI.get_creator_address`
+(`getAsset`, DAS) la rend, elle était simplement appelée nulle part. C'est ce
+qui a rendu possible `src/core/dev_watchdog.py`, qui suit le solde de ce
+créateur PENDANT la détention. La limite réelle reste ailleurs : remonter les
+flux vers les wallets frais demanderait `getSignaturesForAddress`, absent
+d'`ALLOWED_RPC_METHODS`.
+
+Cet agent n'invente pas une requête qui n'existe pas — il
 agrège les six signaux DÉJÀ COLLECTÉS qui portent de l'information sur le
 comportement du créateur, et le dit dans sa raison :
 
