@@ -8,9 +8,11 @@ sur `main`, arbre de travail propre), configuration, suite de tests.
 `data/`, pas de `logs/`, pas de `.env`, aucun processus en cours. Rien ne peut
 donc être affirmé sur l'exécution réelle du bot ; c'est la vérification P0.
 
-Le code est sain : 760 tests exécutés, 751 verts. Les 9 erreurs sont toutes le
-même `ModuleNotFoundError: fastapi` — dépendance non installée dans cet
-environnement, pas un défaut de code. 27 `except Exception`, aucun silencieux.
+Le code est sain : **791 tests, tous verts** une fois `fastapi` installé. Les 9
+erreurs de la première exécution étaient toutes le même
+`ModuleNotFoundError: fastapi` — dépendance absente de l'environnement, pas un
+défaut de code ; l'installer les fait disparaître, c'est vérifié et non déduit.
+27 `except Exception`, aucun silencieux.
 
 Dernier commit : 2026-08-17 17:04. **13 jours sans activité**, cohérent avec
 l'absence.
@@ -81,3 +83,40 @@ arrêt ; sauvegarder puis mesurer `data/` ; qualifier les gardes du 17/08 sur
 données réelles. Le reste — bornes de `capital_pct`, persistance du shadow,
 documentation — est de la dette identifiée, pas du risque immédiat. Aucun
 élément observé ne remet en cause le verrou PAPER.
+
+---
+
+## 4. Suites données le 2026-08-30
+
+Trois points de ce rapport sont traités dans le code, trois demandent la machine
+où tourne la boucle.
+
+### Traité
+
+- **P1 `capital_pct`** — avertissement au démarrage nommant le bras dormant et le
+  total du manifeste. Le refus sur les bras actifs reste fatal, inchangé.
+- **P1 shadow tracking** — les suivis en cours sont persistés par bras et
+  survivent à un redémarrage. Un suivi périmé pendant une coupure est **écarté,
+  pas jugé** : son pic date d'avant l'arrêt, le juger mesurerait la durée de la
+  coupure et non le token.
+- **P2 documentation** — `ETAT_DU_PROJET.md` §14 rattrape les quatorze commits du
+  07/08 au 17/08 et corrige ce que §10 et §13 affirmaient encore. `AGENTS.md`
+  annonce le bon nombre de tests.
+- **Défaut trouvé en route, absent du rapport initial** — les rejets du filtre LP
+  verrouillée tombaient dans la famille « autre », qu'aucun paramètre ne dessert :
+  la garde du 17/08 était **invisible au comptage par famille**, donc impossible à
+  qualifier. Familles `lp_lock` et `sector` ajoutées, sans entrée dans
+  `RELAXATIONS` — visible ne veut pas dire relâchable.
+
+### Reste à faire sur la machine du bot
+
+Les deux P0 et la qualification des gardes ne se lisent pas dans le dépôt. Une
+commande les traite, **en lecture seule** :
+
+```
+python3 -m scripts.diagnostic_reprise
+```
+
+Elle date l'arrêt avant qu'une relance ne l'efface, mesure `data/`, et compte ce
+que les gardes du 17/08 ont réellement écarté. Elle se termine en imprimant la
+séquence de reprise — relancer reste une décision du propriétaire.

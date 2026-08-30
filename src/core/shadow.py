@@ -20,6 +20,20 @@ from typing import Any, Iterable, Optional
 MAX_TRACKING_HOURS = 4
 MIN_AGE_BEFORE_REVIEW_MINUTES = 20
 
+# PERSISTANCE DES SUIVIS EN COURS. `_tracked` vivait uniquement en mémoire :
+# un redémarrage de la boucle perdait tout rejet pas encore arrivé à ses 4 h.
+# Sur une boucle relancée souvent, le shadow se remplissait donc beaucoup plus
+# lentement que le nombre de rejets ne le laissait croire, et un bras neuf
+# n'atteignait jamais `SHADOW_MIN_SAMPLE` — c'est-à-dire que `_relax_from_shadow`,
+# le seul mécanisme qui desserre un filtre trop strict, restait muet.
+#
+# Écriture throttlée SAUF sur ce qui compte : un nouveau suivi, un suivi
+# clôturé et un NOUVEAU PIC sont écrits immédiatement ; un simple mouvement de
+# `last_price` attend au plus une minute. Sans l'exception sur le pic, un
+# token qui monte puis un arrêt dans la même minute produisait au redémarrage
+# un « n'a pas monté » — le verdict précisément inverse de la mesure.
+TRACKING_SAVE_INTERVAL_SECONDS = 60
+
 
 @dataclass(frozen=True)
 class ShadowVerdict:
@@ -59,6 +73,23 @@ def reason_family(reason: str) -> str:
     plancher). Les confondre relâcherait au hasard.
     """
     text = (reason or "").lower()
+    # AVANT `liquidity` : « LP verrouillée 12% < 50% » ne contient pas
+    # « liquidité », donc aucune branche ne le prenait et il tombait dans
+    # « autre » — la famille qu'aucun paramètre ne dessert. Même défaut que
+    # l'âge et le volume (voir plus bas) : la garde livrée le 2026-08-17 était
+    # invisible à `missed_rate_by_family`, donc impossible à qualifier sur
+    # données réelles. Visible ne veut pas dire relâchable : `lp_lock` n'a
+    # volontairement PAS d'entrée dans `RELAXATIONS`, c'est un vecteur de rug
+    # pull au même titre que `rugcheck` et `authority`.
+    if "lp verrouillée" in text or "lp locked" in text:
+        return "lp_lock"
+    # Garde de concentration sectorielle, livrée le même jour. Ce n'est pas un
+    # filtre d'entrée mais une règle de risque de flotte : elle a sa propre
+    # porte dans l'entonnoir. Nommée ici pour que le comptage par famille la
+    # distingue, jamais relâchée automatiquement — elle protège d'une
+    # exposition corrélée, pas d'un seuil mal calé.
+    if "concentration meta" in text:
+        return "sector"
     if "liquidité" in text or "liquidity" in text:
         return "liquidity"
     if "holders" in text:
@@ -90,13 +121,91 @@ def reason_family(reason: str) -> str:
     return "autre"
 
 
+def tracking_path(shadow_path: str) -> str:
+    """Fichier de reprise des suivis en cours, à côté du journal du bras.
+
+    Un fichier par bras, comme le journal : `data/shadow_log_tracking.json`
+    pour le témoin, `data/arms/<nom>/shadow_log_tracking.json` pour les autres.
+    Déjà couvert par `.gitignore` (`data/*.json` et `data/arms/`) — c'est de la
+    mémoire du bot, pas de la configuration.
+    """
+    base, _ = os.path.splitext(shadow_path)
+    return f"{base}_tracking.json"
+
+
 class ShadowTracker:
     """Enregistre les rejets et mesure ce qu'ils sont devenus."""
 
     def __init__(self, path: str):
         self.path = path
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        self.tracking_path = tracking_path(path)
         self._tracked: dict[str, dict[str, Any]] = {}
+        self._last_save = 0.0
+        self.restored, self.dropped_stale = self._load_tracking()
+
+    def _load_tracking(self) -> tuple[int, int]:
+        """Reprend les suivis en cours laissés par l'instance précédente.
+
+        Rend (repris, écartés). Ne lève JAMAIS : un fichier de reprise illisible
+        doit coûter les suivis en cours, pas le démarrage de la boucle.
+
+        LES SUIVIS PÉRIMÉS SONT ÉCARTÉS, pas jugés. Un rejet enregistré avant
+        un arrêt de plusieurs jours a un `peak_price` figé à sa valeur d'avant
+        l'arrêt : personne n'a observé le token pendant la coupure. Le juger
+        écrirait un verdict « n'a pas atteint +100% » qui ne mesure rien
+        d'autre que la durée de l'arrêt, et ce verdict pèserait ensuite dans
+        `missed_rate_by_family`, donc sur le desserrage des filtres.
+        """
+        if not os.path.exists(self.tracking_path):
+            return 0, 0
+        try:
+            with open(self.tracking_path, encoding="utf-8") as fh:
+                rows = json.load(fh)
+            if not isinstance(rows, dict):
+                raise ValueError("racine non-dict")
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print(
+                f"⚠️  shadow : reprise illisible ({self.tracking_path} : {exc}) — "
+                f"les suivis en cours sont perdus, la boucle continue"
+            )
+            return 0, 0
+
+        now = time.time()
+        limite = MAX_TRACKING_HOURS * 3600
+        kept, dropped = {}, 0
+        for address, entry in rows.items():
+            try:
+                age = now - float(entry["rejected_at"])
+            except (KeyError, TypeError, ValueError):
+                dropped += 1
+                continue
+            if age >= limite:
+                dropped += 1
+                continue
+            kept[address] = entry
+        self._tracked = kept
+        return len(kept), dropped
+
+    def _save_tracking(self, force: bool = True) -> None:
+        """Écrit les suivis en cours. Atomique, et jamais fatale.
+
+        `force=False` throttle à `TRACKING_SAVE_INTERVAL_SECONDS` : appelé
+        depuis `update_price`, qui tourne à chaque rafraîchissement de prix.
+        """
+        now = time.time()
+        if not force and now - self._last_save < TRACKING_SAVE_INTERVAL_SECONDS:
+            return
+        tmp = f"{self.tracking_path}.tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(self._tracked, fh, ensure_ascii=False)
+            os.replace(tmp, self.tracking_path)
+            self._last_save = now
+        except OSError as exc:
+            # Même politique que l'écriture du journal de trades : un disque
+            # plein ou un chemin en lecture seule ne doit pas arrêter la boucle.
+            print(f"⚠️  shadow : sauvegarde des suivis impossible ({exc})")
 
     def record_rejections(self, rejected: Iterable[Any]) -> int:
         """Met sous observation les candidats rejetés de ce cycle."""
@@ -124,6 +233,8 @@ class ShadowTracker:
                 "age_hours": candidate.age_hours,
             }
             added += 1
+        if added:
+            self._save_tracking()
         return added
 
     @property
@@ -144,7 +255,18 @@ class ShadowTracker:
         if entry is None or price <= 0:
             return
         entry["last_price"] = price
-        entry["peak_price"] = max(entry["peak_price"], price)
+        # UN NOUVEAU PIC S'ÉCRIT TOUT DE SUITE, un simple mouvement de prix
+        # attend. Le pic est la grandeur que le shadow mesure : le perdre dans
+        # la fenêtre de throttle fabriquerait exactement le verdict qu'on veut
+        # éviter — « ce rejet n'a pas monté » sur un token qui avait monté. Et
+        # c'est rare par construction : un token ne bat son plus-haut que
+        # quelques fois sur ses 4 h de suivi, là où `last_price` bouge à
+        # chaque rafraîchissement.
+        if price > entry["peak_price"]:
+            entry["peak_price"] = price
+            self._save_tracking()
+        else:
+            self._save_tracking(force=False)
 
     def expire(self) -> list[ShadowVerdict]:
         """Clôture les suivis arrivés à terme et les écrit sur disque."""
@@ -168,6 +290,8 @@ class ShadowTracker:
             )
             self._append(verdict, entry)
             verdicts.append(verdict)
+        if verdicts:
+            self._save_tracking()
         return verdicts
 
     def _append(self, verdict: ShadowVerdict, entry: dict[str, Any]) -> None:
@@ -236,3 +360,14 @@ class ShadowTracker:
     @property
     def stats(self) -> dict[str, int]:
         return {"tracked": len(self._tracked), "judged": len(self.read_all())}
+
+    @property
+    def resume_summary(self) -> str:
+        """Ce que le démarrage a repris. « rien repris » et « rien à reprendre »
+        sont deux états différents — voir §12 de ETAT_DU_PROJET.md."""
+        if not self.restored and not self.dropped_stale:
+            return "aucun suivi en cours à reprendre"
+        return (
+            f"{self.restored} suivi(s) repris, "
+            f"{self.dropped_stale} écarté(s) car périmés pendant l'arrêt"
+        )
