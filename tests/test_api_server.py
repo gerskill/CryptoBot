@@ -170,3 +170,68 @@ class TestTradesEquitySeries(ApiTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestToutChiffreEstAttribuableAUnBras(ApiTestCase):
+    """Le bug le plus coûteux du front : « le panneau affichait le témoin et
+    le présentait comme le bot ».
+
+    Une agrégation qui ne dit pas de quel bras elle parle est un mensonge
+    d'interface, pas un détail de libellé — c'est ce qui a fait croire pendant
+    des jours que le bot ne gagnait rien alors que cinq trades gagnants de
+    `sniper` existaient. Ces tests verrouillent le contrat côté serveur : le
+    front ne peut pas afficher un total sans savoir à qui il appartient,
+    parce que la donnée porte toujours son bras.
+    """
+
+    def _deux_bras(self):
+        self._manifest([
+            {"name": "baseline", "capital_pct": 0.5},
+            {"name": "sniper", "capital_pct": 0.5},
+        ])
+        self._ecrire_jsonl(settings.TRADES_LOG_PATH, [
+            self._trade("b1", None, "2026-01-01T00:00:00", -3.0),
+        ])
+        self._ecrire_jsonl(settings.arm_paths("sniper")["trades"], [
+            self._trade("s1", None, "2026-01-01T00:01:00", 12.0),
+        ])
+
+    def test_chaque_trade_porte_son_bras_en_mode_agrege(self):
+        """Sans ce champ, un tableau « derniers trades » mélange sept
+        stratégies sans que le lecteur puisse le savoir."""
+        self._deux_bras()
+        reponse = self.server.get_trades(limit=100, arm="all")
+
+        self.assertTrue(reponse["trades"])
+        for row in reponse["trades"]:
+            self.assertIn("arm", row, f"trade sans bras : {row.get('position_id')}")
+            self.assertTrue(row["arm"], "nom de bras vide")
+        self.assertEqual(
+            {row["arm"] for row in reponse["trades"]}, {"baseline", "sniper"}
+        )
+
+    def test_chaque_trade_porte_son_bras_meme_sur_un_seul_bras(self):
+        """Le piège exact du bug d'origine : interroger un seul bras et
+        présenter le résultat comme celui « du bot ». Le champ est là même
+        quand il paraît redondant, pour que le front n'ait jamais à deviner.
+        """
+        self._deux_bras()
+        reponse = self.server.get_trades(limit=100, arm="sniper")
+
+        self.assertTrue(reponse["trades"])
+        self.assertEqual({row["arm"] for row in reponse["trades"]}, {"sniper"})
+
+    def test_la_courbe_et_le_tableau_couvrent_le_meme_perimetre(self):
+        """L'écart de 47 $ entre l'en-tête et la courbe venait de deux
+        périmètres différents servis dans la même réponse."""
+        self._deux_bras()
+        agrege = self.server.get_trades(limit=100, arm="all")
+        temoin = self.server.get_trades(limit=100, arm="baseline")
+
+        self.assertAlmostEqual(sum(agrege["equity_series"]), -3.0 + 12.0)
+        self.assertAlmostEqual(sum(temoin["equity_series"]), -3.0)
+        # Le total du témoin n'est PAS celui de la flotte : c'est précisément
+        # la confusion que le panneau faisait.
+        self.assertNotAlmostEqual(
+            sum(agrege["equity_series"]), sum(temoin["equity_series"])
+        )
