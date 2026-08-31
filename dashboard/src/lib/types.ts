@@ -81,6 +81,20 @@ export type Stats = {
   avg_win_pct: number
   avg_loss_pct: number
   max_drawdown_pct: number
+  /**
+   * Le plus LONG passage sous le plus haut, pas le plus profond — ce sont
+   * rarement le même épisode. `null` = l'équité n'est jamais descendue sous
+   * son pic, ce qui n'est pas « un épisode de durée nulle ».
+   * `recovered: false` = drawdown encore en cours : la durée affichée est
+   * celle observée à ce jour, pas une durée finale.
+   */
+  longest_drawdown: {
+    depth_pct: number
+    trades: number
+    /** `null` quand les horodatages de sortie manquent au journal. */
+    hours: number | null
+    recovered: boolean
+  } | null
   consecutive_losses: number
   cooldown_min: number
 }

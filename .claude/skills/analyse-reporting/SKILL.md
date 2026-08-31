@@ -49,6 +49,24 @@ Un rapport qui annonce un P&L sans cette réserve est trompeur.
 **Le shadow trading arbitre des seuils, jamais une performance** (ADR 007) :
 pas de slippage, et une entrée réelle aurait bougé le prix.
 
+## Profondeur et durée du drawdown
+
+`portfolio.stats()` porte deux grandeurs distinctes, à ne pas confondre :
+`max_drawdown_pct` dit **jusqu'où** un bras est descendu, `longest_drawdown`
+dit **combien de temps** il est resté sous son plus haut (`src/core/stats.py`,
+`drawdown_episodes` / `longest_drawdown`).
+
+Sur quelques dizaines de trades, la profondeur maximale tient à une ou deux
+positions — c'est presque une statistique d'extrême. La durée agrège tout
+l'intervalle, elle est plus stable, et c'est elle qui répond à « faut-il
+attendre ce bras ou l'arrêter ». Le plus long épisode et le plus profond sont
+rarement le même.
+
+`recovered: false` signale un drawdown **encore en cours** : la durée affichée
+est celle observée à ce jour, pas une durée finale. Un rapport qui la présente
+comme définitive ment. Et `longest_drawdown: null` veut dire « jamais descendu
+sous son pic », jamais « épisode de durée nulle ».
+
 ## Forme d'un rapport
 
 1. Période, bras couverts, **nombre de trades** — avant tout chiffre.

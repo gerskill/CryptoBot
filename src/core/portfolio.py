@@ -24,6 +24,7 @@ from typing import Any, Callable, Optional
 from src.core.correlation import classify as classify_sector
 from src.core.journal import TradeJournal
 from src.core.models import Candidate
+from src.core.stats import longest_drawdown
 from src.core.positions import (
     ExitAction,
     Position,
@@ -598,6 +599,14 @@ class PaperPortfolio:
             if losses
             else 0.0,
             "max_drawdown_pct": round(self.max_drawdown_pct, 1),
+            # DURÉE, pas seulement profondeur. Sur quelques dizaines de
+            # trades, la profondeur maximale tient à une ou deux positions ;
+            # le temps passé sous le plus haut agrège tout l'intervalle et
+            # dit s'il faut attendre ou arrêter. `None` = jamais descendu
+            # sous son pic, ce qui n'est pas « épisode de durée nulle ».
+            "longest_drawdown": (
+                longest.as_dict() if (longest := longest_drawdown(rows, self.baseline)) else None
+            ),
             "consecutive_losses": self.consecutive_losses,
             "cooldown_min": round(self.cooldown_remaining_min(), 0),
         }

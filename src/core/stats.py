@@ -250,3 +250,153 @@ def compare(a: Interval, b: Interval) -> str:
     if b.low > a.high:
         return "inférieur"
     return "indistinguable"
+
+
+# ---------------------------------------------------------------------------
+# DURÉE DE DRAWDOWN — la grandeur qui manquait.
+#
+# Le dépôt sait déjà dire à quelle PROFONDEUR un bras est descendu
+# (`max_drawdown_pct` dans `portfolio.stats()`, `computeDrawdownSeries` côté
+# dashboard). Il ne savait pas dire COMBIEN DE TEMPS il y est resté.
+#
+# Pourquoi ça compte plus que la profondeur ici. Sur des échantillons de
+# quelques dizaines de trades, la profondeur maximale est portée par un ou deux
+# trades — c'est presque une statistique d'extrême, très instable. La durée
+# sous le plus haut, elle, agrège tout l'intervalle : un bras qui reste 40
+# trades sous son pic ne le doit pas au hasard d'une position.
+#
+# C'est aussi la grandeur la plus honnête à montrer à quelqu'un qui décide de
+# laisser tourner un bras ou de l'arrêter : « -17 % » ne dit pas s'il faut
+# attendre. « sous son plus haut depuis 23 trades et 6 jours » le dit.
+#
+# ÉPISODE NON RÉSOLU. Un drawdown encore en cours n'est PAS un drawdown court.
+# Ne pas savoir quand il finira est un état distinct, marqué `recovered:
+# False` — même règle que partout ailleurs dans ce dépôt : « ne pas savoir »
+# n'est pas « nul ».
+
+
+@dataclass(frozen=True)
+class DrawdownEpisode:
+    """Un passage sous le plus haut, et ce qu'il a coûté en temps."""
+
+    depth_pct: float
+    trades: int
+    hours: Optional[float]
+    recovered: bool
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "depth_pct": round(self.depth_pct, 2),
+            "trades": self.trades,
+            "hours": round(self.hours, 1) if self.hours is not None else None,
+            "recovered": self.recovered,
+        }
+
+    def format(self) -> str:
+        duree = f"{self.trades} trades"
+        if self.hours is not None:
+            duree += f" / {self.hours:.0f} h"
+        etat = "" if self.recovered else ", TOUJOURS EN COURS"
+        return f"-{self.depth_pct:.1f}% sur {duree}{etat}"
+
+
+def _exit_epoch(position: dict[str, Any]) -> Optional[float]:
+    """Horodatage de sortie en secondes, ou `None` s'il est absent ou illisible.
+
+    Une date absente ne fait pas échouer le calcul : l'épisode est simplement
+    compté en trades et pas en heures. Même invariant que le pipeline.
+    """
+    brut = position.get("timestamp_exit")
+    if not brut:
+        return None
+    try:
+        from datetime import datetime
+
+        return datetime.fromisoformat(str(brut).replace("Z", "+00:00")).timestamp()
+    except (ValueError, TypeError):
+        return None
+
+
+def drawdown_episodes(
+    positions: Sequence[dict[str, Any]],
+    starting_equity: float,
+) -> list[DrawdownEpisode]:
+    """Tous les passages sous le plus haut, dans l'ordre chronologique.
+
+    `positions` doit venir de `read_positions()` — une position, pas une jambe.
+    Sommer des jambes compterait deux fois le TP1 et déformerait la courbe.
+
+    Un épisode s'ouvre au premier trade qui fait passer l'équité sous son pic,
+    et se ferme quand elle repasse au-dessus. Le dernier peut rester ouvert :
+    il porte alors `recovered=False`, et sa durée est celle observée à ce jour,
+    pas une durée finale.
+    """
+    if starting_equity <= 0:
+        return []
+
+    equity = starting_equity
+    pic = starting_equity
+    episodes: list[DrawdownEpisode] = []
+
+    debut: Optional[int] = None
+    debut_epoch: Optional[float] = None
+    creux = 0.0
+    dernier_epoch: Optional[float] = None
+
+    for index, position in enumerate(positions):
+        equity += position.get("pnl_usd") or 0.0
+        epoch = _exit_epoch(position)
+        if epoch is not None:
+            dernier_epoch = epoch
+
+        if equity >= pic:
+            if debut is not None:
+                episodes.append(
+                    DrawdownEpisode(
+                        depth_pct=creux,
+                        trades=index - debut + 1,
+                        hours=(
+                            (epoch - debut_epoch) / 3600
+                            if epoch is not None and debut_epoch is not None
+                            else None
+                        ),
+                        recovered=True,
+                    )
+                )
+                debut, debut_epoch, creux = None, None, 0.0
+            pic = equity
+            continue
+
+        if debut is None:
+            debut = index
+            debut_epoch = epoch
+        creux = max(creux, 100.0 * (pic - equity) / pic)
+
+    if debut is not None:
+        episodes.append(
+            DrawdownEpisode(
+                depth_pct=creux,
+                trades=len(positions) - debut,
+                hours=(
+                    (dernier_epoch - debut_epoch) / 3600
+                    if dernier_epoch is not None and debut_epoch is not None
+                    else None
+                ),
+                recovered=False,
+            )
+        )
+    return episodes
+
+
+def longest_drawdown(
+    positions: Sequence[dict[str, Any]],
+    starting_equity: float,
+) -> Optional[DrawdownEpisode]:
+    """Le plus LONG épisode, pas le plus profond — ce sont rarement le même.
+
+    Retourne `None` quand il n'y a aucun épisode : l'équité n'est jamais
+    passée sous son plus haut. À ne pas confondre avec un épisode de durée
+    nulle.
+    """
+    episodes = drawdown_episodes(positions, starting_equity)
+    return max(episodes, key=lambda e: e.trades) if episodes else None
