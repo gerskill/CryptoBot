@@ -11,9 +11,16 @@ description: Écrire, lancer ou réparer les tests de CryptobBot et faire passer
 python -m unittest discover -s tests            # toute la suite
 python -m unittest tests.test_trading           # un module
 python -m unittest tests.test_core.TestScoring  # une classe
-ruff check src api tests scripts                # lint Python
-cd dashboard && npm run build && npm run lint   # front
+cd dashboard && npm run build && npm run lint   # front (tsc + oxlint)
 ```
+
+**Ruff n'est pas un garde-fou de ce dépôt aujourd'hui.** Le cache `.ruff_cache`
+existe mais il n'y a ni `pyproject.toml` ni `ruff.toml` : lancé avec ses règles
+par défaut, `ruff check` remonte plus de 600 constats préexistants, presque
+tous stylistiques (`Optional[X]` contre `X | None`, `# noqa` jugés inutiles).
+Un signal noyé dans 600 lignes n'est pas un signal. Tant qu'aucune
+configuration n'est écrite, le seul garde-fou Python est la suite de tests —
+et le dire vaut mieux que faire semblant de linter.
 
 Les tests utilisent `unittest` (pas pytest, malgré le `.pytest_cache` résiduel)
 et insèrent la racine du dépôt dans `sys.path` en tête de fichier. Aucun test ne
@@ -56,6 +63,7 @@ Birdeye serait à la fois lent et faux.
 
 ## Définition de « terminé »
 
-Une modification n'est finie que si : la suite passe, le lint passe, un test
-nomme le bug corrigé, et le `CONTEXT.md` ou l'ADR concerné est à jour si le
-comportement documenté a changé.
+Une modification n'est finie que si : la suite passe en entier, un test nomme
+le bug corrigé, le front compile et passe `oxlint` s'il a bougé, et le
+`CONTEXT.md` ou l'ADR concerné est à jour si le comportement documenté a
+changé.
