@@ -18,6 +18,8 @@ python -m unittest discover -s tests            # les 361 tests
   `LearningEngine.live_mode_allowed()` : 20 trades papier, WR > 40%, PF > 1.5.
 - **Aucune clé en dur.** Tout passe par `.env`, jamais commité, perms 600.
   Un hook pre-commit bloque les commits contenant `.env` ou une clé en clair.
+  git ne clone pas les hooks : l'installer une fois par clone avec
+  `./scripts/install_hooks.sh` (`--check` pour vérifier).
 - **Sauvegarder avant toute opération risquée** : `./scripts/backup.sh`.
   `data/` contient le journal de trades — c'est la mémoire du bot, et il
   n'est pas versionné.
