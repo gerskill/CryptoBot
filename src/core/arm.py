@@ -323,6 +323,7 @@ def attach_portfolios(
     un éventuel passage en réel, où le capital est fini. En PAPER il ne sert
     qu'à documenter l'intention.
     """
+    from src.core.exit_fees import PartialCostEstimator
     from src.core.portfolio import PaperPortfolio
 
     for arm in arms:
@@ -340,6 +341,14 @@ def attach_portfolios(
             # seulement du token et du montant. Un seul callable, injecté
             # une fois par `main.py`, pas reconstruit par bras.
             exit_fee_measurer=exit_fee_measurer,
+            # PAR BRAS, contrairement au mesureur ci-dessus : l'estimation
+            # d'une jambe partielle se lit dans le journal DU BRAS, sur ses
+            # propres mesures. Les fenêtres de liquidité des sept bras sont
+            # volontairement disjointes — la médiane de `sniper` (4 K de
+            # liquidité) n'a rien à voir avec celle de `narrative` (40 K).
+            partial_cost_estimator=(
+                PartialCostEstimator(arm.journal) if arm.journal is not None else None
+            ),
         )
 
 

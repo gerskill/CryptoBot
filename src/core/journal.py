@@ -27,6 +27,7 @@ class TradeJournal:
         is_final: bool,
         exit_cost_pct: Optional[float] = None,
         exit_cost_partial: Optional[bool] = None,
+        exit_cost_estimated: bool = False,
     ) -> dict[str, Any]:
         row = {
             "id": f"{position.id}-{len(position.exit_reasons)}",
@@ -80,6 +81,12 @@ class TradeJournal:
                 round(exit_cost_pct, 3) if exit_cost_pct is not None else None
             ),
             "exit_cost_partial": exit_cost_partial,
+            # MESURÉ vs ESTIMÉ. `True` = coût déduit de la médiane des
+            # mesures passées (jambe partielle, voir ADR 012), pas d'un
+            # devis Jupiter. Toute analyse qui recalibre un coût doit
+            # exclure ces lignes, sinon l'estimation se confirme
+            # elle-même. `PartialCostEstimator` les filtre déjà.
+            "exit_cost_estimated": exit_cost_estimated,
         }
         self._append(row)
         return row

@@ -104,6 +104,7 @@ class PaperPortfolio:
         losses_trigger: int = CONSECUTIVE_LOSSES_TRIGGER,
         max_drawdown_stop_pct: float = 0.0,
         exit_fee_measurer: Optional[Callable[[str, float], Optional[Any]]] = None,
+        partial_cost_estimator: Optional[Callable[[], Optional[float]]] = None,
     ):
         # COUPE-CIRCUIT. Le cooldown réagit à 3 pertes CONSÉCUTIVES ; il ne
         # voit rien d'une érosion lente qui alterne gains et pertes. Sur ce
@@ -123,6 +124,10 @@ class PaperPortfolio:
         # I/O tenus ici : `portfolio.py` reste testable sans réseau, comme le
         # reste du dépôt. `None` = comportement d'origine (prix nu).
         self.exit_fee_measurer = exit_fee_measurer
+        # Coût des VENTES PARTIELLES, estimé sur les mesures passées de ce
+        # bras (ADR 012). Absent ou sous son plancher d'échantillon, les
+        # jambes partielles restent au prix nu, comme avant.
+        self.partial_cost_estimator = partial_cost_estimator
         self.positions_path = positions_path
         self.positions: dict[str, Position] = {}
         # Écriture différée : `update()` sauvegardait à CHAQUE tick, même sans
@@ -381,6 +386,21 @@ class PaperPortfolio:
             # TP2). Les jambes partielles restent au prix nu, comme avant.
             exit_cost = None
             cost_pct = 0.0
+            cost_estimated = False
+            if not action.is_final and self.partial_cost_estimator is not None:
+                # JAMBE PARTIELLE (TP1, TP2) : pas de devis — l'ADR 009 tient,
+                # un devis par jambe coûterait une requête Jupiter à 1 req/s.
+                # On déduit la médiane des coûts DÉJÀ mesurés sur ce bras,
+                # part vente seulement, marquée comme estimée. `None` tant
+                # qu'il n'y a pas 10 mesures : dans ce cas prix nu, sans rien
+                # inventer.
+                try:
+                    estime = self.partial_cost_estimator()
+                except Exception:  # noqa: BLE001
+                    estime = None
+                if estime is not None:
+                    cost_pct = estime
+                    cost_estimated = True
             if action.is_final and self.exit_fee_measurer is not None:
                 # Notionnel COURANT, pas `size_usd` (figé à l'entrée) : sur une
                 # position qui a fait x3, vendre `fraction` des tokens vaut
@@ -424,8 +444,13 @@ class PaperPortfolio:
                         fraction=fraction,
                         reason=action.reason,
                         is_final=not position.is_open,
-                        exit_cost_pct=exit_cost.total_cost_pct if exit_cost else None,
+                        exit_cost_pct=(
+                            exit_cost.total_cost_pct
+                            if exit_cost
+                            else (cost_pct if cost_estimated else None)
+                        ),
                         exit_cost_partial=exit_cost.partial if exit_cost else None,
+                        exit_cost_estimated=cost_estimated,
                     )
                 )
             except Exception as exc:  # noqa: BLE001

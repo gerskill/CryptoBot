@@ -9,6 +9,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from src.core.exit_fees import PartialCostEstimator  # noqa: E402
 from src.core.journal import TradeJournal  # noqa: E402
 from src.core.learning import LearningEngine  # noqa: E402
 from src.core.models import Candidate  # noqa: E402
@@ -213,6 +214,56 @@ class TestPaperPortfolio(unittest.TestCase):
         self.assertEqual(stats["total_trades"], 2)
         self.assertEqual(stats["win_rate"], 50.0)
         self.assertGreater(stats["profit_factor"], 1)
+
+
+class JournalMesure(TradeJournal):
+    """Vrai journal, mais dont l'historique porte 10 coûts RÉELLEMENT mesurés à 3 %.
+
+    Sous-classe plutôt que double complet : `PaperPortfolio` lit aussi
+    `read_positions()` au démarrage pour reconstituer son P&L réalisé.
+    """
+
+    def read_all(self):
+        historique = [{"exit_cost_pct": 3.0, "exit_cost_estimated": False}] * 10
+        return historique + super().read_all()
+
+
+class TestCoutJambePartielleEstime(unittest.TestCase):
+    """ADR 012 — une vente partielle ne sort plus au prix nu.
+
+    Le bug verrouillé : un gagnant sorti en TP1 + TP2 + TP3 ne payait que sa
+    dernière vente. Deux ventes sur trois passaient gratuitement, et c'est ce
+    P&L-là qui décide du passage en réel.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.journal = JournalMesure(os.path.join(self.tmp, "trades.jsonl"))
+
+    def test_tp1_deduit_la_moitie_de_la_mediane_et_se_declare_estime(self):
+        portfolio = PaperPortfolio(
+            capital=1000.0,
+            journal=self.journal,
+            partial_cost_estimator=PartialCostEstimator(self.journal),
+        )
+        position = portfolio.open(make_candidate(), PARAMS_MINIMAL, 100.0)
+        rows = portfolio.update(position.id, price=2.0)  # +100% -> TP1, jambe partielle
+
+        self.assertFalse(rows[0]["is_final_exit"])
+        # Médiane mesurée 3 %, part vente seulement -> 1,5 %.
+        self.assertEqual(rows[0]["exit_cost_pct"], 1.5)
+        self.assertTrue(rows[0]["exit_cost_estimated"])
+        self.assertAlmostEqual(rows[0]["pnl_pct"], 98.5)
+
+    def test_sans_estimateur_le_comportement_dorigine_est_intact(self):
+        """Aucune migration forcée : pas d'estimateur = prix nu, comme avant."""
+        portfolio = PaperPortfolio(capital=1000.0, journal=self.journal)
+        position = portfolio.open(make_candidate(), PARAMS_MINIMAL, 100.0)
+        rows = portfolio.update(position.id, price=2.0)
+
+        self.assertIsNone(rows[0]["exit_cost_pct"])
+        self.assertFalse(rows[0]["exit_cost_estimated"])
+        self.assertAlmostEqual(rows[0]["pnl_pct"], 100.0)
 
 
 class FakeExitCost:
