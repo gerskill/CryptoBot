@@ -36,6 +36,12 @@ Voir `docs/agents/issue-tracker.md`.
 Vocabulaire canonique sans renommage, porté par le champ `status` de
 l'en-tête YAML de chaque issue. Voir `docs/agents/triage-labels.md`.
 
+### Recherche dans les décisions
+
+Le dépôt est indexé comme source isolée dans gbrain :
+`gbrain search "<question>" --source cryptobot`. Mots-clés seulement, pas de
+recherche sémantique. Voir `docs/agents/gbrain.md`.
+
 ### Domain docs
 
 Mono-contexte : `CONTEXT.md` et `docs/adr/` à la racine, partagés par le bot
