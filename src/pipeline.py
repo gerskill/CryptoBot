@@ -576,6 +576,31 @@ class ScanPipeline:
                     updates["top_holder_pct"] = stats.top_holder_pct
                 updates["top10_holder_pct"] = stats.top10_holder_pct
 
+        # Dernier maillon : GMGN. Il ne remplit JAMAIS `holders` — son top est
+        # plafonné à `--limit`, donc il ne connaît pas le nombre de porteurs et
+        # écrire `len(liste)` ferait passer 20 pour un total. Il ne rend qu'une
+        # CONCENTRATION, et seulement si personne ne l'a déjà fournie : sans
+        # lui, Birdeye et Helius morts laissaient `max_top_wallet_concentration`
+        # sans source, donc un filtre de sécurité silencieusement inactif.
+        #
+        # Coût : 1 requête PAR TOKEN, contre 1 pour tout le lot sur le flux
+        # smart money. D'où la garde stricte — il ne se déclenche que sur un
+        # candidat dont la concentration est réellement inconnue.
+        if (
+            self.gmgn
+            and self.gmgn.enabled
+            and updates.get("top_holder_pct") is None
+            and candidate.top_holder_pct is None
+        ):
+            concentration = self.gmgn.holder_concentration(candidate.token_address)
+            if concentration is not None:
+                updates["top_holder_pct"] = concentration.top_holder_pct
+                if (
+                    updates.get("top10_holder_pct") is None
+                    and candidate.top10_holder_pct is None
+                ):
+                    updates["top10_holder_pct"] = concentration.top10_holder_pct
+
         self._audit_cache[candidate.token_address] = (time.time(), updates)
         return candidate.with_fields(**updates)
 

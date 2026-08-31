@@ -204,8 +204,40 @@ de lock. Le filtre en jours nécessite une autre source.
 frais. Sur un memecoin à 20K de liquidité, l'aller-retour coûte plusieurs pour cent en
 réel. Un win rate papier de 45 % ne garantit donc pas un win rate réel de 45 %.
 
+## Capacités, pas API
+
+Le pipeline ne raisonne pas en « Birdeye est mort » mais en « peut-on encore obtenir
+des bougies ». Six capacités, chacune avec sa chaîne de repli — la dégradation est
+annoncée dans la bannière et dans `state.json`, jamais subie.
+
+| Capacité | Chaîne, du préféré au dernier recours |
+|---|---|
+| bougies | `gmgn/kline` → `birdeye/ohlcv` |
+| holders | `birdeye/overview` → `helius` → `gmgn/holders` |
+| prix | `jupiter/price` → `dexscreener` → `birdeye/price` |
+| securite | `rugcheck` → `gmgn/security` |
+| smart_money | `gmgn/track-smartmoney` → `gmgn/track-kol` |
+| social | `twitter` → `gmgn/token-info` |
+
+Les trois dernières étaient **nommées sans être enregistrées** : `blind_spots` ne
+pouvait pas les signaler, et un audit sécurité ou un smart money muet passait
+inaperçu.
+
+**GMGN ne rend pas de compte de holders.** `token holders --limit N` ne renvoie que
+les N premiers porteurs : le total n'en sort pas. Le maillon `gmgn/holders` ne remplit
+donc que la CONCENTRATION (top 1, top 10) — `min_holders` reste sans source quand
+Birdeye et Helius sont morts, mais `max_top_wallet_concentration` en retrouve une.
+Écrire `len(liste)` dans `holders` ferait passer 20 pour un total.
+
+**KOL ≠ smart money.** GMGN classe en smart money sur la performance mesurée du
+wallet, et en KOL sur l'audience publique de son porteur. Un KOL suivi par des
+milliers de comptes peut perdre de l'argent : le flux KOL mesure une capacité
+d'entraînement de la foule, pas une compétence. Les deux signaux restent séparés.
+
+**Le signal social GMGN est binaire.** Un compte X renseigné ne dit pas qu'on parle
+du token. Il ne peut pas alimenter `social_mentions_1h` et ne le fait pas.
+
 ## Non implémenté
 
-Exécution des trades (Jupiter/1inch), wallets, test honeypot, smart money (GMGN n'a pas
-d'API publique — `min_smart_money_buys_30min` reste inactif), journal Airtable/Notion,
+Exécution des trades (Jupiter/1inch), wallets, test honeypot, journal Airtable/Notion,
 backtest de validation (étape 6.4).

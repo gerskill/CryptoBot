@@ -159,6 +159,8 @@ def build_registry(
     helius: Any = None,
     jupiter: Any = None,
     dex: Any = None,
+    rugcheck: Any = None,
+    twitter: Any = None,
 ) -> CapabilityRegistry:
     """Chaînes de repli du bot. L'ordre encode une préférence justifiée.
 
@@ -201,6 +203,12 @@ def build_registry(
             cost=3,
             note="borne INFÉRIEURE, pagination plafonnée",
         ),
+        Provider(
+            "gmgn/holders",
+            available=lambda: bool(gmgn and gmgn.enabled),
+            call=lambda addr, **kw: gmgn.holder_concentration(addr, **kw),
+            note="CONCENTRATION seule — ne rend aucun compte de holders",
+        ),
     ])
 
     registry.register(PRICE, [
@@ -215,6 +223,65 @@ def build_registry(
             available=lambda: dex is not None,
             call=lambda mints: dex.get_tokens_data(list(mints)),
             cost=1,
+        ),
+        Provider(
+            "birdeye/price",
+            available=lambda: bool(birdeye and birdeye.enabled),
+            # UN appel PAR mint, à 1 req/s : le coût est linéaire là où les
+            # deux premiers sont en O(1). D'où la dernière place — il faut
+            # que Jupiter ET DexScreener soient morts pour y arriver.
+            call=lambda mints: {m: birdeye.get_price(m) for m in mints},
+            cost=10,
+            free=False,
+            note="1 req/s, coût linéaire — vrai dernier recours",
+        ),
+    ])
+
+    # Les trois capacités ci-dessous étaient NOMMÉES en tête de module mais
+    # jamais enregistrées : `blind_spots` ne pouvait donc pas les signaler,
+    # et une sécurité ou un smart money muets passaient inaperçus.
+    registry.register(SECURITY, [
+        Provider(
+            "rugcheck",
+            available=lambda: rugcheck is not None,
+            call=lambda addr, **kw: rugcheck.get_report(addr, **kw),
+            note="autorités, LP, risques critiques — rend un RugCheckReport",
+        ),
+        Provider(
+            "gmgn/security",
+            available=lambda: bool(gmgn and gmgn.enabled),
+            call=lambda addr: gmgn.token_security(addr),
+            note="COMPLÈTE RugCheck, ne le remplace pas — rend un dict brut",
+        ),
+    ])
+
+    registry.register(SMART_MONEY, [
+        Provider(
+            "gmgn/track-smartmoney",
+            available=lambda: bool(gmgn and gmgn.enabled),
+            call=lambda **kw: gmgn.activity_by_token(**kw),
+            note="flux GLOBAL : 1 requête couvre tout le lot",
+        ),
+        Provider(
+            "gmgn/track-kol",
+            available=lambda: bool(gmgn and gmgn.enabled),
+            call=lambda **kw: gmgn.kol_activity_by_token(**kw),
+            note="influence, pas performance — signal distinct du précédent",
+        ),
+    ])
+
+    registry.register(SOCIAL, [
+        Provider(
+            "twitter",
+            available=lambda: bool(twitter and twitter.enabled),
+            call=lambda symbol, addr: twitter.get_social_stats(symbol, addr),
+            note="volume EXACT + qualité des auteurs",
+        ),
+        Provider(
+            "gmgn/token-info",
+            available=lambda: bool(gmgn and gmgn.enabled),
+            call=lambda symbol, addr: gmgn.has_socials(addr),
+            note="présence BINAIRE de réseaux — ne mesure aucun buzz",
         ),
     ])
 

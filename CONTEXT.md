@@ -123,8 +123,13 @@ mint/freeze actifs et les rugs), pas un signal de classement.
 coupée : `holders_is_exact = False` signifie « au moins N », pas « N ».
 Birdeye donne la valeur exacte en un appel et passe en premier.
 
-**`smart_money_buys_30m` est toujours `None`.** GMGN n'a pas d'API publique.
-Le champ existe, le filtre est inactif, le composant de score est exclu.
+**`smart_money_buys_30m` vient de GMGN, via le CLI `gmgn-cli`.** Pas d'API HTTP
+publique : le module passe par le binaire, en LECTURE SEULE (liste blanche
+`ALLOWED_COMMANDS` dans `src/apis/gmgn.py`). Sans `gmgn-cli` installé ou sans
+clé dans `~/.config/gmgn/.env`, le champ retombe à `None`, le filtre
+`min_smart_money_buys_30min` redevient inactif et le composant sort du score,
+son poids redistribué. Un token absent du flux vaut 0, pas `None` — la nuance
+décide si le filtre s'applique ou non.
 
 **Le journal de trades n'est pas versionné.** `data/` est gitignoré — c'est la
 mémoire du bot et elle n'est protégée que par `./scripts/backup.sh`.

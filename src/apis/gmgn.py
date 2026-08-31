@@ -95,6 +95,22 @@ class SmartMoneyActivity:
         return self.weighted_buys / self.buys if self.buys else 0.0
 
 
+@dataclass(frozen=True)
+class HolderConcentration:
+    """Concentration de détention dérivée du top holders GMGN.
+
+    ⚠️ PAS de `holder_count`. `token holders --limit N` ne rend que les N
+    premiers porteurs : le nombre TOTAL de holders n'en sort pas. Exposer
+    `len(liste)` donnerait un compte plafonné à N que les filtres
+    prendraient pour un vrai — un token à 5 000 porteurs serait rejeté
+    comme s'il en avait 20. On rend donc la concentration, jamais un compte.
+    """
+
+    top_holder_pct: Optional[float]
+    top10_holder_pct: Optional[float]
+    sample_size: int
+
+
 class GmgnAPI:
     """Client GMGN en lecture seule, via le CLI officiel."""
 
@@ -107,6 +123,7 @@ class GmgnAPI:
         self.request_count = 0
         self._cache: dict[str, tuple[float, Any]] = {}
         self._smart_money_snapshot: Optional[tuple[float, list[dict[str, Any]]]] = None
+        self._kol_snapshot: Optional[tuple[float, list[dict[str, Any]]]] = None
 
         self.enabled = enabled and self.available and self._has_key()
         if enabled and not self.available:
@@ -259,11 +276,39 @@ class GmgnAPI:
             t.lower() for t in (exclude_wallet_tags or [])
         }
         required = {t.lower() for t in (require_wallet_tags or [])}
+        return self._aggregate_by_token(
+            self.fetch_smart_money_trades(limit),
+            window_minutes=window_minutes,
+            excluded=frozenset(excluded),
+            required=frozenset(required),
+            min_trade_usd=min_trade_usd,
+            buys_only=buys_only,
+            label="smart money",
+        )
+
+    def _aggregate_by_token(
+        self,
+        trades: list[dict[str, Any]],
+        *,
+        window_minutes: int,
+        excluded: frozenset[str],
+        required: frozenset[str],
+        min_trade_usd: float,
+        buys_only: bool,
+        label: str,
+    ) -> dict[str, SmartMoneyActivity]:
+        """Agrège un flux de trades par adresse de token.
+
+        Partagé par `activity_by_token` (flux smart money) et
+        `kol_activity_by_token` (flux KOL) : les deux endpoints rendent la
+        même forme de trade, seule la population de wallets change. Une
+        deuxième copie de cette boucle aurait divergé au premier correctif.
+        """
         cutoff = time.time() - window_minutes * 60
         grouped: dict[str, dict[str, Any]] = {}
         skipped = 0
 
-        for trade in self.fetch_smart_money_trades(limit):
+        for trade in trades:
             address = _token_address(trade)
             if not address:
                 continue
@@ -312,7 +357,7 @@ class GmgnAPI:
             bucket["volume"] += _trade_usd(trade)
 
         if skipped:
-            print(f"[GMGN] {skipped} trades ignorés (bots / micro-montants / tags)")
+            print(f"[GMGN] {skipped} trades {label} ignorés (bots / micro-montants / tags)")
 
         return {
             address: SmartMoneyActivity(
@@ -326,6 +371,61 @@ class GmgnAPI:
             )
             for address, bucket in grouped.items()
         }
+
+    # ------------------------------------------------------------------ KOL
+
+    def fetch_kol_trades(self, limit: int = 200) -> list[dict[str, Any]]:
+        """Derniers trades des wallets KOL suivis par GMGN.
+
+        Même économie que le flux smart money : le flux est GLOBAL à la
+        chaîne, donc un appel par cycle couvre tout le lot de candidats.
+
+        KOL et smart money ne se recouvrent pas. GMGN classe en « smart
+        money » sur la performance mesurée du wallet, et en « KOL » sur
+        l'audience publique de son porteur. Un KOL peut être suivi par des
+        milliers de comptes tout en perdant de l'argent : ce flux mesure une
+        capacité d'ENTRAÎNEMENT de la foule, pas une compétence. Les deux
+        signaux restent donc séparés — les fusionner ferait passer de
+        l'influence pour de la performance.
+        """
+        if not self.enabled:
+            return []
+
+        snapshot = self._kol_snapshot
+        if snapshot and time.time() - snapshot[0] < CACHE_TTL_SECONDS:
+            return snapshot[1]
+
+        data = self._run("track", "kol", "--limit", str(limit))
+        trades = _as_list(data)
+        self._kol_snapshot = (time.time(), trades)
+        if trades:
+            print(f"[GMGN] {len(trades)} trades KOL récupérés (1 requête)")
+        return trades
+
+    def kol_activity_by_token(
+        self,
+        limit: int = 200,
+        window_minutes: int = SMART_MONEY_WINDOW_MINUTES,
+        *,
+        min_trade_usd: float = DEFAULT_MIN_TRADE_USD,
+        buys_only: bool = False,
+    ) -> dict[str, SmartMoneyActivity]:
+        """Indexe le flux KOL par adresse de token.
+
+        Aucun tag requis par défaut, contrairement au smart money : la
+        population est déjà restreinte par GMGN en amont. Les tags de bots
+        (`arbitrager`, `wash_trader`) restent exclus — un KOL peut aussi
+        faire tourner un bot d'arbitrage sur le même wallet.
+        """
+        return self._aggregate_by_token(
+            self.fetch_kol_trades(limit),
+            window_minutes=window_minutes,
+            excluded=DEFAULT_EXCLUDED_WALLET_TAGS,
+            required=frozenset(),
+            min_trade_usd=min_trade_usd,
+            buys_only=buys_only,
+            label="KOL",
+        )
 
     # --------------------------------------------------------- découverte
 
@@ -445,11 +545,74 @@ class GmgnAPI:
         )
         return _as_list(data)
 
+    def holder_concentration(
+        self, token_address: str, limit: int = 20
+    ) -> Optional[HolderConcentration]:
+        """Concentration top 1 / top 10, dérivée du top holders.
+
+        Dernier recours quand Birdeye et Helius sont morts : eux rendent un
+        NOMBRE de holders, GMGN une RÉPARTITION. Ce n'est pas la même donnée
+        et ça ne nourrit pas le même filtre — `min_holders` reste sans source,
+        `max_top_wallet_concentration` en retrouve une.
+        """
+        rows = self.token_holders(token_address, limit=limit)
+        if not rows:
+            return None
+
+        parts = [v for v in (_holder_share(row) for row in rows) if v is not None]
+        if not parts:
+            return None
+
+        parts = [min(pct, 100.0) for pct in _to_percent(parts)]
+        parts.sort(reverse=True)
+        return HolderConcentration(
+            top_holder_pct=round(parts[0], 4),
+            top10_holder_pct=round(min(sum(parts[:10]), 100.0), 4),
+            sample_size=len(parts),
+        )
+
+    def token_traders(self, token_address: str, limit: int = 50) -> list[dict[str, Any]]:
+        """Traders actifs sur UN token précis.
+
+        Complément du flux global, pas un doublon : `track smartmoney` est
+        plafonné à `--limit` trades pour TOUTE la chaîne, donc un token
+        travaillé discrètement peut n'y apparaître dans aucune ligne. Ici on
+        interroge le carnet du token lui-même.
+
+        Coût : 1 requête PAR TOKEN, contre 1 pour tout le lot avec le flux
+        global. À réserver aux candidats déjà qualifiés — d'où son rôle de
+        dernier maillon dans la chaîne `smart_money`, jamais de premier.
+        """
+        data = self._cached(
+            f"traders:{token_address}",
+            lambda: self._run(
+                "token", "traders", "--address", token_address, "--limit", str(limit)
+            ),
+        )
+        return _as_list(data)
+
     def token_info(self, token_address: str) -> Optional[dict[str, Any]]:
         return self._cached(
             f"info:{token_address}",
             lambda: self._run("token", "info", "--address", token_address),
         )
+
+    def has_socials(self, token_address: str) -> Optional[bool]:
+        """Présence de réseaux sociaux — signal BINAIRE, pas un volume.
+
+        Ce que ça remplace quand Twitter est mort : rien, ou presque. Un
+        compte X existant ne dit pas qu'on parle du token, seulement que
+        l'équipe a rempli un champ. C'est un signal de sérieux minimal, pas
+        une mesure de buzz — il ne peut pas alimenter `social_mentions_1h`
+        et ne le fait pas.
+
+        None = information indisponible (module coupé, token inconnu), à
+        distinguer de False = champs vides.
+        """
+        info = self.token_info(token_address)
+        if not isinstance(info, dict):
+            return None
+        return _has_social_links(info)
 
 
 # ----------------------------------------------------------------- parsing
@@ -495,6 +658,48 @@ def _token_address(trade: dict[str, Any]) -> Optional[str]:
             if nested:
                 return nested
     return None
+
+
+def _holder_share(row: dict[str, Any]) -> Optional[float]:
+    """Part détenue par un holder, dans l'unité BRUTE renvoyée par GMGN."""
+    for key in ("amount_percentage", "percentage", "percent", "ratio", "hold_pct"):
+        value = row.get(key)
+        if value is None:
+            continue
+        share = _f(value, default=-1.0)
+        if share < 0:
+            continue
+        return share
+    return None
+
+
+def _to_percent(parts: list[float]) -> list[float]:
+    """Normalise une liste de parts en POUR CENT.
+
+    GMGN alterne entre fraction (0.0731) et pourcentage (7.31) selon
+    l'endpoint, et le format ne se devine pas valeur par valeur : `1.0` vaut
+    1 % dans un cas, 100 % dans l'autre. On tranche donc sur la LISTE, par sa
+    somme — des parts de détention somment à ≤ 1 en fraction et à ≤ 100 en
+    pourcentage. Au-delà de 1.5, le doute n'est plus permis.
+
+    Le seuil laisse volontairement 1.0 du côté « fraction », donc 100 % :
+    se tromper vers le haut fait rejeter un token sain, se tromper vers le bas
+    fait accepter un token dont un seul wallet tient tout. Les deux erreurs ne
+    coûtent pas la même chose.
+    """
+    return parts if sum(parts) > 1.5 else [p * 100 for p in parts]
+
+
+def _has_social_links(info: dict[str, Any]) -> bool:
+    """True si au moins un réseau social est renseigné."""
+    social = info.get("social_links")
+    scopes = [info, social] if isinstance(social, dict) else [info]
+    for scope in scopes:
+        for key in ("twitter_username", "twitter", "telegram", "website", "discord"):
+            value = scope.get(key)
+            if isinstance(value, str) and value.strip():
+                return True
+    return False
 
 
 def _timestamp(trade: dict[str, Any]) -> Optional[float]:
