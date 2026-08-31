@@ -13,6 +13,7 @@ invariants et l'aiguillage.
 | `bras-strategies` | manifeste des 7 bras, capital, bornes, confluence |
 | `apprentissage-garde-fous` | `LearningEngine`, cadences, relâchements, backtests |
 | `agents-mesure` | agents de `src/agents/`, journaux `*_log.jsonl` |
+| `chasse-au-lookahead` | fuite d'information dans les rejeux et backtests |
 | `api-dashboard` | FastAPI + React/TypeScript, types partagés |
 | `tests-qualite` | unittest, lint, définition de « terminé » |
 | `analyse-reporting` | scripts d'analyse, entonnoir, IC95, rapports |
