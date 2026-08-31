@@ -7,7 +7,12 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.apis.helius import ALLOWED_RPC_METHODS, ForbiddenRpcMethod, HeliusAPI  # noqa: E402
-from src.core.exit_fees import MIN_SOL_PRICE_USD, measure_exit_cost  # noqa: E402
+from src.core.exit_fees import (  # noqa: E402
+    MIN_SOL_PRICE_USD,
+    PartialCostEstimator,
+    estimated_partial_cost_pct,
+    measure_exit_cost,
+)
 
 
 class FakeJupiter:
@@ -137,3 +142,52 @@ class TestHeliusRpcAllowlist(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCoutJambePartielle(unittest.TestCase):
+    """ADR 012 — les ventes partielles ne sortent plus au prix nu.
+
+    Le bug verrouillé : un trade sorti en TP1 + TP2 + TP3 ne payait que sa
+    dernière vente, ce qui rendait tout gagnant à sorties multiples plus beau
+    qu'il ne l'était. C'est le chiffre qui décide du passage en réel.
+    """
+
+    def test_sous_dix_mesures_aucune_estimation(self):
+        """Pas assez de données pour estimer n'est pas coût nul.
+
+        Sous le plancher, on rend `None` et l'appelant garde le prix nu —
+        l'ancien comportement — plutôt que d'inventer une médiane sur trois
+        points.
+        """
+        self.assertIsNone(estimated_partial_cost_pct([3.0] * 9))
+
+    def test_dix_mesures_donnent_la_moitie_de_la_mediane(self):
+        """La jambe partielle ne paie que sa vente, pas l'aller-retour.
+
+        `round_trip_cost_pct` mesure achat + vente ; la jambe finale porte
+        déjà le round-trip complet pour toute la position. Facturer un
+        round-trip entier à chaque jambe facturerait l'achat trois fois.
+        """
+        self.assertEqual(estimated_partial_cost_pct([3.0] * 10), 1.5)
+
+    def test_les_estimations_ne_nourrissent_pas_l_estimation(self):
+        """Sinon l'estimation se confirme elle-même, indéfiniment."""
+
+        class JournalFactice:
+            path = None
+
+            def read_all(self):
+                return [{"exit_cost_pct": 4.0, "exit_cost_estimated": True}] * 50
+
+        self.assertIsNone(PartialCostEstimator(JournalFactice())())
+
+    def test_journal_illisible_retombe_sur_le_prix_nu(self):
+        """Une mesure de coût ne fait jamais tomber une clôture."""
+
+        class JournalCasse:
+            path = None
+
+            def read_all(self):
+                raise OSError("disque en carton")
+
+        self.assertIsNone(PartialCostEstimator(JournalCasse())())

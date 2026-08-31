@@ -10,7 +10,7 @@ from src.core.dev_watchdog import DevWatchdog  # noqa: E402
 
 CREATEUR = "CreatorWallet1111111111111111111111111111111"
 AUTRE = "OtherWallet22222222222222222222222222222222"
-TOKEN = "Mint1111111111111111111111111111111111111111"
+MINT = "Mint1111111111111111111111111111111111111111"
 
 
 class FakeHelius:
@@ -45,7 +45,7 @@ def top(*pairs):
 class TestSnapshot(unittest.TestCase):
     def test_createur_visible(self):
         helius = FakeHelius(tops=[top((CREATEUR, 8.0), (AUTRE, 3.0))])
-        snap = DevWatchdog(helius).snapshot(TOKEN)
+        snap = DevWatchdog(helius).snapshot(MINT)
         self.assertTrue(snap.visible)
         self.assertEqual(snap.pct, 8.0)
         self.assertEqual(snap.floor_pct, 3.0)
@@ -53,13 +53,13 @@ class TestSnapshot(unittest.TestCase):
     def test_createur_absent_du_top_nest_pas_zero(self):
         """Le piège que `get_dev_wallet_pct` ne distingue pas."""
         helius = FakeHelius(tops=[top((AUTRE, 3.0))])
-        snap = DevWatchdog(helius).snapshot(TOKEN)
+        snap = DevWatchdog(helius).snapshot(MINT)
         self.assertFalse(snap.visible)
         self.assertIsNone(snap.pct)
         self.assertFalse(snap.known)
 
     def test_createur_inconnu(self):
-        snap = DevWatchdog(FakeHelius(creator=None)).snapshot(TOKEN)
+        snap = DevWatchdog(FakeHelius(creator=None)).snapshot(MINT)
         self.assertIsNone(snap.creator)
         self.assertFalse(snap.known)
 
@@ -67,14 +67,14 @@ class TestSnapshot(unittest.TestCase):
         helius = FakeHelius(tops=[top((CREATEUR, 8.0))])
         watchdog = DevWatchdog(helius)
         for _ in range(4):
-            watchdog.snapshot(TOKEN)
+            watchdog.snapshot(MINT)
         self.assertEqual(helius.creator_calls, 1)
         self.assertEqual(helius.holder_calls, 4)
 
     def test_panne_rpc_rend_non_mesure_sans_lever(self):
         for panne in ("creator", "holders"):
             snap = DevWatchdog(FakeHelius(tops=[top((CREATEUR, 8.0))],
-                                          raises_on=(panne,))).snapshot(TOKEN)
+                                          raises_on=(panne,))).snapshot(MINT)
             self.assertFalse(snap.known, panne)
 
 
@@ -88,12 +88,12 @@ class TestVerdict(unittest.TestCase):
             top((CREATEUR, 8.0), (AUTRE, 3.0)),
             top((CREATEUR, 4.0), (AUTRE, 3.0)),
         ])
-        watchdog.establish_baseline(TOKEN)
-        verdict = watchdog.check(TOKEN, force=True)
+        watchdog.establish_baseline(MINT)
+        verdict = watchdog.check(MINT, force=True)
         self.assertTrue(verdict.dumping)
         self.assertAlmostEqual(verdict.drop_pts, 4.0)
         self.assertAlmostEqual(verdict.drop_relative, 0.5)
-        self.assertTrue(watchdog.already_flagged(TOKEN))
+        self.assertTrue(watchdog.already_flagged(MINT))
 
     def test_baisse_relative_forte_mais_absolue_minuscule_ne_declenche_pas(self):
         """0,9 % -> 0,4 % : -56 % relatif, mais 0,5 point. Bruit, pas un dump.
@@ -104,8 +104,8 @@ class TestVerdict(unittest.TestCase):
             top((CREATEUR, 0.9), (AUTRE, 0.2)),
             top((CREATEUR, 0.4), (AUTRE, 0.2)),
         ], min_baseline_pct=0.5)
-        watchdog.establish_baseline(TOKEN)
-        verdict = watchdog.check(TOKEN, force=True)
+        watchdog.establish_baseline(MINT)
+        verdict = watchdog.check(MINT, force=True)
         self.assertFalse(verdict.dumping)
         self.assertGreater(verdict.drop_relative, 0.5)
 
@@ -115,8 +115,8 @@ class TestVerdict(unittest.TestCase):
             top((CREATEUR, 40.0), (AUTRE, 3.0)),
             top((CREATEUR, 38.5), (AUTRE, 3.0)),
         ])
-        watchdog.establish_baseline(TOKEN)
-        self.assertFalse(watchdog.check(TOKEN, force=True).dumping)
+        watchdog.establish_baseline(MINT)
+        self.assertFalse(watchdog.check(MINT, force=True).dumping)
 
     def test_createur_sorti_du_top_donne_une_borne_inferieure(self):
         """Disparu du top 20 : on sait « au moins », pas « exactement »."""
@@ -124,8 +124,8 @@ class TestVerdict(unittest.TestCase):
             top((CREATEUR, 9.0), (AUTRE, 3.0)),
             top((AUTRE, 3.0), ("W3", 1.0)),
         ])
-        watchdog.establish_baseline(TOKEN)
-        verdict = watchdog.check(TOKEN, force=True)
+        watchdog.establish_baseline(MINT)
+        verdict = watchdog.check(MINT, force=True)
         self.assertTrue(verdict.dumping)
         self.assertTrue(verdict.is_lower_bound)
         # Borné par le plus petit compte encore listé (1,0), pas par 0.
@@ -137,15 +137,15 @@ class TestVerdict(unittest.TestCase):
             top((AUTRE, 3.0)),
             top((AUTRE, 3.0)),
         ])
-        watchdog.establish_baseline(TOKEN)
-        verdict = watchdog.check(TOKEN, force=True)
+        watchdog.establish_baseline(MINT)
+        verdict = watchdog.check(MINT, force=True)
         self.assertFalse(verdict.dumping)
         self.assertIn("non mesurable", verdict.reason)
 
     def test_petite_mise_ignoree(self):
         watchdog = self.watchdog([top((CREATEUR, 0.2), (AUTRE, 0.1))])
-        watchdog.establish_baseline(TOKEN)
-        verdict = watchdog.check(TOKEN, force=True)
+        watchdog.establish_baseline(MINT)
+        verdict = watchdog.check(MINT, force=True)
         self.assertFalse(verdict.dumping)
         self.assertIn("rien à distribuer", verdict.reason)
 
@@ -154,18 +154,18 @@ class TestVerdict(unittest.TestCase):
             top((CREATEUR, 5.0), (AUTRE, 3.0)),
             top((CREATEUR, 6.0), (AUTRE, 3.0)),
         ])
-        watchdog.establish_baseline(TOKEN)
-        self.assertFalse(watchdog.check(TOKEN, force=True).dumping)
+        watchdog.establish_baseline(MINT)
+        self.assertFalse(watchdog.check(MINT, force=True).dumping)
 
 
 class TestCadenceEtMemoire(unittest.TestCase):
     def test_cadence_respectee(self):
         helius = FakeHelius(tops=[top((CREATEUR, 8.0), (AUTRE, 3.0))])
         watchdog = DevWatchdog(helius, interval_seconds=10_000)
-        watchdog.establish_baseline(TOKEN)
+        watchdog.establish_baseline(MINT)
         appels = helius.holder_calls
         for _ in range(5):
-            self.assertFalse(watchdog.check(TOKEN).dumping)
+            self.assertFalse(watchdog.check(MINT).dumping)
         self.assertEqual(helius.holder_calls, appels, "aucun appel avant l'échéance")
 
     def test_baseline_idempotente_le_premier_gagne(self):
@@ -174,19 +174,19 @@ class TestCadenceEtMemoire(unittest.TestCase):
             top((CREATEUR, 9.0), (AUTRE, 3.0)),
             top((CREATEUR, 2.0), (AUTRE, 3.0)),
         ]), interval_seconds=0)
-        premiere = watchdog.establish_baseline(TOKEN)
-        deuxieme = watchdog.establish_baseline(TOKEN)
+        premiere = watchdog.establish_baseline(MINT)
+        deuxieme = watchdog.establish_baseline(MINT)
         self.assertEqual(premiere.pct, 9.0)
         self.assertIs(premiere, deuxieme)
 
     def test_forget_libere_la_memoire(self):
         watchdog = DevWatchdog(FakeHelius(tops=[top((CREATEUR, 8.0))]), interval_seconds=0)
-        watchdog.establish_baseline(TOKEN)
-        watchdog.check(TOKEN, force=True)
-        self.assertIn(TOKEN, watchdog.tracked_tokens())
-        watchdog.forget(TOKEN)
+        watchdog.establish_baseline(MINT)
+        watchdog.check(MINT, force=True)
+        self.assertIn(MINT, watchdog.tracked_tokens())
+        watchdog.forget(MINT)
         self.assertEqual(watchdog.tracked_tokens(), ())
-        self.assertFalse(watchdog.already_flagged(TOKEN))
+        self.assertFalse(watchdog.already_flagged(MINT))
 
     def test_unflag_permet_un_nouveau_controle(self):
         """Fermeture reportée faute de prix : le token doit rester surveillé."""
@@ -194,11 +194,11 @@ class TestCadenceEtMemoire(unittest.TestCase):
             top((CREATEUR, 8.0), (AUTRE, 3.0)),
             top((CREATEUR, 1.0), (AUTRE, 3.0)),
         ]), interval_seconds=0)
-        watchdog.establish_baseline(TOKEN)
-        self.assertTrue(watchdog.check(TOKEN, force=True).dumping)
-        watchdog.unflag(TOKEN)
-        self.assertFalse(watchdog.already_flagged(TOKEN))
-        self.assertTrue(watchdog.check(TOKEN, force=True).dumping)
+        watchdog.establish_baseline(MINT)
+        self.assertTrue(watchdog.check(MINT, force=True).dumping)
+        watchdog.unflag(MINT)
+        self.assertFalse(watchdog.already_flagged(MINT))
+        self.assertTrue(watchdog.check(MINT, force=True).dumping)
 
 
 class FakeJournal:
@@ -252,7 +252,7 @@ class TestCablageDansLaBoucle(unittest.TestCase):
         self.addCleanup(os.unlink, handle.name)
 
         candidate = Candidate(
-            token_address=TOKEN, symbol="TOAD", name="Toad",
+            token_address=MINT, symbol="TOAD", name="Toad",
             chain="solana", price_usd=1.0,
         )
 
@@ -270,7 +270,7 @@ class TestCablageDansLaBoucle(unittest.TestCase):
         loop.funnel = FakeFunnel()
         loop.dev_watchdog = DevWatchdog(FakeHelius(tops=tops), interval_seconds=0)
         loop.market = CycleMarketCache()
-        loop.market.put("solana", None, TOKEN, price, None)
+        loop.market.put("solana", None, MINT, price, None)
         loop._measure_hold = lambda *a, **k: None
         loop._after_trade_closed = lambda *a, **k: None
         return loop
@@ -283,7 +283,7 @@ class TestCablageDansLaBoucle(unittest.TestCase):
 
     def test_dump_ferme_les_positions_de_tous_les_bras(self):
         loop = self.build(self.tops_dump())
-        loop.dev_watchdog.establish_baseline(TOKEN)
+        loop.dev_watchdog.establish_baseline(MINT)
         self.assertEqual(sum(len(a.portfolio.positions) for a in loop.arms), 2)
 
         loop._watch_dev_dumps()
@@ -297,7 +297,7 @@ class TestCablageDansLaBoucle(unittest.TestCase):
 
     def test_mode_observation_alerte_sans_fermer(self):
         loop = self.build(self.tops_dump(), panic=False)
-        loop.dev_watchdog.establish_baseline(TOKEN)
+        loop.dev_watchdog.establish_baseline(MINT)
         loop._watch_dev_dumps()
         self.assertEqual(sum(len(a.portfolio.positions) for a in loop.arms), 2)
         self.assertTrue(loop.telegram.sent)
@@ -305,7 +305,7 @@ class TestCablageDansLaBoucle(unittest.TestCase):
 
     def test_pas_de_dump_ne_touche_a_rien(self):
         loop = self.build([top((CREATEUR, 9.0), (AUTRE, 3.0))])
-        loop.dev_watchdog.establish_baseline(TOKEN)
+        loop.dev_watchdog.establish_baseline(MINT)
         loop._watch_dev_dumps()
         self.assertEqual(sum(len(a.portfolio.positions) for a in loop.arms), 2)
         self.assertEqual(loop.telegram.sent, [])
@@ -313,14 +313,14 @@ class TestCablageDansLaBoucle(unittest.TestCase):
     def test_prix_indisponible_reporte_la_fermeture_sans_perdre_l_alerte(self):
         """Fermer sans prix inventerait un P&L ; le token doit rester surveillé."""
         loop = self.build(self.tops_dump())
-        loop.dev_watchdog.establish_baseline(TOKEN)
+        loop.dev_watchdog.establish_baseline(MINT)
         loop.market.reset()  # plus aucun prix connu
 
         loop._watch_dev_dumps()
 
         self.assertEqual(sum(len(a.portfolio.positions) for a in loop.arms), 2)
         self.assertFalse(
-            loop.dev_watchdog.already_flagged(TOKEN),
+            loop.dev_watchdog.already_flagged(MINT),
             "le signalement doit être annulé pour que le prochain tick réessaie",
         )
 

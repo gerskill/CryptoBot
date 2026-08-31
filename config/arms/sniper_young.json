@@ -90,25 +90,25 @@
     "wallet_reliability": 0.08
   },
   "learning": {
-    "total_trades": 159,
-    "winning_trades": 36,
-    "losing_trades": 123,
-    "avg_win_pct": 44.92,
-    "avg_loss_pct": -35.96,
+    "total_trades": 163,
+    "winning_trades": 37,
+    "losing_trades": 126,
+    "avg_win_pct": 45.57,
+    "avg_loss_pct": -35.76,
     "win_rate_by_age": {
       "0-1h": {
         "win_rate": 26.7,
         "sample": 15
       },
       "1-2h": {
-        "win_rate": 22.2,
-        "sample": 144
+        "win_rate": 22.3,
+        "sample": 148
       }
     },
     "win_rate_by_liquidity": {
       "10-30K": {
-        "win_rate": 23.9,
-        "sample": 109
+        "win_rate": 24.1,
+        "sample": 112
       },
       "30-50K": {
         "win_rate": 27.0,
@@ -116,15 +116,15 @@
       },
       ">50K": {
         "win_rate": 0.0,
-        "sample": 13
+        "sample": 14
       }
     },
     "win_rate_by_social_score": {},
     "last_adjustment_at": {
-      "filters": 155,
+      "filters": 160,
       "weights": 155,
       "exits": 155,
-      "risk": 140
+      "risk": 160
     },
     "parameter_adjustment_history": [
       {

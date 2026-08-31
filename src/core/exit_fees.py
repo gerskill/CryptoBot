@@ -33,8 +33,9 @@ même déduite, et `reason` dit laquelle manque. Rien n'est jamais inventé pour
 combler l'absence.
 """
 
+import os
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 # Sous ce prix SOL, une conversion lamports -> USD serait un artefact
 # numérique (division par un nombre proche de zéro) plutôt qu'une mesure.
@@ -132,3 +133,108 @@ def measure_exit_cost(
         total_cost_pct=round(total, 3),
         reason=reason,
     )
+
+
+# ---------------------------------------------------------------------------
+# JAMBES PARTIELLES — le trou que l'ADR 009 laissait ouvert (voir ADR 012).
+#
+# L'ADR 009 ne facture le coût qu'une fois, sur la jambe finale, parce qu'un
+# devis Jupiter coûte une requête et que Jupiter plafonne à 1 req/s. La
+# conséquence était écrite noir sur blanc dans CONTEXT.md : « le P&L papier
+# reste partiellement optimiste » — un trade sorti en TP1 + TP2 + TP3 ne payait
+# que la dernière de ses trois ventes.
+#
+# La correction ne consiste PAS à interroger Jupiter à chaque jambe (ça
+# violerait l'ADR 009 et le budget d'appels). Elle consiste à appliquer aux
+# jambes partielles la MÉDIANE DES COÛTS DÉJÀ MESURÉS sur les jambes finales
+# du même bras, et à marquer la ligne de journal comme estimée pour qu'aucune
+# analyse ne confonde jamais les deux.
+#
+# POURQUOI LA MOITIÉ. `round_trip_cost_pct` mesure un aller-retour : l'impact
+# d'achat PLUS l'impact de vente. La jambe finale porte volontairement le
+# round-trip complet, puisque l'entrée n'est facturée nulle part ailleurs
+# (voir l'en-tête de ce module). Facturer un round-trip complet à chaque jambe
+# partielle facturerait donc l'achat deux ou trois fois. Une vente partielle ne
+# paie que sa jambe de vente : à défaut d'un devis unidirectionnel — `/swap`
+# reste hors de ALLOWED_PATHS — la moitié est le partage le moins faux, et il
+# est déclaré comme estimation, pas comme mesure.
+#
+# POURQUOI 10 ÉCHANTILLONS. Même plancher que `MIN_SEGMENT_SAMPLE` dans
+# `learning.py`. Sous ce seuil, la médiane d'un coût de sortie est du bruit :
+# on préfère le prix nu, c'est-à-dire l'ancien comportement, à un chiffre
+# inventé. « Pas assez de données pour estimer » n'est pas « coût nul ».
+
+MIN_SAMPLE_FOR_PARTIAL_ESTIMATE = 10
+SELL_LEG_SHARE = 0.5
+
+
+def _median(values: list[float]) -> float:
+    ordered = sorted(values)
+    milieu = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[milieu]
+    return (ordered[milieu - 1] + ordered[milieu]) / 2
+
+
+def estimated_partial_cost_pct(
+    measured_round_trips: Sequence[float],
+    min_sample: int = MIN_SAMPLE_FOR_PARTIAL_ESTIMATE,
+) -> Optional[float]:
+    """Coût à déduire d'une VENTE PARTIELLE, estimé sur les coûts déjà mesurés.
+
+    `measured_round_trips` ne doit contenir QUE des coûts réellement mesurés
+    (jambes finales avec devis Jupiter abouti). Y réinjecter des estimations
+    ferait converger l'estimation sur elle-même — une boucle qui se confirme.
+
+    Retourne `None` tant qu'il n'y a pas `min_sample` mesures : l'appelant
+    garde alors le prix nu, comme avant cette correction.
+    """
+    propres = [c for c in measured_round_trips if c is not None and c > 0]
+    if len(propres) < min_sample:
+        return None
+    return round(_median(propres) * SELL_LEG_SHARE, 3)
+
+
+class PartialCostEstimator:
+    """Estimateur par bras, adossé au journal de ce bras.
+
+    Relit le journal seulement quand son fichier a bougé : une jambe partielle
+    ne doit pas coûter une relecture complète du journal à chaque évaluation
+    de sortie, qui tourne toutes les 5 secondes.
+    """
+
+    def __init__(self, journal: Any, min_sample: int = MIN_SAMPLE_FOR_PARTIAL_ESTIMATE):
+        self.journal = journal
+        self.min_sample = min_sample
+        self._cache: Optional[float] = None
+        self._signature: Optional[tuple] = None
+
+    def _file_signature(self) -> Optional[tuple]:
+        path = getattr(self.journal, "path", None)
+        if not path:
+            return None
+        try:
+            st = os.stat(path)
+        except OSError:
+            return None
+        return (st.st_mtime_ns, st.st_size)
+
+    def __call__(self) -> Optional[float]:
+        signature = self._file_signature()
+        if signature is not None and signature == self._signature:
+            return self._cache
+        try:
+            rows = self.journal.read_all()
+        except Exception:  # noqa: BLE001
+            # Un journal illisible ne doit pas empêcher une clôture : on
+            # retombe sur le prix nu, jamais sur un coût deviné.
+            return None
+        mesures = [
+            row.get("exit_cost_pct")
+            for row in rows
+            if row.get("exit_cost_pct") is not None
+            and not row.get("exit_cost_estimated")
+        ]
+        self._cache = estimated_partial_cost_pct(mesures, self.min_sample)
+        self._signature = signature
+        return self._cache

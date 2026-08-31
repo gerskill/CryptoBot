@@ -104,12 +104,15 @@ sous-performance simple ou un P&L négatif brut. Voir ADR 011.
 
 ## Pièges connus
 
-**Le P&L papier reste partiellement optimiste.** Depuis le 2026-08-06
-(`exit_fees.py`), la jambe finale d'une position déduit un coût réel mesuré
-(devis Jupiter + priority fee Helius, voir ADR 009). Mais les jambes
-partielles (TP1, TP2) restent au prix nu, sans coût déduit — un trade sorti
-en plusieurs jambes n'est corrigé que sur la dernière. Sur 20K de liquidité,
-l'aller-retour coûte plusieurs pour cent en réel (médiane 3,06 % mesurée).
+**Le P&L papier n'est plus optimiste sur les jambes partielles, mais il est
+en partie estimé.** La jambe finale déduit un coût réel mesuré (devis Jupiter
++ priority fee Helius, ADR 009). Depuis le 2026-08-31 (ADR 012), les jambes
+partielles (TP1, TP2) déduisent la médiane des coûts déjà mesurés sur le même
+bras, part vente seulement, et la ligne de journal le déclare
+(`exit_cost_estimated: true`). Sous dix mesures, aucune estimation : la jambe
+reste au prix nu. Conséquence à dire quand on compare deux périodes : les
+lignes antérieures au 2026-08-31 n'ont pas été réécrites. Sur 20K de
+liquidité, l'aller-retour coûte plusieurs pour cent en réel (médiane 3,06 %).
 
 **Le stop loss sort sous son seuil.** Échantillonnage discret : mesuré à
 -27.2% pour un SL réglé à -25%. Réduire `monitor_interval_seconds` diminue

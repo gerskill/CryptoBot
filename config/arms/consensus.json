@@ -82,19 +82,19 @@
     "wallet_reliability": 0.08
   },
   "learning": {
-    "total_trades": 246,
+    "total_trades": 251,
     "winning_trades": 41,
-    "losing_trades": 205,
+    "losing_trades": 210,
     "avg_win_pct": 51.91,
-    "avg_loss_pct": -22.42,
+    "avg_loss_pct": -22.48,
     "win_rate_by_age": {
       "1-2h": {
         "win_rate": 17.2,
         "sample": 64
       },
       "4h+": {
-        "win_rate": 15.9,
-        "sample": 88
+        "win_rate": 15.1,
+        "sample": 93
       },
       "0-1h": {
         "win_rate": 0.0,
@@ -107,12 +107,12 @@
     },
     "win_rate_by_liquidity": {
       "30-50K": {
-        "win_rate": 14.6,
-        "sample": 96
+        "win_rate": 14.0,
+        "sample": 100
       },
       ">50K": {
-        "win_rate": 18.3,
-        "sample": 82
+        "win_rate": 18.1,
+        "sample": 83
       },
       "10-30K": {
         "win_rate": 17.6,
@@ -3704,12 +3704,54 @@
         "new_value": 34000,
         "reason": "WR 17.6% sous 30K",
         "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-08-30T19:37:06.214260+00:00",
+        "param_name": "exit_rules.trailing_stop_distance_pct",
+        "old_value": 75,
+        "new_value": 80,
+        "reason": "12 sorties trailing quasi toutes gagnantes : trop serré",
+        "trades_sample_size": 12
+      },
+      {
+        "timestamp": "2026-08-30T19:37:06.343287+00:00",
+        "param_name": "exit_rules",
+        "old_value": {
+          "stop_loss_pct": -21.0,
+          "take_profit_1": 150.0,
+          "take_profit_2": 250.0,
+          "take_profit_3": 400,
+          "breakeven_trigger": 100,
+          "partial_sell_tp1_pct": 0.5,
+          "partial_sell_tp2_pct": 0.5,
+          "trailing_stop_activation": 150.0,
+          "trailing_stop_distance_pct": 80,
+          "max_hold_time_minutes": 180,
+          "stop_loss_slippage_buffer_pct": 6.0,
+          "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
+        },
+        "new_value": {
+          "stop_loss_pct": -21.0,
+          "take_profit_1": 150.0,
+          "take_profit_2": 250.0,
+          "take_profit_3": 400,
+          "breakeven_trigger": 100,
+          "partial_sell_tp1_pct": 0.5,
+          "partial_sell_tp2_pct": 0.5,
+          "trailing_stop_activation": 150.0,
+          "trailing_stop_distance_pct": 75,
+          "max_hold_time_minutes": 180,
+          "stop_loss_slippage_buffer_pct": 6.0,
+          "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
+        },
+        "reason": "backtest sorties : P&L/trade -5.6437 → -5.6437, pas d'amélioration ≥ 10% — annulé",
+        "trades_sample_size": 40
       }
     ],
     "last_adjustment_at": {
-      "filters": 244,
-      "weights": 240,
-      "exits": 240,
+      "filters": 249,
+      "weights": 250,
+      "exits": 250,
       "risk": 240
     }
   },
