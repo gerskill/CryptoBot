@@ -67,6 +67,7 @@ s'évaluent indépendamment.
 | stop loss, TP, trailing, time stop, coût de sortie | `sorties-positions` |
 | ajouter/modifier/désactiver un bras, manifeste, capital | `bras-strategies` |
 | `LearningEngine`, cadences, bornes, relâchements | `apprentissage-garde-fous` |
+| backtest qui s'améliore, rejeu, seuil choisi sur l'historique | `chasse-au-lookahead` |
 | nouvel agent de mesure, journaux `*_log.jsonl` | `agents-mesure` |
 | endpoints FastAPI, composants React, types partagés | `api-dashboard` |
 | écrire/lancer des tests, lint | `tests-qualite` |

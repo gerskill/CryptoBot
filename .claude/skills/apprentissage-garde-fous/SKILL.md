@@ -58,6 +58,13 @@ Les familles `rugcheck` et `authority` ne sont **jamais** relâchées.
   meilleur que le témoin sans séparation franche — sept stratégies comparées
   produisent un gagnant par hasard.
 
+## L'angle mort que ces garde-fous ne couvrent pas
+
+Tous les seuils ci-dessus protègent contre le **manque d'échantillon**. Aucun
+ne protège contre une **fuite d'information** : un rejeu qui connaît l'avenir
+a l'air excellent sur 15 trades comme sur 500. Avant d'accepter un gain mesuré
+sur l'historique, passer par `chasse-au-lookahead`.
+
 ## Passage en LIVE
 
 `live_mode_allowed()` : 20 trades papier, WR > 40 %, PF > 1.5. Même satisfait,
