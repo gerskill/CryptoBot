@@ -63,8 +63,19 @@ Structure : `components/` (`TheHunt`, `TheArms`, `TheBrain`,
 **Le panneau a affiché le témoin et l'a présenté comme « le bot ».** Tout
 chiffre affiché doit dire **de quel bras** il parle, ou être explicitement une
 agrégation des sept. Un total sans bras nommé est un bug d'interface, pas un
-détail de libellé. De même, un compte de trades doit venir des sorties finales
-(`read_final_exits`), sinon TP1 et TP2 le doublent.
+détail de libellé. De même, un compte de trades doit venir des positions
+agrégées (`read_positions`), sinon TP1 et TP2 comptent double ou disparaissent.
+
+Le contrat est verrouillé côté serveur par
+`tests/test_api_server.py::TestToutChiffreEstAttribuableAUnBras` : **chaque
+ligne servie porte son `arm`**, y compris quand un seul bras est interrogé et
+que le champ paraît redondant — c'est là que la confusion s'était produite. Un
+nouvel endpoint qui agrège des chiffres suit la même règle, et son test aussi.
+
+Ce que ces tests ne couvrent pas : le rendu. Un composant peut toujours
+afficher un total correct sans imprimer le nom du bras qu'il a reçu. Tant qu'il
+n'y a pas de test de navigateur, cette relecture-là est manuelle — la faire à
+chaque modification d'un panneau qui agrège.
 
 ## Vérifier
 
