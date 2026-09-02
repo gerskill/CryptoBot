@@ -4,8 +4,7 @@
 > travail sans contexte préalable. Chaque chiffre cité a été **mesuré**, pas
 > estimé ; les sources sont indiquées.
 >
-> Dernière mise à jour : 2026-08-07 (voir §13 pour les changements depuis le
-> 2026-08-02)
+> Dernière mise à jour : **2026-09-02** (chiffres live §1.1 ; historique août encore en §2 / §13)
 
 ---
 
@@ -23,9 +22,41 @@ absent de `params.json` (donc `False`), plus 20 trades / WR > 40 % / PF > 1,5.
 
 ---
 
-## 2. Résultats réels
 
-37 positions clôturées.
+---
+
+## 1.1 Chiffres live — 2026-09-02
+
+Source : `data/state.json` sur le Mac du propriétaire, lu à **20:26 Europe/Zurich**.
+Mode `PAPER`. `live_allowed` = `False` (« verrou propriétaire — passage en réel non autorisé »).
+
+| mesure | valeur |
+|---|---|
+| bras configurés | 7 |
+| positions ouvertes | 0 |
+| exposition | 0 $ |
+| trades clôturés | **1489** |
+| wins | 270 |
+| win rate | **18,1 %** |
+| profit factor | **0,39** |
+| P&L total | **−10 609,55 $** |
+| equity | **38 390,45 $** |
+| pire drawdown bras | 26,9 % |
+
+**Lecture :** l’échantillon d’août (§2, 37 trades) était trop petit pour conclure
+sur le win rate ; à ~1,5 k trades le PF reste **≪ 1** et le P&L agrégé est
+nettement négatif. L’edge n’est toujours pas démontré. LIVE doit rester verrouillé.
+
+**Ops au même instant (mesuré) :**
+- Un seul process `python -m src.main` (PID 70765) — le doublon orphelin a été stoppé.
+- Snapshot `backups/20260902-173745` présent mais **incomplet (~20 K)** : à refaire
+  avec `./scripts/backup.sh` et vérifier la taille (attendu : dizaines/centaines de Mo).
+- Les backups complets les plus récents utiles datent encore ~début août.
+
+
+## 2. Résultats réels (historique 2026-08-07)
+
+37 positions clôturées — **échantillon d’août, remplacé opérationnellement par §1.1**.
 
 | mesure | valeur | intervalle de confiance à 95 % |
 |---|---|---|
