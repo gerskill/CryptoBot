@@ -218,6 +218,8 @@ annoncée dans la bannière et dans `state.json`, jamais subie.
 | securite | `rugcheck` → `gmgn/security` |
 | smart_money | `gmgn/track-smartmoney` → `gmgn/track-kol` |
 | social | `twitter` → `gmgn/token-info` |
+| dev_wallet_pct | `rugcheck` → `helius/get_dev_wallet_pct` |
+| concentration (repli) | `gmgn/holders` → `birdeye/get_concentration` (dernier recours, coûte le quota Birdeye) |
 
 Les trois dernières étaient **nommées sans être enregistrées** : `blind_spots` ne
 pouvait pas les signaler, et un audit sécurité ou un smart money muet passait

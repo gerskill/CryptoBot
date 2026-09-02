@@ -555,6 +555,25 @@ class ScanPipeline:
                 self._audit_cache[candidate.token_address] = (time.time(), updates)
                 return candidate.with_fields(**updates)
 
+        # `HeliusAPI.get_dev_wallet_pct` existait sans aucun appelant :
+        # RugCheck était la SEULE source de `dev_wallet_pct`, alors que
+        # `max_dev_wallet_pct` en dépend pour filtrer. Hors du bloc
+        # `if report is not None`, à dessein : un RugCheck INJOIGNABLE
+        # (429, timeout) laissait `report` à None et sautait tout le bloc —
+        # exactement le cas où un repli compte le plus.
+        #
+        # Limite assumée : ne voit le dev que s'il figure dans le top 20 des
+        # comptes (docstring de la méthode). Un dev réparti sur plusieurs
+        # wallets passe sous le radar des deux sources.
+        if (
+            updates.get("dev_wallet_pct") is None
+            and candidate.dev_wallet_pct is None
+            and self.helius.enabled
+        ):
+            dev_pct = self.helius.get_dev_wallet_pct(candidate.token_address)
+            if dev_pct is not None:
+                updates["dev_wallet_pct"] = dev_pct
+
         # Birdeye donne le compte EXACT en 1 appel ; Helius demande jusqu'à
         # 3 appels et ne rend qu'une borne inférieure. Helius reste le repli.
         holders_done = False
@@ -600,6 +619,30 @@ class ScanPipeline:
                     and candidate.top10_holder_pct is None
                 ):
                     updates["top10_holder_pct"] = concentration.top10_holder_pct
+
+        # TOUT DERNIER recours : Birdeye. `get_concentration` existait sans
+        # appelant, alors que le module est déjà sollicité plus haut pour
+        # `holders` — mais jamais pour la CONCENTRATION, une donnée distincte
+        # que `get_overview` ne rend pas (voir `OverviewStats`, sans champ
+        # top_holder_pct).
+        #
+        # Placé APRÈS GMGN et non avant : Birdeye est le goulot documenté du
+        # bot (1 req/s, quota mensuel qui s'épuise), GMGN rend la même
+        # information sans plafond connu. Ce maillon ne se déclenche donc que
+        # si GMGN est absent ou n'a rien trouvé — sur cette instance, GMGN est
+        # actif, il ne devrait presque jamais s'exécuter.
+        if (
+            self.birdeye
+            and self.birdeye.enabled
+            and self.helius.enabled
+            and updates.get("top_holder_pct") is None
+            and candidate.top_holder_pct is None
+        ):
+            supply = self.helius.get_supply(candidate.token_address)
+            if supply:
+                pct = self.birdeye.get_concentration(candidate.token_address, supply)
+                if pct is not None:
+                    updates["top_holder_pct"] = pct
 
         self._audit_cache[candidate.token_address] = (time.time(), updates)
         return candidate.with_fields(**updates)

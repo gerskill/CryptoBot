@@ -279,3 +279,145 @@ class TestRepliConcentrationDansLePipeline(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeHeliusDevWallet:
+    """Helius activé, dev_wallet_pct et get_supply sous contrôle du test."""
+
+    enabled = True
+
+    def __init__(self, dev_pct=None, supply=None):
+        self._dev_pct = dev_pct
+        self._supply = supply
+        self.dev_wallet_calls = []
+
+    def get_dev_wallet_pct(self, mint):
+        self.dev_wallet_calls.append(mint)
+        return self._dev_pct
+
+    def get_supply(self, mint):
+        return self._supply
+
+    def get_holder_stats(self, mint, min_required=None):
+        return None
+
+
+class FakeBirdeyeConcentration:
+    """Birdeye activé : get_concentration sous contrôle, appels comptés."""
+
+    enabled = True
+
+    def __init__(self, pct=None):
+        self._pct = pct
+        self.concentration_calls = []
+
+    def get_overview(self, address):
+        return None
+
+    def get_concentration(self, address, supply):
+        self.concentration_calls.append((address, supply))
+        return self._pct
+
+
+class TestRepliHeliusDevWalletPct(unittest.TestCase):
+    """`HeliusAPI.get_dev_wallet_pct` existait sans aucun appelant."""
+
+    def _pipeline(self, helius, gmgn=None):
+        tmp = tempfile.mkdtemp()
+        params_path = os.path.join(tmp, "params.json")
+        with open(params_path, "w", encoding="utf-8") as fh:
+            json.dump(BASE_PARAMS, fh)
+        return ScanPipeline(
+            params=ParamsStore(params_path),
+            cache=TokenCache(os.path.join(tmp, "cache.json")),
+            dex=None, helius=helius, rugcheck=Disabled(), gmgn=gmgn,
+        )
+
+    def test_repli_quand_rugcheck_ne_donne_rien(self):
+        helius = FakeHeliusDevWallet(dev_pct=17.5)
+        enrichi = self._pipeline(helius)._enrich_one(candidate("X"), BASE_PARAMS["filters"])
+        self.assertEqual(enrichi.dev_wallet_pct, 17.5)
+        self.assertEqual(helius.dev_wallet_calls, ["addr_X"])
+
+    def test_pas_dappel_si_deja_connu(self):
+        helius = FakeHeliusDevWallet(dev_pct=99.0)
+        deja_connu = candidate("X").with_fields(dev_wallet_pct=3.0)
+        enrichi = self._pipeline(helius)._enrich_one(deja_connu, BASE_PARAMS["filters"])
+        self.assertEqual(enrichi.dev_wallet_pct, 3.0)
+        self.assertEqual(helius.dev_wallet_calls, [], "RugCheck avait déjà répondu (implicite via le champ)")
+
+    def test_helius_desactive_ne_casse_rien(self):
+        helius = FakeHeliusDevWallet(dev_pct=50.0)
+        helius.enabled = False
+        enrichi = self._pipeline(helius)._enrich_one(candidate("X"), BASE_PARAMS["filters"])
+        self.assertIsNone(enrichi.dev_wallet_pct)
+
+    def test_zero_pourcent_est_une_vraie_reponse_pas_une_absence(self):
+        # 0.0 = dev absent du top 20 -> valeur légitime, ne doit pas être
+        # confondue avec "donnée manquante".
+        helius = FakeHeliusDevWallet(dev_pct=0.0)
+        enrichi = self._pipeline(helius)._enrich_one(candidate("X"), BASE_PARAMS["filters"])
+        self.assertEqual(enrichi.dev_wallet_pct, 0.0)
+
+
+class TestRepliBirdeyeConcentration(unittest.TestCase):
+    """`BirdeyeAPI.get_concentration` existait sans aucun appelant.
+
+    Doit rester le TOUT DERNIER recours : GMGN rend la même information
+    gratuitement, Birdeye est le goulot documenté du bot (1 req/s, quota
+    mensuel qui s'épuise).
+    """
+
+    def _pipeline(self, birdeye, helius, gmgn=None):
+        tmp = tempfile.mkdtemp()
+        params_path = os.path.join(tmp, "params.json")
+        with open(params_path, "w", encoding="utf-8") as fh:
+            json.dump(BASE_PARAMS, fh)
+        return ScanPipeline(
+            params=ParamsStore(params_path),
+            cache=TokenCache(os.path.join(tmp, "cache.json")),
+            dex=None, helius=helius, rugcheck=Disabled(),
+            birdeye=birdeye, gmgn=gmgn,
+        )
+
+    def test_birdeye_ne_se_declenche_pas_si_gmgn_a_deja_repondu(self):
+        birdeye = FakeBirdeyeConcentration(pct=80.0)
+        helius = FakeHeliusDevWallet(supply=1_000_000)
+        gmgn = api({("token", "holders"): [{"amount_percentage": 0.20}]})
+
+        enrichi = self._pipeline(birdeye, helius, gmgn)._enrich_one(
+            candidate("X"), BASE_PARAMS["filters"]
+        )
+
+        self.assertAlmostEqual(enrichi.top_holder_pct, 20.0, places=2)
+        self.assertEqual(birdeye.concentration_calls, [], "GMGN suffisait, Birdeye ne doit pas payer")
+
+    def test_birdeye_se_declenche_quand_gmgn_est_absent(self):
+        birdeye = FakeBirdeyeConcentration(pct=33.0)
+        helius = FakeHeliusDevWallet(supply=1_000_000)
+
+        enrichi = self._pipeline(birdeye, helius, gmgn=None)._enrich_one(
+            candidate("X"), BASE_PARAMS["filters"]
+        )
+
+        self.assertEqual(enrichi.top_holder_pct, 33.0)
+        self.assertEqual(birdeye.concentration_calls, [("addr_X", 1_000_000)])
+
+    def test_sans_supply_helius_birdeye_nest_pas_appele(self):
+        birdeye = FakeBirdeyeConcentration(pct=33.0)
+        helius = FakeHeliusDevWallet(supply=None)
+        enrichi = self._pipeline(birdeye, helius, gmgn=None)._enrich_one(
+            candidate("X"), BASE_PARAMS["filters"]
+        )
+        self.assertIsNone(enrichi.top_holder_pct)
+        self.assertEqual(birdeye.concentration_calls, [])
+
+    def test_deja_connu_naugmente_aucun_appel(self):
+        birdeye = FakeBirdeyeConcentration(pct=33.0)
+        helius = FakeHeliusDevWallet(supply=1_000_000)
+        deja_connu = candidate("X").with_fields(top_holder_pct=5.0)
+        enrichi = self._pipeline(birdeye, helius, gmgn=None)._enrich_one(
+            deja_connu, BASE_PARAMS["filters"]
+        )
+        self.assertEqual(enrichi.top_holder_pct, 5.0)
+        self.assertEqual(birdeye.concentration_calls, [])
