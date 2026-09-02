@@ -735,3 +735,65 @@ D'après `config/strategies.json` :
 - **Revalider les verdicts `verdict_vs_reference`** avec l'échantillon élargi depuis le 08-02, main­tenant que `baseline` apprend et que les frais réels de sortie (ADR 009) corrigent le P&L des jambes finales.
 - **Continuer le suivi de l'entonnoir et du shadow** pour les six bras restants — leur shadow log est plus jeune que celui du témoin (§10, point 7).
 - Sujets déjà ouverts et toujours d'actualité : Birdeye Lite (39 $/mois), suivi de wallets étape 2, découpage de `main.py` — voir §11 pour le détail.
+
+---
+
+## 14. Mise à jour du 2026-08-30 — reprise après interruption
+
+Le document s'était arrêté au 2026-08-07. Quatorze commits ont suivi, puis
+**treize jours sans activité** (dernier commit le 2026-08-17 à 17h04). Cette
+section rattrape l'écart et corrige ce que §13 affirmait encore.
+
+### 14.1 Ce qui a changé depuis le 2026-08-07
+
+| date | correctif |
+|---|---|
+| 08-09 | **Audit infra** (`d541cd9`) : verrou d'instance TOCTOU → `flock` atomique ; 429 Jupiter qui désactivait silencieusement la garde anti-slippage ; liquidité 0 confondue avec « non mesurée » chez Birdeye ; `load_manifest()` sans `try/except` ; `_is_buy()` comptant un trade inconnu comme achat ; prix `NaN` traversant tous les seuils de sortie ; token `/api/params` en query string |
+| 08-09 | **Plafond du ratchet remonté de −6,0 à −15,0** (`684fa6e`) — cause racine du symptôme traité le 08-07, calé sur le creux moyen mesuré des sorties stop (−15,28 %) |
+| 08-09 | **8ᵉ bras `sniper_young`** (`0630346`) : fork de `sniper` avec une seule variable changée (`min_age_hours` 1,025 h → 0,5125 h). Capital prélevé sur `sniper` seul. Référence de comparaison : `sniper`, pas le témoin |
+| 08-09 | Dépendances épinglées en `==`, `.gitignore` étendu, `backup.sh` purge au-delà de 15 snapshots |
+| 08-15 | **Le tampon de glissement peut enfin desserrer** (`a05af55`) : `_relax_slippage_buffer()`, miroir exact du resserrage, mutuellement exclusif avec lui. C'est la réponse structurelle au cliquet à sens unique que §13.3 annonçait comme non résolu |
+| 08-17 | Écriture du journal résiliente (`3e6fb6f`) : un `record_exit()` en échec laissait une position gelée à `remaining_fraction == 0`, invisible aux sorties mais servie au dashboard. Repéré sur 2 positions bloquées 6 jours |
+| 08-17 | Repli Jupiter sur le prix (`40a44a5`) : 7 positions bloquées à « prix indisponible » depuis l'ouverture, stop-loss jamais évalué, **une à −99 % sans que rien ne le sache** |
+| 08-17 | **Filtre LP verrouillée** (`72c9795`), seuil `filters.min_lp_locked_pct` (50 %) — `lp_locked_pct` était collecté depuis le début et comparé à rien |
+| 08-17 | **Garde de concentration sectorielle + watchdog anti-slow-rug** (`043949e`), nouvelle porte `correlation` dans l'entonnoir. Seuils sectoriels calibrés sur 1339 positions ; **ceux du watchdog ne le sont sur rien**, à revoir avant tout passage en LIVE |
+| 08-17 | **Échelle de sortie à N barreaux + breakeven par niveau** (`051a202`) : `breakeven_trigger` existait dans les sept documents de bras et n'était lu nulle part. `runner` reconfiguré sur ses 196 positions (−5,96 pts/trade au rejeu contre −12,39) |
+| 08-30 | Cette passe : reprise du shadow, taxonomie des nouvelles gardes, avertissement `capital_pct`, script de diagnostic (§14.3) |
+
+### 14.2 Ce que §10 et §13 disaient encore, et qui est faux
+
+- **§13.3 « surveiller le tampon de glissement, cliquet à sens unique »** — traité
+  le 08-15 (`a05af55`). Le mécanisme a un miroir en desserrage ; reste à vérifier
+  sur données réelles qu'il se déclenche.
+- **§10 point 8 « `ShadowTracker._tracked` n'est pas persisté »** — corrigé le
+  08-30 (§14.3). Les suivis en cours survivent à un redémarrage ; ceux périmés
+  pendant une coupure sont **écartés, pas jugés**.
+- **§13.2 : le tableau des bras liste sept lignes.** Il y en a huit depuis le
+  08-09 — `sniper_young` manque. Sept sont actifs, `narrative` reste éteint.
+- **`AGENTS.md` annonçait 361 tests.** Il y en a 791 (corrigé le 08-30).
+
+### 14.3 Trois défauts trouvés à la reprise du 2026-08-30
+
+Même famille que §6 ter : du code câblé, testé, et jamais atteint.
+
+| défaut | conséquence | correctif |
+|---|---|---|
+| **Le filtre LP tombait dans la famille « autre »** | `reason_family()` n'a pas de branche pour « LP verrouillée 12 % < 50 % » : le motif ne contient pas « liquidité ». Les rejets de la garde livrée le 08-17 étaient donc rangés dans la famille qu'aucun paramètre ne dessert, **invisibles à `missed_rate_by_family`** — c'est-à-dire impossibles à qualifier. Même défaut que l'âge et le volume au 2026-08-02 | familles `lp_lock` et `sector`. **Visible ne veut pas dire relâchable** : ni l'une ni l'autre n'a d'entrée dans `RELAXATIONS`, ce sont des vecteurs de rug pull et d'exposition corrélée, pas des seuils mal calés |
+| **`ShadowTracker._tracked` en mémoire seule** | un redémarrage perdait tout rejet pas encore arrivé à ses 4 h. Sur une boucle relancée souvent, `SHADOW_MIN_SAMPLE` restait hors d'atteinte, donc `_relax_from_shadow` — le seul contrepoids au resserrage — ne rendait jamais rien | fichier de reprise par bras (`shadow_log_tracking.json`), écriture atomique. Un **nouveau pic** s'écrit immédiatement, un simple mouvement de prix attend au plus 60 s : perdre un pic fabriquerait le verdict inverse de la mesure. Un fichier illisible coûte les suivis, jamais le démarrage |
+| **`capital_pct` : 1,05 sur le manifeste, 1,0000 sur les actifs** | `bootstrap_arms` ne somme que les bras actifs — le bon choix — mais rien ne signalait la dérive. `sniper_young` (0,10525) a été ajouté le 08-09 sans rééquilibrage, et le dépôt ne démarre que parce que `narrative` (0,05) reste éteint. Un simple `enabled: true` ferait échouer le démarrage sur un `ManifestError` déroutant | avertissement au démarrage nommant le bras dormant et le total. Le refus sur les bras actifs reste fatal, inchangé |
+
+### 14.4 Ce qui reste non vérifié
+
+Ces trois points demandent la machine où tourne la boucle — ils ne se lisent
+pas dans le dépôt. `python3 -m scripts.diagnostic_reprise` les traite en une
+commande, **en lecture seule** : une relance reprend le verrou et écrit dans
+`data/`, donc efface la date de l'arrêt.
+
+1. **La boucle tourne-t-elle, et depuis quand est-elle arrêtée ?** `flock` est
+   libéré par le noyau à la mort du process : un arrêt ne laisse aucun verrou
+   résiduel et ne s'annonce nulle part.
+2. **Ce que `data/` a accumulé.** Seul `funnel_log.jsonl` a une rotation (8 Mo).
+   Les journaux de trades, shadow et agents sont append-only sans borne.
+3. **Ce que valent les gardes du 08-17.** Trois gardes livrées la veille d'une
+   interruption de treize jours, jamais observées sur une longue série — et
+   celles du watchdog anti-slow-rug ne sont calibrées sur rien.
