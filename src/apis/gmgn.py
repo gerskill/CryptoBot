@@ -18,16 +18,47 @@ inactif depuis le début.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
 
 from src.core.ratelimit import RateLimiter
 
 COMMAND_TIMEOUT = 30
 CACHE_TTL_SECONDS = 120  # les achats smart money bougent vite, mais pas à 20s
+NEGATIVE_CACHE_SECONDS = 60
+MIN_CALL_SPACING_SECONDS = 0.3
+BAN_SAFETY_MARGIN_SECONDS = 5
+
+
+def parse_rate_limit_wait(message: str) -> Optional[float]:
+    """Secondes à attendre, lues dans le message 429 du CLI. None si absent.
+
+    Formats observés / documentés : « (~136s remaining) », « Rate limit
+    resets at 2026-10-10 15:19:43 GMT+02:00 », X-RateLimit-Reset (epoch).
+    """
+    if not message:
+        return None
+    match = re.search(r"~\s*(\d+(?:\.\d+)?)\s*s\s+remaining", message)
+    if match:
+        return float(match.group(1))
+    match = re.search(r"resets at (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) GMT([+-]\d{2}):?(\d{2})", message)
+    if match:
+        try:
+            sign = 1 if match.group(2).startswith("+") else -1
+            offset = timedelta(hours=int(match.group(2)[1:]) * sign, minutes=int(match.group(3)) * sign)
+            when = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone(offset))
+            return max(0.0, when.timestamp() - time.time())
+        except ValueError:
+            return None
+    match = re.search(r"[Rr]eset[^0-9]{0,20}(\d{10})", message)
+    if match:
+        return max(0.0, float(match.group(1)) - time.time())
+    return None
 SMART_MONEY_WINDOW_MINUTES = 30
 
 # Tags GMGN à exclure : bots MEV / wash — pas des traders directionnels.
@@ -106,8 +137,20 @@ class GmgnAPI:
         self.rate_limiter = RateLimiter(60, 60.0, name="gmgn")
         self.request_count = 0
         self._cache: dict[str, tuple[float, Any]] = {}
+        self._failed: dict[str, float] = {}
         self._smart_money_snapshot: Optional[tuple[float, list[dict[str, Any]]]] = None
 
+        # RESPECT DU BAN (2026-10-10). Mesuré : 400 appels en échec 429
+        # RATE_LIMIT_BANNED en quelques heures, dont 297 `market kline`
+        # (un appel par bras et par candidat, les échecs n'étant pas mis en
+        # cache). La doc officielle (GMGNAI/gmgn-skills, docs/cli-usage.md) :
+        # « continuer à envoyer pendant le cooldown prolonge le ban de 5 s à
+        # chaque fois, jusqu'à 5 min ». On lit l'échéance dans le message du
+        # CLI et on ne rappelle RIEN avant. Pas de contournement d'IP.
+        self._blocked_until = 0.0
+        self._ban_streak = 0
+        self.skipped_while_banned = 0
+        self._last_call_at = 0.0
         self.enabled = enabled and self.available and self._has_key()
         if enabled and not self.available:
             print("[GMGN] binaire gmgn-cli introuvable — module désactivé")
@@ -166,7 +209,17 @@ class GmgnAPI:
         if not self.enabled:
             return None
 
+        now = time.time()
+        if now < self._blocked_until:
+            self.skipped_while_banned += 1
+            return None
         self.rate_limiter.acquire()
+        # Espacement minimal : le seau GMGN (rate=10, capacity=10) n'absorbe
+        # pas une rafale de sous-processus lancés dos à dos.
+        gap = MIN_CALL_SPACING_SECONDS - (time.time() - self._last_call_at)
+        if gap > 0:
+            time.sleep(gap)
+        self._last_call_at = time.time()
         command = [self.binary, *args, "--chain", self.chain, "--raw"]
         try:
             result = subprocess.run(
@@ -188,11 +241,18 @@ class GmgnAPI:
                     )
                     self.enabled = False
                     return None
+                if "429" in combined or "RATE_LIMIT" in combined:
+                    self._register_rate_limit(combined)
+                    return None
                 print(f"[GMGN] {' '.join(args[:2])} échec : {stderr[:120]}")
                 return None
 
+            self._ban_streak = 0
             payload = json.loads(result.stdout)
             # Le CLI renvoie parfois exit 0 avec un code métier non nul.
+            if isinstance(payload, dict) and str(payload.get("code")) == "429":
+                self._register_rate_limit(json.dumps(payload)[:400])
+                return None
             if isinstance(payload, dict) and payload.get("code") not in (0, None):
                 print(f"[GMGN] {' '.join(args[:2])} code {payload.get('code')}")
                 return None
@@ -206,13 +266,40 @@ class GmgnAPI:
             print(f"[GMGN] {' '.join(args[:2])} erreur : {exc}")
         return None
 
+    def _register_rate_limit(self, message: str) -> None:
+        """429 : pause de TOUTES les requêtes jusqu'à l'échéance annoncée."""
+        self._ban_streak += 1
+        wait = parse_rate_limit_wait(message)
+        if wait is None:
+            # Pas d'échéance lisible : repli exponentiel 60 s -> 30 min.
+            wait = min(60 * (2 ** (self._ban_streak - 1)), 1800)
+        wait = min(float(wait), 3600.0)
+        self._blocked_until = time.time() + wait + BAN_SAFETY_MARGIN_SECONDS
+        until = time.strftime("%H:%M:%S", time.localtime(self._blocked_until))
+        print(
+            f"[GMGN] 429 rate limit — aucune requête GMGN jusqu'à {until} "
+            f"({wait:.0f}s + {BAN_SAFETY_MARGIN_SECONDS}s de marge)"
+        )
+
+    @property
+    def blocked_seconds_remaining(self) -> float:
+        return max(0.0, self._blocked_until - time.time())
+
     def _cached(self, key: str, producer) -> Any:
         entry = self._cache.get(key)
         if entry and time.time() - entry[0] < CACHE_TTL_SECONDS:
             return entry[1]
+        # CACHE NÉGATIF COURT : un échec n'est pas redemandé par chacun des
+        # 12 bras dans le même cycle (297 klines en échec mesurées).
+        failed_at = self._failed.get(key)
+        if failed_at and time.time() - failed_at < NEGATIVE_CACHE_SECONDS:
+            return None
         value = producer()
         if value is not None:
             self._cache[key] = (time.time(), value)
+            self._failed.pop(key, None)
+        else:
+            self._failed[key] = time.time()
         return value
 
     # --------------------------------------------------------- smart money

@@ -36,6 +36,10 @@ GATES = (
     # après une analyse technique qui coûte des appels pour rien quand la
     # place est de toute façon refusée.
     "correlation",
+    # Porte unique `pre_trade_check` (src/core/risk.py) : autorisation avant
+    # `portfolio.open`. Les sous-portes ci-dessus restent pour le détail ;
+    # `pre_trade` est le verdict consolidé non contournable.
+    "pre_trade",
     "technique",
     "economie",
     "entree",

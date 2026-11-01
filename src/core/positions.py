@@ -40,6 +40,9 @@ class Position:
     size_usd: float
     mode: str = "PAPER"
     pair_address: Optional[str] = None
+    # Horodatage de la résolution a posteriori de `pair_address` (positions
+    # entrées sans paire : GMGN). None = paire d'entrée ou jamais résolue.
+    pair_resolved_at: Optional[float] = None
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     entry_time: float = field(default_factory=time.time)
 
@@ -94,6 +97,36 @@ class Position:
     # L'armement ne peut qu'être PLUS PRÉCOCE que l'ancien comportement,
     # jamais plus tardif : TP1 continue d'armer le breakeven de son côté.
     breakeven_trigger: float = 0.0
+    # BREAKEVEN EXACT (opt-in, défaut False = comportement d'origine).
+    # Sans lui, le stop « breakeven » vaut 0 + `stop_loss_slippage_buffer_pct`
+    # (ex. +10 % avec le tampon du témoin) : sur un bras à TP1 court (+15 %)
+    # la moitié restante sortirait quasi immédiatement à +10 %. Avec lui, le
+    # stop est remonté EXACTEMENT au prix d'entrée (0 %), tampon ignoré.
+    # Utilisé par les bras de test tp1_15 / tp1_20 / tp1_30 (2026-10-04).
+    breakeven_stop_exact: bool = False
+
+    # ENTRÉE PROGRESSIVE (opt-in, bras de test `scaled_be`, 2026-10-10).
+    # `scale_in_trigger_pct` = 0 -> désactivé : comportement d'origine, et
+    # c'est le cas de tous les autres bras. Sinon la position est ouverte avec
+    # une FRACTION de la taille normale (`size_usd` = taille réellement
+    # engagée), le reste (`scale_in_pending_usd`) n'est acheté qu'UNE fois, si
+    # le P&L atteint `scale_in_trigger_pct` depuis l'entrée et qu'aucune
+    # sortie n'a encore eu lieu. À l'ajout : `entry_price` devient le prix
+    # MOYEN pondéré, `size_usd` la taille totale, et le stop de toute la
+    # position remonte EXACTEMENT au prix moyen (breakeven exact, sans tampon).
+    scale_in_trigger_pct: float = 0.0
+    # Plafond de la fenêtre d'ajout, en % depuis l'entrée INITIALE. 0 = sans
+    # plafond (comportement du 2026-10-10 matin, conservé pour compatibilité).
+    scale_in_max_pct: float = 0.0
+    scale_in_pending_usd: float = 0.0
+    scaled_in: bool = False
+    initial_entry_price: float = 0.0
+    initial_size_usd: float = 0.0
+    scale_in_price: Optional[float] = None
+    scale_in_at: Optional[float] = None
+    # Prix OBSERVÉ au moment de l'ajout ; `scale_in_price` est le prix
+    # EFFECTIF utilisé (devis Jupiter quand un vérificateur est branché).
+    scale_in_observed_price: Optional[float] = None
 
     # Meta (secteur) du token, FIGÉE À L'ENTRÉE. Décidée par
     # `src/core/correlation.py` à partir du symbole ET du nom ; le nom
@@ -101,6 +134,13 @@ class Position:
     # symbole donnerait un secteur différent et une exposition qui dépendrait
     # du moment où on la regarde. `None` = non classé, jamais un secteur.
     sector: Optional[str] = None
+
+    # JOURNAL ENRICHI (2026-10-10, observationnel) : instantané plat de ce qui
+    # était connu à la décision (`src/core/entry_context.py`). Persisté avec la
+    # position (survit aux redémarrages), recopié sur chaque ligne de sortie.
+    # Ne participe à AUCUNE décision. `compare=False` : deux positions
+    # identiques ne diffèrent pas par leur contexte d'observation.
+    entry_context: dict = field(default_factory=dict, compare=False, hash=False)
 
     # Tampon anticipant le glissement du stop loss (voir `effective_stop_loss_pct`)
     stop_loss_slippage_buffer_pct: float = 0.0
@@ -133,6 +173,8 @@ class Position:
         mesures. Déclencher plus tôt d'autant vise un atterrissage au seuil
         voulu plutôt qu'en dessous.
         """
+        if self.breakeven_moved and self.breakeven_stop_exact:
+            return 0.0
         base = 0.0 if self.breakeven_moved else self.stop_loss_pct
         return base + self.stop_loss_slippage_buffer_pct
 
@@ -274,6 +316,19 @@ def evaluate_exits(
     return actions
 
 
+def cost_vs_entry(cost_pct: float, price: float, entry_price: float) -> float:
+    """Ramène un coût mesuré en % du montant REVENDU au % du montant INVESTI.
+
+    Bug corrigé le 2026-10-24 : le coût de sortie (priority fee + impact) est
+    mesuré sur le notionnel courant, puis était retranché tel quel du PnL
+    exprimé sur la mise. Sur un token à -99,5 %, ~9 $ de frais devenaient
+    -3 728 % (KAITE, 21/10). Équivalent : coût_usd / mise.
+    """
+    if not cost_pct or entry_price <= 0 or price <= 0:
+        return float(cost_pct or 0.0)
+    return float(cost_pct) * (price / entry_price)
+
+
 def apply_exit(
     position: Position, action: ExitAction, price: float, cost_pct: float = 0.0
 ) -> Position:
@@ -348,3 +403,80 @@ def update_water_marks(position: Position, price: float) -> Position:
 
 # Ancien nom conservé : le trailing stop n'est qu'un des usages désormais.
 update_high_water = update_water_marks
+
+
+def scale_in_eligible(position: Position) -> bool:
+    """Conditions STRUCTURELLES de l'ajout, indépendantes du prix.
+
+    Configuré (opt-in), pas encore fait, reste à acheter, et AUCUNE sortie
+    encore (position entière, ni TP1 ni échelle) — on n'ajoute pas à une
+    position déjà partiellement vendue.
+    """
+    return (
+        position.scale_in_trigger_pct > 0
+        and not position.scaled_in
+        and position.scale_in_pending_usd > 1e-9
+        and position.is_open
+        and position.remaining_fraction >= 1.0 - 1e-9
+        and not position.tp1_hit
+        and position.ladder_filled == 0
+        and not position.exit_reasons
+        and position.entry_price > 0
+    )
+
+
+def scale_in_due(position: Position, price: float) -> bool:
+    """Le prix observé est-il DANS la fenêtre [déclencheur, plafond] ?
+
+    Avant l'ajout, `entry_price` est encore le prix d'entrée initial.
+    Plafond 0 = pas de plafond.
+    """
+    if not scale_in_eligible(position) or price <= 0:
+        return False
+    pnl = position.pnl_pct(price)
+    if pnl < position.scale_in_trigger_pct:
+        return False
+    return position.scale_in_max_pct <= 0 or pnl <= position.scale_in_max_pct
+
+
+def apply_scale_in(
+    position: Position,
+    price: float,
+    add_usd: float,
+    now: Optional[float] = None,
+    observed_price: Optional[float] = None,
+) -> Position:
+    """Ajoute `add_usd` au prix `price` (pur, immuable).
+
+    Prix moyen pondéré par le NOMBRE DE TOKENS : (s1 + s2) / (s1/p1 + s2/p2).
+    Les marques haute/basse sont reconverties dans la nouvelle base (même
+    prix observé, nouvelle référence), sinon le trailing et l'instrumentation
+    compareraient des P&L calculés sur deux prix d'entrée différents.
+    Le stop remonte au prix moyen EXACT (`breakeven_moved` +
+    `breakeven_stop_exact`), tampon de glissement ignoré.
+    """
+    old_entry = position.entry_price
+    s1 = position.size_usd
+    tokens = s1 / old_entry + add_usd / price
+    total = s1 + add_usd
+    avg = total / tokens
+
+    def rebase(pct: float) -> float:
+        return 100 * (old_entry * (1 + pct / 100) - avg) / avg
+
+    return replace(
+        position,
+        entry_price=avg,
+        size_usd=total,
+        scale_in_pending_usd=0.0,
+        scaled_in=True,
+        initial_entry_price=position.initial_entry_price or old_entry,
+        initial_size_usd=position.initial_size_usd or s1,
+        scale_in_price=price,
+        scale_in_observed_price=observed_price if observed_price is not None else price,
+        scale_in_at=now if now is not None else time.time(),
+        high_water_pct=rebase(position.high_water_pct),
+        low_water_pct=min(0.0, rebase(position.low_water_pct)),
+        breakeven_moved=True,
+        breakeven_stop_exact=True,
+    )

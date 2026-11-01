@@ -7,7 +7,7 @@ DEST="backups/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$DEST"
 cp -a data "$DEST/" 2>/dev/null || true
 cp -a config "$DEST/" 2>/dev/null || true
-cp .env "$DEST/env.backup" 2>/dev/null || true
+# .env volontairement EXCLU (secrets) — audit 2026-10-24. Le sauvegarder à part, chiffré.
 chmod -R go-rwx "$DEST"
 echo "Sauvegarde -> $DEST"
 

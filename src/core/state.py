@@ -40,9 +40,15 @@ class StateWriter:
             return None
 
 
+def _social_score(candidate: Any):
+    from src.agents.onchain_observer import candidate_social_score  # import tardif
+    return candidate_social_score(candidate)
+
+
 def candidate_to_dict(candidate: Any) -> dict[str, Any]:
     """Candidat -> JSON pour la colonne « The Hunt »."""
     return {
+        "social_score": _social_score(candidate),
         "token_address": candidate.token_address,
         "symbol": candidate.symbol,
         "name": candidate.name,

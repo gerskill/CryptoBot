@@ -255,6 +255,11 @@ class ScanPipeline:
         self.journal = journal
         self.shadow = shadow
         self._audit_cache: dict[str, tuple[float, dict]] = {}
+        # Source `mature` (opt-in) : adresses issues du classement GMGN 24 h,
+        # rafraîchies tous les `refresh_cycles` cycles seulement.
+        self._mature_addresses: list[str] = []
+        self._mature_calls = 0
+        self._mature_cycles = 0
 
     # ------------------------------------------------------------ collecte
 
@@ -307,6 +312,78 @@ class ScanPipeline:
             cached_skipped=skipped_total,
             duration_sec=round(time.time() - started, 2),
             blacklist=blacklist,
+        )
+
+    # ------------------------------------------------- collecte « mature »
+
+    def collect_mature(self, filters: dict[str, Any], cfg: Optional[dict] = None) -> CollectedBatch:
+        """Lot SÉPARÉ de tokens vieux et liquides (bras `mature_liquid`, 2026-10-11).
+
+        POURQUOI. L'enveloppe de découverte plafonne l'âge à 24 h (bras le plus
+        large : runner) et DexScreener /token-profiles ne liste que des tokens
+        récents : aucun token de 24 h+ n'atteint le pipeline principal.
+        L'élargir changerait le lot (25 enrichis max) de TOUS les bras.
+
+        COÛT. 1 appel GMGN `market trending` (24 h, filtré serveur sur
+        âge/liquidité) tous les `refresh_cycles` cycles, 1 appel DexScreener
+        groupé par cycle pour les prix, enrichissement RugCheck/Helius en
+        cache 15 min, au plus `max_candidates` tokens. Ne touche ni au cache
+        de découverte, ni à la watchlist, ni à la blacklist partagés.
+        """
+        started = time.time()
+        cfg = cfg or {}
+        self._mature_cycles += 1
+        refresh = max(1, int(cfg.get("refresh_cycles", 10)))
+        limit = max(1, int(cfg.get("max_candidates", 15)))
+        min_age = float(filters.get("min_age_hours") or 24)
+        max_age = float(filters.get("max_age_hours") or 720)
+        min_liq = float(filters.get("min_liquidity_usd") or 0)
+        min_vol = float(filters.get("min_volume_1h") or 0)
+
+        if (self._mature_cycles - 1) % refresh == 0 or not self._mature_addresses:
+            if self.gmgn and self.gmgn.enabled:
+                try:
+                    rows = self.gmgn.market_trending(
+                        interval=cfg.get("gmgn_interval", "24h"),
+                        limit=int(cfg.get("gmgn_limit", 50)),
+                        order_by=cfg.get("gmgn_order_by", "volume"),
+                        min_liquidity=min_liq,
+                        min_created=_duration(min_age),
+                        max_created=_duration(max_age),
+                        filters=cfg.get("gmgn_filters") or ["not_wash_trading"],
+                    )
+                    self._mature_calls += 1
+                    addresses = []
+                    for row in rows or []:
+                        address = row.get("address") or row.get("token_address")
+                        if address:
+                            addresses.append(address)
+                    if addresses:
+                        self._mature_addresses = addresses
+                except Exception as exc:  # une source opt-in ne casse jamais le cycle
+                    print(f"[Mature] ⚠️ GMGN — {type(exc).__name__}")
+
+        addresses = self._mature_addresses[:limit]
+        raw = self.dex.candidates_for_tokens(
+            addresses, min_liquidity=min_liq, min_volume_1h=min_vol,
+            min_age_hours=min_age, max_age_hours=max_age,
+        ) if addresses else []
+        enriched = self._enrich_wallet_reliability(
+            self._enrich_smart_money(self._enrich_all(raw, filters))
+        )
+        if self.history is not None:
+            self.history.record_all(enriched)
+        print(
+            f"[Mature] {len(addresses)} adresses suivies | {len(raw)} passent âge "
+            f"{min_age:g}-{max_age:g} h, liq ≥ {min_liq:.0f}$, vol 1h ≥ {min_vol:.0f}$ "
+            f"| {time.time() - started:.1f}s"
+        )
+        return CollectedBatch(
+            enriched=tuple(enriched),
+            scanned_count=len(addresses),
+            cached_skipped=0,
+            duration_sec=round(time.time() - started, 2),
+            blacklist=(),
         )
 
     # ---------------------------------------------------------- évaluation

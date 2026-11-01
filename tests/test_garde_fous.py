@@ -133,8 +133,8 @@ class TestAntiBoucle(unittest.TestCase):
         # L'asymétrie EST la correction : bloquer les deux figerait le bot
         # dans l'état étranglé où la boucle l'a mené.
         engine = self._engine(0.0)
-        engine._bounded_set("filters.min_liquidity_usd", 15000, "relâche", 10)
-        self.assertEqual(self.params.get("filters.min_liquidity_usd"), 15000)
+        engine._bounded_set("filters.min_liquidity_usd", 20000, "relâche", 10)
+        self.assertEqual(self.params.get("filters.min_liquidity_usd"), 20000)
 
     def test_resserrer_reste_permis_quand_le_flux_est_bon(self):
         engine = self._engine(MIN_FLOW_TO_TIGHTEN + 5)
@@ -148,8 +148,8 @@ class TestAntiBoucle(unittest.TestCase):
 
     def test_monter_un_plafond_est_un_relachement(self):
         engine = self._engine(0.0)
-        engine._bounded_set("filters.max_age_hours", 12, "relâche", 10)
-        self.assertEqual(self.params.get("filters.max_age_hours"), 12)
+        engine._bounded_set("filters.max_age_hours", 8, "relâche", 10)
+        self.assertEqual(self.params.get("filters.max_age_hours"), 8)
 
     def test_sans_mesure_de_flux_rien_nest_bloque(self):
         # Une donnée absente ne rejette jamais — invariant du projet.

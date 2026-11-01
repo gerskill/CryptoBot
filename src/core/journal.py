@@ -11,6 +11,35 @@ from typing import Any, Iterator, Optional
 
 from src.core.positions import Position
 
+# Correctif coût du 2026-10-24 (bot redémarré 10:59:35 Europe/Zurich).
+# Avant cette date, `pnl_pct`/`pnl_usd` retranchaient un coût exprimé en %
+# du notionnel REVENDU comme s'il était en % de la MISE (KAITE : -3 828 %).
+# Les lignes antérieures sont corrigées À LA LECTURE (le fichier n'est jamais
+# réécrit) pour que capital reconstruit, apprentissage et dashboard lisent
+# le même PnL. Valeur d'origine conservée dans `pnl_pct_journal`/`pnl_usd_journal`.
+COST_FIX_CUTOFF = "2026-10-24T08:59:00+00:00"
+
+
+def correct_legacy_cost(row: dict[str, Any]) -> dict[str, Any]:
+    if row.get("cost_basis") == "stake" or "pnl_pct_journal" in row:
+        return row
+    cost = row.get("exit_cost_pct")
+    entry, exit_ = row.get("entry_price"), row.get("exit_price")
+    ts = str(row.get("timestamp_exit") or "")
+    if not cost or not entry or not exit_ or entry <= 0 or not ts or ts >= COST_FIX_CUTOFF:
+        return row
+    pnl = row.get("pnl_pct") or 0.0
+    corrected = pnl + cost - cost * (exit_ / entry)
+    usd = row.get("pnl_usd") or 0.0
+    if pnl:
+        new_usd = usd * corrected / pnl
+    else:
+        new_usd = (row.get("position_size") or 0.0) * (row.get("fraction_of_initial") or 1.0) * corrected / 100
+    row["pnl_pct_journal"], row["pnl_usd_journal"] = pnl, usd
+    row["pnl_pct"], row["pnl_usd"] = round(corrected, 4), round(new_usd, 4)
+    row["cost_basis"] = "stake_corrected_on_read"
+    return row
+
 
 class TradeJournal:
     def __init__(self, path: str):
@@ -87,9 +116,111 @@ class TradeJournal:
             # exclure ces lignes, sinon l'estimation se confirme
             # elle-même. `PartialCostEstimator` les filtre déjà.
             "exit_cost_estimated": exit_cost_estimated,
+            "cost_basis": "stake",
         }
+        # JOURNAL ENRICHI (observationnel) : contexte figé à l'entrée. Ne
+        # remplace JAMAIS une colonne existante (setdefault).
+        for key, value in (getattr(position, "entry_context", None) or {}).items():
+            row.setdefault(key, value)
+        if position.scale_in_trigger_pct > 0:
+            # ENTRÉE PROGRESSIVE (bras `scaled_be` seulement : champs absents
+            # des lignes des autres bras). `entry_price` = prix MOYEN après
+            # ajout ; `position_size`/`pnl_usd` portent la taille réelle.
+            row.update(
+                {
+                    "scale_in_planned": True,
+                    "scale_in_trigger_pct": position.scale_in_trigger_pct,
+                    "scaled_in": position.scaled_in,
+                    "initial_entry_price": position.initial_entry_price,
+                    "initial_size_usd": position.initial_size_usd,
+                    "total_size_usd": position.size_usd,
+                    "scale_in_price": position.scale_in_price,
+                    "scale_in_at": (
+                        datetime.fromtimestamp(position.scale_in_at, timezone.utc).isoformat()
+                        if position.scale_in_at
+                        else None
+                    ),
+                }
+            )
         self._append(row)
         return row
+
+    @property
+    def events_path(self) -> str:
+        """Événements hors sorties (SCALE_IN), à côté du journal.
+
+        Fichier SÉPARÉ et pas une ligne de `trades_log` : `read_positions`
+        additionne `position_size` de toutes les lignes d'une position, et
+        tous les lecteurs (apprentissage, dashboard, estimateur de coût)
+        prennent chaque ligne pour une jambe de sortie.
+        """
+        return os.path.join(os.path.dirname(os.path.abspath(self.path)), "scale_events.jsonl")
+
+    def record_scale_in(
+        self, before: Position, after: Position, price: float, add_usd: float,
+        check: Any = None, observed_price: Optional[float] = None,
+    ) -> dict[str, Any]:
+        """`price` = prix EFFECTIF utilisé ; `observed_price` = prix du tick."""
+        row = {
+            "event": "SCALE_IN",
+            "position_id": after.id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp_entry": datetime.fromtimestamp(after.entry_time, timezone.utc).isoformat(),
+            "token": after.symbol,
+            "token_address": after.token_address,
+            "mode": after.mode,
+            "trigger_pct": before.scale_in_trigger_pct,
+            "max_pct": before.scale_in_max_pct,
+            "pnl_pct_at_add": round(before.pnl_pct(price), 3),
+            "observed_pnl_pct_at_add": round(
+                before.pnl_pct(observed_price if observed_price else price), 3
+            ),
+            "initial_entry_price": before.entry_price,
+            "observed_price": observed_price if observed_price else price,
+            "scale_in_price": price,
+            "price_source": "jupiter_quote" if check is not None else "observed",
+            "buy_impact_pct": getattr(check, "buy_impact_pct", None),
+            "round_trip_total_pct": getattr(check, "round_trip_total_pct", None),
+            "avg_entry_price": after.entry_price,
+            "size_before_usd": round(before.size_usd, 4),
+            "add_usd": round(add_usd, 4),
+            "size_after_usd": round(after.size_usd, 4),
+            "minutes_after_entry": round(after.duration_minutes(), 2),
+            "new_stop_pct_vs_avg": after.effective_stop_loss_pct,
+            "stop_mode": "BREAKEVEN_EXACT",
+        }
+        self._append_event(row)
+        return row
+
+    def record_scale_skip(
+        self, position: Position, reason: str, detail: str, price: float,
+        extra: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        row = {
+            "event": "SCALE_IN_SKIPPED",
+            "reason": reason,
+            "detail": detail,
+            "position_id": position.id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "token": position.symbol,
+            "token_address": position.token_address,
+            "mode": position.mode,
+            "trigger_pct": position.scale_in_trigger_pct,
+            "max_pct": position.scale_in_max_pct,
+            "initial_entry_price": position.entry_price,
+            "observed_price": price,
+            "observed_pnl_pct": round(position.pnl_pct(price), 3),
+            "pending_usd": round(position.scale_in_pending_usd, 4),
+            "minutes_after_entry": round(position.duration_minutes(), 2),
+        }
+        for key, value in (extra or {}).items():
+            row.setdefault(key, value)
+        self._append_event(row)
+        return row
+
+    def _append_event(self, row: dict[str, Any]) -> None:
+        with open(self.events_path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     def _append(self, row: dict[str, Any]) -> None:
         with open(self.path, "a", encoding="utf-8") as fh:
@@ -102,7 +233,7 @@ class TradeJournal:
         rows = []
         for line in self._iter_lines():
             try:
-                rows.append(json.loads(line))
+                rows.append(correct_legacy_cost(json.loads(line)))
             except json.JSONDecodeError:
                 continue
         return rows

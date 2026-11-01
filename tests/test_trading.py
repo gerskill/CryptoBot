@@ -253,7 +253,8 @@ class TestCoutJambePartielleEstime(unittest.TestCase):
         # Médiane mesurée 3 %, part vente seulement -> 1,5 %.
         self.assertEqual(rows[0]["exit_cost_pct"], 1.5)
         self.assertTrue(rows[0]["exit_cost_estimated"])
-        self.assertAlmostEqual(rows[0]["pnl_pct"], 98.5)
+        # Correctif 2026-10-24 : 1,5 % du notionnel revendu (x2) = 3 % de la mise.
+        self.assertAlmostEqual(rows[0]["pnl_pct"], 97.0)
 
     def test_sans_estimateur_le_comportement_dorigine_est_intact(self):
         """Aucune migration forcée : pas d'estimateur = prix nu, comme avant."""
@@ -293,7 +294,8 @@ class TestPaperPortfolioExitFeeMeasurer(unittest.TestCase):
         self.assertEqual(len(self.calls), 1)
         self.assertEqual(rows[0]["exit_cost_pct"], 10.0)
         self.assertEqual(rows[0]["exit_cost_partial"], False)
-        self.assertAlmostEqual(rows[0]["pnl_pct"], -50.0)
+        # Correctif 2026-10-24 : 10 % du notionnel revendu (x0,6) = 6 % de la mise.
+        self.assertAlmostEqual(rows[0]["pnl_pct"], -46.0)
 
     def test_jambe_partielle_tp1_ignore_le_measurer(self):
         def measurer(token_address, size_usd):
@@ -339,7 +341,7 @@ class TestPaperPortfolioExitFeeMeasurer(unittest.TestCase):
         row = portfolio.force_close(position.id, price=1.5, reason="PANIC_STOP")
 
         self.assertEqual(len(self.calls), 1)
-        self.assertAlmostEqual(row["pnl_pct"], 42.0)  # 50% nu - 8% de coût
+        self.assertAlmostEqual(row["pnl_pct"], 38.0)  # 50% nu - 8% x1,5 (coût ramené à la mise, 2026-10-24)
         self.assertEqual(row["exit_cost_pct"], 8.0)
         self.assertEqual(row["exit_cost_partial"], False)
 
@@ -417,8 +419,12 @@ class TestLearning(unittest.TestCase):
         self.assertEqual(self.params.get("filters.min_age_hours"), 0.5)
 
     def test_ajuste_lage_minimum_quand_le_segment_jeune_perd(self):
-        # 15 et non 12 : MIN_TRADES_PER_ARM impose un plancher par stratégie.
-        self._write_trades(15, pnl_pct=-25, age_hours=0.5)
+        # 50 : depuis le 2026-10-11, une famille ne s'ajuste qu'après
+        # LEARNING_CADENCE_TRADES trades clôturés du bras. Moitié de gagnants
+        # plus âgés : avec une fenêtre de backtest de 50, un filtre qui
+        # écarterait TOUS les trades serait annulé (trop restrictif).
+        self._write_trades(25, pnl_pct=-25, age_hours=0.5)
+        self._write_trades(25, pnl_pct=40, age_hours=2)
         changes = self.engine.run()
         self.assertEqual(self.params.get("filters.min_age_hours"), 1.0)
         self.assertTrue(any("min_age_hours" in c for c in changes))
@@ -434,7 +440,7 @@ class TestLearning(unittest.TestCase):
                         "l'attente doit être DITE, pas silencieuse")
 
     def test_cadence_ne_rejoue_pas_le_meme_palier(self):
-        self._write_trades(15, pnl_pct=-25, age_hours=0.5)
+        self._write_trades(50, pnl_pct=-25, age_hours=0.5)
         self.engine.run()
         first = self.params.get("filters.min_age_hours")
         self.engine.run()

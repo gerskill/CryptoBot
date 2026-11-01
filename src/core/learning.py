@@ -1,8 +1,10 @@
 """Auto-amélioration — étape 6 du workflow.
 
 Recalcule les statistiques après chaque trade clôturé, découpe l'historique en
-segments, puis ajuste les paramètres selon la cadence de la spec :
-filtres tous les 5 trades, poids et sorties tous les 10, risque tous les 20.
+segments, puis ajuste les paramètres LENTEMENT : chaque famille (filtres,
+poids, sorties, risque) au plus tous les `LEARNING_CADENCE_TRADES` (50) trades
+clôturés du bras, par petits pas (`MAX_STEP`). Avant le 2026-10-11 : filtres
+tous les 5 trades, poids et sorties tous les 10, risque tous les 20.
 
 GARDE-FOU CENTRAL : aucun ajustement sans `MIN_SEGMENT_SAMPLE` trades DANS LE
 SEGMENT concerné. Sans ça le bot sur-réagit au bruit.
@@ -22,10 +24,63 @@ MIN_SEGMENT_SAMPLE = 10
 # par le nombre de bras : sans ce plancher, chaque bras apprend plus vite et
 # plus faux qu'un bras unique ne le faisait.
 MIN_TRADES_PER_ARM = 15
-FILTER_CADENCE = 5
-WEIGHTS_CADENCE = 10
-EXIT_CADENCE = 10
-RISK_CADENCE = 20
+
+# APPRENTISSAGE LENT — décision du propriétaire du 2026-10-11. Mesuré sur
+# `baseline` du 4 au 11 octobre (~120 trades) : l'ancienne cadence (filtres
+# tous les 5 trades, poids/sorties tous les 10, risque tous les 20) a doublé
+# min_liquidity_usd (40 K -> 80 K) et take_profit_1 (75 -> 150) sans que le
+# PF ne bouge (0,59 avant comme après). Sur 10-15 trades à 20 % de réussite,
+# les écarts vus sont du bruit : le moteur courait après.
+#
+# Désormais : UNE famille (filtres, poids, sorties, risque) s'ajuste AU PLUS
+# tous les `LEARNING_CADENCE_TRADES` trades clôturés du bras, et jamais avant
+# que le bras en ait clôturé autant. Surchargeable par bras via
+# `learning.cadence_trades` dans son params.json (jamais sous
+# `MIN_LEARNING_CADENCE`).
+LEARNING_CADENCE_TRADES = 50
+MIN_LEARNING_CADENCE = 10
+FILTER_CADENCE = LEARNING_CADENCE_TRADES
+WEIGHTS_CADENCE = LEARNING_CADENCE_TRADES
+EXIT_CADENCE = LEARNING_CADENCE_TRADES
+RISK_CADENCE = LEARNING_CADENCE_TRADES
+
+# PETITS PAS — même décision. Un ajustement ne déplace un paramètre que d'au
+# plus max(relatif x |valeur courante|, absolu). Le pas s'applique AVANT les
+# garde-fous (bornes PARAM_BOUNDS, stop effectif, TP1 < TP2) : ceux-ci gardent
+# toujours le dernier mot. Vaut pour TOUS les écrivains, y compris
+# `_search_exits` (rejeu SL x TP1) qui sautait directement d'un point de grille
+# à un autre (75 -> 150 en un coup). Les planchers absolus des filtres
+# reprennent les pas de `RELAXATIONS` pour que les relâchements anti-famine
+# restent possibles.
+#   chemin : (relatif, absolu)
+MAX_STEP: dict[str, tuple[float, float]] = {
+    "exit_rules.take_profit_1": (0.0, 15.0),           # ±15 pts
+    "exit_rules.stop_loss_pct": (0.0, 2.0),            # ±2 pts
+    # Le tampon de glissement n'est PAS une variable de stratégie : c'est une
+    # mesure d'exécution, déjà encadrée par son propre cliquet
+    # (`MAX_BUFFER_RELAX_STEP`, plafond 15, garde-fou du stop effectif).
+    # Le brider ici retarderait une protection mesurée.
+    "exit_rules.stop_loss_slippage_buffer_pct": (0.0, float("inf")),
+    "exit_rules.max_hold_time_minutes": (0.0, 30.0),   # ±30 min
+    "exit_rules.trailing_stop_distance_pct": (0.0, 5.0),
+    # ±15 %, plancher 5 000 $ = le pas historique de RELAXATIONS, pour que le
+    # relâchement anti-famine d'un bras à 15 K reste possible.
+    "filters.min_liquidity_usd": (0.15, 5_000.0),
+    "filters.max_age_hours": (0.0, 2.0),               # ±2 h
+    "filters.min_age_hours": (0.0, 2.0),
+    "filters.min_holders": (0.10, 25.0),
+    "filters.min_volume_1h": (0.10, 2_000.0),
+    "filters.min_rugcheck_score": (0.10, 5.0),
+    "filters.max_top_wallet_concentration": (0.10, 5.0),
+    "filters.min_social_mentions_1h": (0.10, 5.0),
+    "filters.min_smart_money_buys_30min": (0.10, 1.0),
+    "scan.alpha_score_entry_threshold": (0.0, 2.5),
+    "risk_per_trade": (0.0, 0.005),
+}
+# Repli pour un paramètre numérique absent de la table : ±10 %.
+DEFAULT_MAX_STEP_REL = 0.10
+# Poids du score : ±0,02 par ajustement (au lieu de ±0,05).
+WEIGHT_MAX_STEP = 0.02
 
 # Un filtre dont plus de ce % des rejets aurait fait +100% coûte de l'argent.
 MISSED_RATE_RELAX_THRESHOLD = 25.0
@@ -73,7 +128,9 @@ RELAXATIONS = {
 INACTIVITY_CYCLES = 300
 
 # Étape 6.4 : un ajustement de filtres doit prouver son gain sur l'historique.
-BACKTEST_WINDOW = 20
+# Au moins une cadence d'apprentissage : on ne juge pas sur moins de trades
+# qu'on n'en attend entre deux ajustements.
+BACKTEST_WINDOW = LEARNING_CADENCE_TRADES
 BACKTEST_MIN_IMPROVEMENT = 0.10
 BACKTEST_MIN_KEPT = 5
 
@@ -318,6 +375,38 @@ class LearningEngine:
         """
         return MIN_EFFECTIVE_STOP_LOSS_PCT - other_value
 
+    def cadence(self) -> int:
+        """Trades clôturés entre deux ajustements d'une même famille."""
+        try:
+            value = int(self.params.get("learning.cadence_trades") or 0)
+        except (TypeError, ValueError):
+            value = 0
+        if value <= 0:
+            return LEARNING_CADENCE_TRADES
+        return max(MIN_LEARNING_CADENCE, value)
+
+    @staticmethod
+    def max_step(path: str, current: float) -> float:
+        """Amplitude max d'un ajustement de `path` depuis `current`."""
+        rel, absolute = MAX_STEP.get(path, (DEFAULT_MAX_STEP_REL, 0.0))
+        return max(rel * abs(current), absolute)
+
+    def _limit_step(self, path: str, value: float) -> float:
+        """Rapproche `value` de la valeur courante d'au plus un pas."""
+        current = self.params.get(path)
+        if not isinstance(current, (int, float)) or isinstance(current, bool):
+            return value
+        step = self.max_step(path, float(current))
+        if step <= 0:
+            return value
+        limited = max(current - step, min(current + step, value))
+        if abs(limited - value) > 1e-9:
+            print(
+                f"🧠 {path} : {current} → {value} limité à {limited} "
+                f"(pas max ±{step:g} par ajustement)"
+            )
+        return limited
+
     def _bounded_set(
         self, path: str, value: float, reason: str, sample: int
     ) -> Optional[str]:
@@ -326,6 +415,10 @@ class LearningEngine:
         if blocage:
             print(f"🧠 {blocage}")
             return None
+
+        # PETIT PAS d'abord, garde-fous ensuite : ces derniers (stop effectif,
+        # TP1 < TP2, PARAM_BOUNDS) doivent toujours avoir le dernier mot.
+        value = self._limit_step(path, value)
 
         # GARDE-FOU CROISÉ, ici pour de bon. `_recalibrate_slippage_buffer` et
         # la branche resserrage de `_adjust_exits` calculaient chacune leur
@@ -485,7 +578,7 @@ class LearningEngine:
                 else 0,
                 "win_rate_by_age": segment_stats(rows, "age_hours_at_entry", AGE_BUCKETS),
                 "win_rate_by_liquidity": segment_stats(rows, "liquidity_at_entry", LIQ_BUCKETS),
-                "win_rate_by_social_score": segment_stats(rows, "social_score", SOCIAL_BUCKETS),
+                "win_rate_by_social_score": segment_stats(rows, "entry_social_mentions_1h", SOCIAL_BUCKETS),
             }
         )
         self.params.set("learning", learning, log=False)
@@ -523,7 +616,8 @@ class LearningEngine:
                 f"tout ajustement sauf relâchements shadow et inactivité"
             ]
 
-        if self._due("filters", total, FILTER_CADENCE):
+        cadence = self.cadence()
+        if self._due("filters", total, cadence):
             # Photo des filtres AVANT ajustement : le backtest doit pouvoir
             # revenir en arrière si le changement n'améliore rien.
             previous_filters = self.params.get("filters", {})
@@ -536,9 +630,9 @@ class LearningEngine:
                 elif verdict:
                     print(f"🧠 BACKTEST | {verdict}")
             applied += filter_changes
-        if self._due("weights", total, WEIGHTS_CADENCE):
+        if self._due("weights", total, cadence):
             applied += self._adjust_weights(learning)
-        if self._due("exits", total, EXIT_CADENCE):
+        if self._due("exits", total, cadence):
             # Photo AVANT ajustement, comme pour les filtres : le rejeu doit
             # pouvoir revenir en arrière.
             previous_exits = self.params.get("exit_rules", {})
@@ -551,7 +645,7 @@ class LearningEngine:
                 elif verdict:
                     print(f"🧠 BACKTEST | {verdict}")
             applied += exit_changes
-        if self._due("risk", total, RISK_CADENCE):
+        if self._due("risk", total, cadence):
             applied += self._adjust_risk(learning, max_drawdown_pct)
         return applied
 
@@ -724,9 +818,9 @@ class LearningEngine:
         delta = 0.0
         reason = ""
         if strong and strong["sample"] >= MIN_SEGMENT_SAMPLE and strong["win_rate"] > 60:
-            delta, reason = 0.05, f"WR {strong['win_rate']}% quand le social est fort"
+            delta, reason = WEIGHT_MAX_STEP, f"WR {strong['win_rate']}% quand le social est fort"
         elif weak and weak["sample"] >= MIN_SEGMENT_SAMPLE and weak["win_rate"] < 30:
-            delta, reason = -0.05, f"WR {weak['win_rate']}% quand le social est faible"
+            delta, reason = -WEIGHT_MAX_STEP, f"WR {weak['win_rate']}% quand le social est faible"
         if delta == 0:
             return []
 
@@ -894,7 +988,7 @@ class LearningEngine:
     def _adjust_risk(self, learning: dict, max_drawdown_pct: float = 0.0) -> list[str]:
         """Étape 6.3.D — ajuste le risque par trade, jamais hors des bornes."""
         rows = self.journal.read_positions()
-        if len(rows) < RISK_CADENCE:
+        if len(rows) < self.cadence():
             return []
 
         wins = [r for r in rows if r.get("pnl_usd", 0) > 0]
@@ -943,7 +1037,8 @@ class LearningEngine:
                 filters.get("min_age_hours", 0) <= age <= filters.get("max_age_hours", 999)
             ):
                 continue
-            social = row.get("social_score")
+            # mentions X réelles ; social_score = liens (observation seule)
+            social = row.get("entry_social_mentions_1h")
             if social is not None and social < filters.get("min_social_mentions_1h", 0):
                 continue
             rugcheck = row.get("rugcheck_score")
