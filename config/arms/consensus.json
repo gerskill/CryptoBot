@@ -29,7 +29,7 @@
     "_note_gmgn": "Decouverte GMGN filtree cote serveur. Mesure 2026-08-01 : le flux DexScreener /token-profiles est de la promo payante, liquidite mediane 1634$. GMGN rend liquidite + holders + top10 + smart money en UN appel deja filtre, donc on n enrichit plus du dechet. 3 intervalles = 3 appels par cycle."
   },
   "filters": {
-    "min_liquidity_usd": 24000.0,
+    "min_liquidity_usd": 19000.0,
     "min_holders": 40,
     "min_volume_1h": 2000,
     "max_dev_wallet_pct": 10,
@@ -39,7 +39,7 @@
     "min_smart_money_buys_30min": 0,
     "max_tax_buy": 5,
     "max_tax_sell": 5,
-    "max_age_hours": 15.5,
+    "max_age_hours": 15.0,
     "min_age_hours": 3.0,
     "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose.",
     "max_bundler_rate": 0.5,
@@ -63,7 +63,8 @@
   },
   "exit_rules": {
     "stop_loss_pct": -21.0,
-    "take_profit_1": 40.0,
+    "take_profit_1": 15.0,
+    "breakeven_stop_exact": true,
     "take_profit_2": 250.0,
     "take_profit_3": 400,
     "breakeven_trigger": 100,
@@ -71,7 +72,7 @@
     "partial_sell_tp2_pct": 0.5,
     "trailing_stop_activation": 150.0,
     "trailing_stop_distance_pct": 80,
-    "max_hold_time_minutes": 480,
+    "max_hold_time_minutes": 570.0,
     "stop_loss_slippage_buffer_pct": 6.0,
     "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
   },
@@ -84,41 +85,41 @@
     "wallet_reliability": 0.08
   },
   "learning": {
-    "total_trades": 579,
-    "winning_trades": 116,
-    "losing_trades": 463,
-    "avg_win_pct": 57.9,
-    "avg_loss_pct": -25.11,
+    "total_trades": 728,
+    "winning_trades": 146,
+    "losing_trades": 582,
+    "avg_win_pct": 54.89,
+    "avg_loss_pct": -24.1,
     "win_rate_by_age": {
       "1-2h": {
         "win_rate": 16.9,
         "sample": 89
       },
       "4h+": {
-        "win_rate": 22.2,
-        "sample": 279
+        "win_rate": 21.8,
+        "sample": 390
       },
       "0-1h": {
         "win_rate": 7.7,
         "sample": 26
       },
       "2-4h": {
-        "win_rate": 20.0,
-        "sample": 185
+        "win_rate": 19.7,
+        "sample": 223
       }
     },
     "win_rate_by_liquidity": {
       "30-50K": {
-        "win_rate": 15.7,
-        "sample": 185
+        "win_rate": 15.8,
+        "sample": 234
       },
       ">50K": {
-        "win_rate": 24.3,
-        "sample": 292
+        "win_rate": 25.1,
+        "sample": 371
       },
       "10-30K": {
-        "win_rate": 15.7,
-        "sample": 102
+        "win_rate": 13.0,
+        "sample": 123
       }
     },
     "win_rate_by_social_score": {},
@@ -6662,13 +6663,93 @@
         },
         "reason": "backtest : P&L/trade -0.0055 → -0.1956, pas d'amélioration ≥ 10% — annulé",
         "trades_sample_size": 50
+      },
+      {
+        "timestamp": "2026-11-01T11:07:46.019263+00:00",
+        "param_name": "exit_rules.max_hold_time_minutes",
+        "old_value": 480,
+        "new_value": 510.0,
+        "reason": "22 trades gagnants coupés par le time stop",
+        "trades_sample_size": 22
+      },
+      {
+        "timestamp": "2026-11-01T11:07:46.589445+00:00",
+        "param_name": "exit_rules.take_profit_1",
+        "old_value": 40.0,
+        "new_value": 55.0,
+        "reason": "rejeu sur 100 positions : P&L/trade -2.8395 → -0.7743 (0 ambiguës)",
+        "trades_sample_size": 100
+      },
+      {
+        "timestamp": "2026-11-04T14:10:42.669914+00:00",
+        "param_name": "filters.max_age_hours",
+        "old_value": 15.5,
+        "new_value": 15.0,
+        "reason": "WR 21.6% sur tokens 4h+",
+        "trades_sample_size": 319
+      },
+      {
+        "timestamp": "2026-11-04T14:10:42.701462+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 24000.0,
+        "new_value": 29000.0,
+        "reason": "WR 13.8% sous 30K",
+        "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-11-04T14:15:22.515730+00:00",
+        "param_name": "exit_rules.max_hold_time_minutes",
+        "old_value": 510.0,
+        "new_value": 540.0,
+        "reason": "26 trades gagnants coupés par le time stop",
+        "trades_sample_size": 26
+      },
+      {
+        "timestamp": "2026-11-04T14:15:23.181320+00:00",
+        "param_name": "exit_rules.take_profit_1",
+        "old_value": 55.0,
+        "new_value": 40.0,
+        "reason": "rejeu sur 100 positions : P&L/trade -4.9749 → -2.0316 (17 ambiguës)",
+        "trades_sample_size": 100
+      },
+      {
+        "timestamp": "2026-11-08T20:30:08.202084+00:00",
+        "param_name": "exit_rules.max_hold_time_minutes",
+        "old_value": 540.0,
+        "new_value": 570.0,
+        "reason": "28 trades gagnants coupés par le time stop",
+        "trades_sample_size": 28
+      },
+      {
+        "timestamp": "2026-11-08T20:30:09.044486+00:00",
+        "param_name": "exit_rules.take_profit_1",
+        "old_value": 40.0,
+        "new_value": 50.0,
+        "reason": "rejeu sur 100 positions : P&L/trade -3.5107 → -1.6546 (14 ambiguës)",
+        "trades_sample_size": 100
+      },
+      {
+        "timestamp": "2026-11-15T16:42:37.995872+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 29000.0,
+        "new_value": 24000.0,
+        "reason": "inactif depuis 301 cycles sans entrée (seuil 300) — motif « liquidité N < N »",
+        "trades_sample_size": 301
+      },
+      {
+        "timestamp": "2026-11-15T17:22:51.512602+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 24000.0,
+        "new_value": 19000.0,
+        "reason": "inactif depuis 308 cycles sans entrée (seuil 300) — motif « liquidité N < N »",
+        "trades_sample_size": 308
       }
     ],
     "last_adjustment_at": {
-      "filters": 579,
-      "weights": 530,
-      "exits": 530,
-      "risk": 570
+      "filters": 679,
+      "weights": 680,
+      "exits": 680,
+      "risk": 720
     }
   },
   "risk_rules": {
