@@ -106,6 +106,21 @@ class TestMaterialisation(ArmsTestCase):
             document = json.load(fh)
         self.assertEqual(document["learning"], {})
 
+    def test_un_bras_recree_repart_du_plafond_15_pas_de_50(self):
+        # Les overrides ne servent qu'à la création. Sans 15 ici, effacer
+        # quality.json ou consensus.json reposerait 50, et la recherche ne
+        # pourrait plus le ramener : aucun point de la grille n'est dans [15, 15].
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, "config", "strategies.json"), encoding="utf-8") as fh:
+            arms = {entry["name"]: entry for entry in json.load(fh)["arms"]}
+        for nom in ("quality", "consensus"):
+            path = materialise_arm_params(nom, BASE, arms[nom]["overrides"])
+            with open(path, encoding="utf-8") as fh:
+                document = json.load(fh)
+            self.assertEqual(document["mode"], "PAPER")
+            self.assertEqual(document["exit_rules"]["take_profit_1"], 15)
+            self.assertFalse(document.get("live_mode_authorized_by_owner", False))
+
     def test_ne_regenere_jamais_un_fichier_existant(self):
         # Sinon chaque redémarrage effacerait ce que le bras a appris et les
         # overrides du manifeste deviendraient un plafond invisible.
@@ -525,6 +540,11 @@ class TestAucunBrasGele(ArmsTestCase):
 class TestManifesteLivre(unittest.TestCase):
     """Le manifeste réellement livré doit être cohérent."""
 
+    def _document(self, *parts):
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, *parts), encoding="utf-8") as fh:
+            return json.load(fh)
+
     def test_le_manifeste_du_depot_est_valide(self):
         arms = arm_module.load_manifest()
         actifs = [a for a in arms if a.get("enabled", True)]
@@ -533,6 +553,61 @@ class TestManifesteLivre(unittest.TestCase):
         consensus = [a for a in actifs if a.get("role") == "consensus"]
         for entry in consensus:
             self.assertGreaterEqual(entry.get("min_confluence", 0), 2)
+
+    def test_quality_et_consensus_plafonnent_take_profit_1_a_15(self):
+        # Plafond, pas plancher : la borne globale est déjà (30, 300). [15, 15]
+        # empêche le rejeu de reposer 40, 50, 75, 100 ou 150.
+        arms = {a["name"]: a for a in arm_module.load_manifest()}
+        for nom in ("quality", "consensus"):
+            self.assertEqual(
+                arms[nom]["bounds"]["exit_rules.take_profit_1"], [15, 15]
+            )
+        self.assertEqual(
+            arms["scalp"]["bounds"]["exit_rules.take_profit_1"], [15, 80]
+        )
+        self.assertEqual(
+            arms["sniper"]["bounds"]["exit_rules.take_profit_1"], [20, 120]
+        )
+        self.assertEqual(arms["quality"]["overrides"]["exit_rules.take_profit_1"], 15)
+        self.assertEqual(arms["consensus"]["overrides"]["exit_rules.take_profit_1"], 15)
+        self.assertEqual(arms["scalp"]["overrides"]["exit_rules.take_profit_1"], 25)
+        self.assertEqual(arms["sniper"]["overrides"]["exit_rules.take_profit_1"], 40)
+        self.assertEqual(arms["runner"]["overrides"]["exit_rules.take_profit_1"], 150)
+        self.assertEqual(arms["narrative"]["overrides"]["exit_rules.take_profit_1"], 80)
+        for nom in ("baseline", "runner", "narrative", "sniper_young"):
+            self.assertNotIn(
+                "exit_rules.take_profit_1", arms[nom].get("bounds") or {}
+            )
+
+    def test_seuls_quality_et_consensus_sont_deja_a_15_en_paper(self):
+        for nom in ("quality", "consensus"):
+            document = self._document("config", "arms", f"{nom}.json")
+            self.assertEqual(document["mode"], "PAPER")
+            self.assertFalse(document.get("live_mode_authorized_by_owner", False))
+            self.assertEqual(document["exit_rules"]["take_profit_1"], 15.0)
+            dernier = next(
+                entry
+                for entry in reversed(
+                    document["learning"]["parameter_adjustment_history"]
+                )
+                if entry["param_name"] == "exit_rules.take_profit_1"
+            )
+            self.assertEqual(dernier["new_value"], 15.0)
+            self.assertEqual(dernier["trades_sample_size"], 0)
+
+        # Les autres bras gardent le take profit qu'ils avaient avant ce plafond.
+        intact = {
+            ("config", "params.json"): 100.0,
+            ("config", "arms", "scalp.json"): 25.0,
+            ("config", "arms", "sniper.json"): 25.0,
+            ("config", "arms", "sniper_young.json"): 40.0,
+            ("config", "arms", "runner.json"): 75.0,
+            ("config", "arms", "narrative.json"): 80,
+        }
+        for parts, attendu in intact.items():
+            document = self._document(*parts)
+            self.assertEqual(document["mode"], "PAPER")
+            self.assertEqual(document["exit_rules"]["take_profit_1"], attendu)
 
 
 if __name__ == "__main__":

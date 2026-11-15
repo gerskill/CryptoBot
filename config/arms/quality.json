@@ -76,7 +76,7 @@
   },
   "exit_rules": {
     "stop_loss_pct": -17.6,
-    "take_profit_1": 40.0,
+    "take_profit_1": 15.0,
     "take_profit_2": 250.0,
     "take_profit_3": 400,
     "breakeven_trigger": 100,
@@ -5133,6 +5133,14 @@
         "new_value": 30000,
         "reason": "WR 20.0% sous 30K",
         "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-11-15T13:43:49.545500+00:00",
+        "param_name": "exit_rules.take_profit_1",
+        "old_value": 40.0,
+        "new_value": 15.0,
+        "reason": "plafond propriétaire à 15 % : l'apprentissage ne doit pas restaurer les anciens take_profit_1 plus hauts. Borne [15, 15] pour quality et consensus seulement.",
+        "trades_sample_size": 0
       }
     ],
     "total_trades": 245,

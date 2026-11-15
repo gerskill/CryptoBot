@@ -161,6 +161,12 @@
       "capital_pct": 0.0526,
       "notify": "none",
       "description": "4h a 24h, selection stricte. La tranche 2-4h est la SEULE rentable du journal (+2.95 $/trade, WR 33%, pic median +28%). Ce bras teste si aller plus loin dans l'age garde cet avantage, avec la liquidite que seul l'age permet.",
+      "bounds": {
+        "exit_rules.take_profit_1": [
+          15,
+          15
+        ]
+      },
       "overrides": {
         "filters.min_liquidity_usd": 40000,
         "filters.min_volume_1h": 20000,
@@ -172,7 +178,7 @@
         "filters.max_age_hours": 24.0,
         "scan.alpha_score_entry_threshold": 70,
         "exit_rules.stop_loss_pct": -25,
-        "exit_rules.take_profit_1": 50,
+        "exit_rules.take_profit_1": 15,
         "exit_rules.take_profit_2": 150,
         "exit_rules.take_profit_3": 400,
         "exit_rules.trailing_stop_activation": 100,
@@ -255,6 +261,12 @@
       "notify": "exits",
       "description": "N'entre que si au moins min_confluence bras VOTERS acceptent le token. Son propre vote ne compte pas, sinon la regle est auto-referentielle. Fenetre large expres : il doit pouvoir suivre n'importe quel bras.",
       "min_confluence": 2,
+      "bounds": {
+        "exit_rules.take_profit_1": [
+          15,
+          15
+        ]
+      },
       "overrides": {
         "filters.min_liquidity_usd": 4000,
         "filters.min_volume_1h": 2000,
@@ -263,7 +275,7 @@
         "filters.max_age_hours": 24.0,
         "scan.alpha_score_entry_threshold": 65,
         "exit_rules.stop_loss_pct": -25,
-        "exit_rules.take_profit_1": 50,
+        "exit_rules.take_profit_1": 15,
         "exit_rules.take_profit_2": 150,
         "exit_rules.take_profit_3": 400,
         "exit_rules.trailing_stop_activation": 100,
