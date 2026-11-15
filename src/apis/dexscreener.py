@@ -24,6 +24,16 @@ REQUEST_TIMEOUT = 10
 MAX_RETRIES = 3
 
 
+def _opt_price(value: Any) -> Optional[float]:
+    """None reste None. 0 n'est pas inventé pour combler un champ absent."""
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _f(value: Any, default: float = 0.0) -> float:
     """Cast float tolérant (DexScreener renvoie None / str selon les champs)."""
     try:
@@ -108,6 +118,51 @@ class DexScreenerAPI:
                 if address:
                     out.setdefault(address, []).append(pair)
         return out
+
+    def try_tokens_snapshot(
+        self, addresses: Iterable[str]
+    ) -> Optional[dict[str, tuple[Optional[float], Optional[float]]]]:
+        """Un lot, sans attente et sans nouvel essai.
+
+        Pour le journal de recherche, hors de la boucle. `None` si le
+        limiteur partagé n'a pas de place : on ne bloque pas le scan.
+        Un prix ou une liquidité absents restent `None`, jamais 0.
+        """
+        unique = list(dict.fromkeys(a for a in addresses if a))[:MAX_ADDRESSES_PER_BATCH]
+        if not unique:
+            return {}
+        if not self.rl_data.acquire(timeout=0):
+            return None
+        url = f"{BASE_URL}/latest/dex/tokens/{','.join(unique)}"
+        try:
+            response = self.session.get(url, timeout=REQUEST_TIMEOUT)
+            self.request_count += 1
+        except requests.exceptions.RequestException:
+            return {}
+        if response.status_code != 200:
+            return {}
+        try:
+            data = response.json()
+        except ValueError:
+            return {}
+        found: dict[str, tuple[Optional[float], Optional[float]]] = {
+            address: (None, None) for address in unique
+        }
+        for pair in (data or {}).get("pairs") or []:
+            address = (pair.get("baseToken") or {}).get("address")
+            if address not in found:
+                continue
+            price = pair.get("priceUsd")
+            raw_liq = (pair.get("liquidity") or {}).get("usd") if isinstance(pair.get("liquidity"), dict) else None
+            prev_price, prev_liq = found[address]
+            price_f = _opt_price(price)
+            liq_f = _opt_price(raw_liq)
+            # Garder la paire qui a déjà un prix ; ne pas remplacer par un trou.
+            if prev_price is None and price_f is not None:
+                found[address] = (price_f, liq_f if liq_f is not None else prev_liq)
+            elif prev_liq is None and liq_f is not None and prev_price is not None:
+                found[address] = (prev_price, liq_f)
+        return found
 
     def get_token_data(self, token_address: str, chain: Optional[str] = None) -> list[dict[str, Any]]:
         """Données d'un token unique, optionnellement filtrées par chaîne."""

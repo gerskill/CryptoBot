@@ -71,6 +71,7 @@ from src.core.params import ParamsStore
 from src.core.portfolio import MAX_POSITION_PCT_OF_CAPITAL
 from src.core.positions import RUG_LIQUIDITY_DROP_PCT
 from src.core.quota_agent import QuotaAgent
+from src.core.research_log import ResearchJournal
 from src.core.pricefeed import (
     MONITOR_BUDGET_PER_MIN,
     CycleMarketCache,
@@ -424,6 +425,7 @@ class AlphaLoop:
                         arm.name, evaluation, arm.entry_threshold
                     )
                     self._try_entries(evaluation, arm, self._last_confluence)
+        self._record_research()
         self.funnel.flush()
 
         # APRÈS le flush : le relâchement lit l'entonnoir, y compris les lignes
@@ -1538,6 +1540,9 @@ class AlphaLoop:
         est une hypothèse documentée (le budget de CU du priority fee).
         """
         sol_price = self.jupiter.price(SOL_MINT) or 0.0
+        note = getattr(self, "_note_sol", None)
+        if note is not None:
+            note(sol_price)
         return measure_exit_cost(self.jupiter, self.helius, token_address, size_usd, sol_price)
 
     def _economics_guard(
@@ -1561,6 +1566,9 @@ class AlphaLoop:
         # sur un token dont on ne peut pas sortir. Aucun wallet requis — c'est
         # un devis dans le sens vente.
         sol_price = self.jupiter.price(SOL_MINT) or 0.0
+        note = getattr(self, "_note_sol", None)
+        if note is not None:
+            note(sol_price)
         vendable, pourquoi = self.jupiter.sellable(
             candidate.token_address, size_usd, sol_price
         )
@@ -1629,18 +1637,29 @@ class AlphaLoop:
         # moins fiables — et le faisait jusqu'ici en silence.
         interval = self.params.get("entry_rules.ohlcv_interval", "1m")
         candles = None
+        kline_source = None
         if self.gmgn and self.gmgn.enabled:
             rows = self.gmgn.kline(
                 candidate.token_address, resolution=interval, lookback_seconds=3600
             )
             if rows:
                 candles = from_gmgn_kline(rows)
+                kline_source = "gmgn"
         if candles is None and self.birdeye.enabled:
             ohlcv = self.birdeye.get_ohlcv(
                 candidate.token_address, interval=interval, lookback_seconds=3600
             )
             if ohlcv:
                 candles = from_ohlcv(ohlcv)
+                kline_source = "birdeye"
+        if candles is not None and kline_source:
+            # Déjà lues pour l'analyse technique : on les garde, sans nouvel appel.
+            try:
+                journal = self._research()
+                if journal is not None:
+                    journal.note_klines(candidate.token_address, candles, kline_source)
+            except Exception:
+                pass
         if candles is None:
             print(f"     📉 aucune bougie réelle pour {candidate.symbol} — "
                   f"structure jugée sur des snapshots reconstruits")
@@ -1778,6 +1797,12 @@ class AlphaLoop:
         # `position.size_usd` = taille réellement engagée (== `size` pour
         # tous les bras sauf entrée progressive, où c'est la fraction initiale).
         self.funnel.record(*trace, "entree", True, "", {"size_usd": position.size_usd})
+        try:
+            journal = self._research()
+            if journal is not None:
+                journal.note_entered(candidate.token_address)
+        except Exception:
+            pass
         self._measure_entry(position, candidate)
         cost = (verdict or {}).get("round_trip_pct")
         frais = f" | frais A/R {cost:.1f}%" if cost is not None else ""
@@ -1793,6 +1818,54 @@ class AlphaLoop:
             + f"| Entry ${position.entry_price:.8f} | SL {position.stop_loss_pct}% "
             f"| TP1 +{position.take_profit_1}%{frais}"
         )
+
+    def _research(self):
+        """Journal de recherche, démarré au premier besoin. Jamais une décision."""
+        journal = getattr(self, "_research_journal", None)
+        if journal is not None or getattr(self, "_research_failed", False):
+            return journal
+        try:
+            dex = getattr(self, "dex", None)
+            fetch = getattr(dex, "try_tokens_snapshot", None) if dex is not None else None
+            journal = ResearchJournal.load(settings.BASE_DIR, fetch=fetch)
+            self._research_journal = journal
+            journal.start()
+            return journal
+        except Exception as exc:
+            self._research_failed = True
+            print(f"[Research] ⚠️ journal non démarré — {type(exc).__name__}")
+            return None
+
+    def _note_sol(self, price: float) -> None:
+        if not price:
+            return
+        try:
+            journal = self._research()
+            if journal is not None:
+                journal.note_sol(price)
+        except Exception:
+            pass
+
+    def _record_research(self) -> None:
+        """Une ligne par jeton évalué. Les données sont déjà là : aucun appel."""
+        try:
+            journal = self._research()
+            if journal is None or not journal.enabled:
+                return
+            gmgn = getattr(self, "gmgn", None)
+            snap = getattr(gmgn, "_smart_money_snapshot", None) if gmgn is not None else None
+            trades = snap[1] if snap else None
+            onchain = getattr(self, "onchain", None)
+            journal.record_cycle(
+                cycle_id=self.cycle_count,
+                evaluations=getattr(self, "_last_evaluations", {}) or {},
+                thresholds={arm.name: arm.entry_threshold for arm in self.arms},
+                funnel_rows=list(self.funnel.rows),
+                onchain_lookup=onchain.snapshot if onchain is not None else None,
+                trades=trades,
+            )
+        except Exception as exc:
+            print(f"[Research] ⚠️ cycle non journalisé — {type(exc).__name__}")
 
     def _run_agents(self, essais, symbol: str) -> None:
         """Exécute des mesures en isolant les pannes.
