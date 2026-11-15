@@ -1,0 +1,2 @@
+- **2026-11-05 17:13** — Correctif PnL rug : coût de sortie plafonné à 100 % du revendu + plancher −100 % à la lecture du journal (going/up tp1_30 −231,7 % → −100 %). Bras tp1_*, scaled_be, score_v2 : learning=false volontaire (tests figés), non modifié — à décider avec Killian. Backup `20261105-171123-pre-learn-rug-fix`, pid 81837.
+- **2026-11-05** — Chainstack Solana mainnet Elastic node (Developer) branché : CHAINSTACK_RPC_URL dans .env ; utilisé par copy_smart + onchain_antirug. Helius inchangé. Token jamais affiché.

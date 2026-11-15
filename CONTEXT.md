@@ -50,6 +50,15 @@ Un candidat **rejeté**, suivi pendant 4 h pour mesurer ce qu'il serait devenu.
 Trade fictif : pas de slippage, et une entrée réelle aurait bougé le prix.
 Sert à arbitrer des **seuils**, jamais à mesurer une performance. Voir ADR 007.
 
+### Suivi apparié sans breakeven indépendant
+Mesure prospective, papier, branchée en lecture sur une position **déjà
+ouverte**. Elle rejoue les mêmes entrées, tailles et prix, avec une seule
+différence : `breakeven_trigger` est coupé. Le stop armé par un TP1 et le
+stop réinitialisé par l'ajout de `scaled_be` restent. L'étiquette
+`BREAKEVEN_STOP` du journal réel mélange ces trois origines ; le suivi les
+sépare. Ce n'est pas un bras, pas un capital, et pas une performance de
+portefeuille. Voir ADR 013.
+
 ### Famille de rejet
 Regroupement des motifs de rejet (`liquidity`, `holders`, `concentration`,
 `rugcheck`, `social`…) utilisé par l'apprentissage pour savoir quel paramètre
