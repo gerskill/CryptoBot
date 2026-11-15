@@ -1045,10 +1045,11 @@ class AlphaLoop:
         """
         # Les bras de test (role "test") sont exclus : ils ne doivent pas
         # consommer le plafond sectoriel des bras existants.
-        return correlation.measure([
-            p for arm in self.arms if not getattr(arm, "is_test", False)
-            for p in arm.portfolio.positions.values()
-        ])
+        with _books_lock(self):
+            return correlation.measure([
+                p for arm in self.arms if not getattr(arm, "is_test", False)
+                for p in arm.portfolio.positions.values()
+            ])
 
     def _monitor_positions(self, verbose: bool = True) -> None:
         """Un prix par PAIRE distincte, partagé par toutes les stratégies.
@@ -1222,17 +1223,43 @@ class AlphaLoop:
         if gmgn_ok:
             trades.extend(self.pipeline.gmgn.fetch_smart_money_trades() or [])
         if self.copy_manual:
-            trades.extend(self.copy_watcher.trades(self.copy_manual))
+            # Lecture du cache seulement (liste vide = pas de relève) : la
+            # relève RPC tourne dans son propre fil, voir `_poll_manual_wallets`.
+            trades.extend(self.copy_watcher.trades(()))
         elif not gmgn_ok:
             return None
         return trades
 
+    def _poll_manual_wallets(self) -> None:
+        """Relève RPC des wallets manuels dans un fil à part, jamais bloquante.
+
+        Jusqu'à 15 signatures par wallet, un `getTransaction` chacune, 8 s de
+        délai max par appel : faite dans le tick de surveillance, elle pouvait
+        retarder SL, TP et détection de rug de toutes les positions. Le tick
+        lit le cache ; la relève suivante part quand la précédente a fini.
+        """
+        fil = getattr(self, "_manual_poll_thread", None)
+        if fil is not None and fil.is_alive():
+            return
+        if time.time() - getattr(self.copy_watcher, "_last_poll", 0.0) < getattr(
+            self.copy_watcher, "poll_sec", 60.0
+        ):
+            return
+        fil = threading.Thread(
+            target=self.copy_watcher.trades,
+            args=(list(self.copy_manual),),
+            name="copy-manual-poll",
+            daemon=True,
+        )
+        self._manual_poll_thread = fil
+        fil.start()
+
     def _watch_copy_sells(self) -> None:
         """Sortie du bras `copy_smart` dès qu'un wallet copié revend le token."""
         if self.copy_manual:
-            # Lecture des wallets manuels à CHAQUE cycle (throttle 60 s), même
+            # Lecture des wallets manuels à CHAQUE tick (throttle 60 s), même
             # quand aucun candidat n'atteint la porte de copie.
-            self.copy_watcher.trades(self.copy_manual)
+            self._poll_manual_wallets()
         for arm in self.arms:
             if not arm.params.get("entry_rules.copy_smart_enabled", False):
                 continue
@@ -1742,25 +1769,28 @@ class AlphaLoop:
             # avant l'analyse technique coûteuse. Le verdict définitif est
             # rejoué dans `_open_position` — chemin unique non contournable.
             sector = correlation.classify(candidate.symbol, candidate.name)
-            early_reject = pre_trade_check(
-                mode=self.mode,
-                candidate=candidate,
-                portfolio=arm.portfolio,
-                max_positions=max_positions,
-                fleet_exposure=self._fleet_exposure(),
-                size_usd=arm.portfolio.capital * MAX_POSITION_PCT_OF_CAPITAL,
-                max_sector_positions=self.max_sector_positions,
-                max_sector_exposure_pct=self.max_sector_exposure_pct,
-                live_allowed=(
-                    self.learning.live_mode_allowed()
-                    if self.mode == "LIVE" and self.learning is not None
-                    else None
-                ),
-                risk_rules=self.params.get("risk_rules") or {},
-                max_score_alpha=arm.params.get("entry_rules.max_score_alpha"),
-                max_volume_liquidity_ratio=arm.params.get("entry_rules.max_volume_liquidity_ratio"),
-                require_market_data=False,
-            )
+            # Sous le verrou des livres : le fil de surveillance peut fermer une
+            # position pendant ce contrôle (itération de `positions`).
+            with _books_lock(self):
+                early_reject = pre_trade_check(
+                    mode=self.mode,
+                    candidate=candidate,
+                    portfolio=arm.portfolio,
+                    max_positions=max_positions,
+                    fleet_exposure=self._fleet_exposure(),
+                    size_usd=arm.portfolio.capital * MAX_POSITION_PCT_OF_CAPITAL,
+                    max_sector_positions=self.max_sector_positions,
+                    max_sector_exposure_pct=self.max_sector_exposure_pct,
+                    live_allowed=(
+                        self.learning.live_mode_allowed()
+                        if self.mode == "LIVE" and self.learning is not None
+                        else None
+                    ),
+                    risk_rules=self.params.get("risk_rules") or {},
+                    max_score_alpha=arm.params.get("entry_rules.max_score_alpha"),
+                    max_volume_liquidity_ratio=arm.params.get("entry_rules.max_volume_liquidity_ratio"),
+                    require_market_data=False,
+                )
             self.funnel.record(
                 *trace, "pre_trade", not early_reject, early_reject or "",
                 {"sector": sector, "phase": "early"},
@@ -2026,29 +2056,32 @@ class AlphaLoop:
         if size <= 0:
             economics_reject = (verdict or {}).get("reason") or "économie non viable"
 
-        reject = pre_trade_check(
-            mode=self.mode,
-            candidate=candidate,
-            portfolio=arm.portfolio,
-            max_positions=arm.max_positions,
-            fleet_exposure=self._fleet_exposure(),
-            size_usd=size if size > 0 else arm.portfolio.capital * MAX_POSITION_PCT_OF_CAPITAL,
-            max_sector_positions=self.max_sector_positions,
-            max_sector_exposure_pct=self.max_sector_exposure_pct,
-            economics_reject=economics_reject,
-            live_allowed=(
-                self.learning.live_mode_allowed()
-                if self.mode == "LIVE" and self.learning is not None
-                else None
-            ),
-            jupiter_ok=jupiter_ok,
-            sellable=sellable,
-            price_ok=price_ok,
-            risk_rules=self.params.get("risk_rules") or {},
-            max_score_alpha=arm.params.get("entry_rules.max_score_alpha"),
-            max_volume_liquidity_ratio=arm.params.get("entry_rules.max_volume_liquidity_ratio"),
-            require_market_data=True,
-        )
+        # Sous le verrou des livres : le fil de surveillance peut fermer une
+        # position pendant ce contrôle (itération de `positions`).
+        with _books_lock(self):
+            reject = pre_trade_check(
+                mode=self.mode,
+                candidate=candidate,
+                portfolio=arm.portfolio,
+                max_positions=arm.max_positions,
+                fleet_exposure=self._fleet_exposure(),
+                size_usd=size if size > 0 else arm.portfolio.capital * MAX_POSITION_PCT_OF_CAPITAL,
+                max_sector_positions=self.max_sector_positions,
+                max_sector_exposure_pct=self.max_sector_exposure_pct,
+                economics_reject=economics_reject,
+                live_allowed=(
+                    self.learning.live_mode_allowed()
+                    if self.mode == "LIVE" and self.learning is not None
+                    else None
+                ),
+                jupiter_ok=jupiter_ok,
+                sellable=sellable,
+                price_ok=price_ok,
+                risk_rules=self.params.get("risk_rules") or {},
+                max_score_alpha=arm.params.get("entry_rules.max_score_alpha"),
+                max_volume_liquidity_ratio=arm.params.get("entry_rules.max_volume_liquidity_ratio"),
+                require_market_data=True,
+            )
         self.funnel.record(
             *trace, "pre_trade", reject is None, reject or "",
             {"phase": "open", "size_usd": size},
