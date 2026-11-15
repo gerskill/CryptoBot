@@ -208,52 +208,6 @@
       }
     },
     {
-      "name": "narrative",
-      "role": "voter",
-      "enabled": false,
-      "capital_pct": 0.05,
-      "notify": "none",
-      "description": "Memecoins ETABLIS, aucun plafond d'age. MESURE 2026-08-01 : les seuils du guide (MCAP>=500K, liq>=100K, swaps>=150, top10<18%) rendent 26 tokens SANS contrainte d'age, 1 seul a moins de 24h, 0 a moins de 6h. Ce n'est pas du sniping de lancement, c'est du suivi de narratif : on achete une communaute qui monte et on tient. Hold en heures, pas en minutes, et stop large car ces tokens respirent.",
-      "bounds": {
-        "exit_rules.stop_loss_pct": [
-          -50,
-          -20
-        ],
-        "exit_rules.max_hold_time_minutes": [
-          240,
-          4320
-        ]
-      },
-      "overrides": {
-        "filters.min_liquidity_usd": 100000,
-        "filters.min_volume_1h": 50000,
-        "filters.min_market_cap": 500000,
-        "filters.min_holders": 500,
-        "filters.min_swaps": 150,
-        "filters.max_top_wallet_concentration": 18,
-        "filters.min_age_hours": 6.0,
-        "filters.max_age_hours": 99999,
-        "filters.max_bundler_rate": 0.25,
-        "filters.max_insider_rate": 0.15,
-        "filters.reject_wash_trading": true,
-        "filters.reject_creator_sold": true,
-        "filters.require_social": true,
-        "filters.min_liquidity_growth_ratio": 1.5,
-        "filters.max_drawdown_from_ath_pct": 60,
-        "filters.max_price_change_1h": 60,
-        "scan.alpha_score_entry_threshold": 70,
-        "exit_rules.stop_loss_pct": -30,
-        "exit_rules.take_profit_1": 80,
-        "exit_rules.take_profit_2": 250,
-        "exit_rules.take_profit_3": 600,
-        "exit_rules.trailing_stop_activation": 120,
-        "exit_rules.trailing_stop_distance_pct": 40,
-        "exit_rules.max_hold_time_minutes": 1440,
-        "risk_rules.max_concurrent_positions": 1
-      },
-      "disabled_reason": "2026-08-03 : seul bras dont l IC95 du P&L/trade exclut zero, du mauvais cote. 4 trades, WR 0 %, PF 0.00, -8.94 $/trade, IC95 [-11.54 .. -7.56] vs temoin -> verdict « inferieur ». Les six autres bras sont indistinguables du temoin ; celui-ci est le seul sur lequel les donnees autorisent une decision."
-    },
-    {
       "name": "consensus",
       "role": "consensus",
       "enabled": true,

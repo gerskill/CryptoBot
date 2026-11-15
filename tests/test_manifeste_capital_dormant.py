@@ -6,9 +6,11 @@ le manifeste avait dérivé, si bien qu'un simple `enabled: true` — un geste s
 rapport apparent avec l'allocation — faisait échouer le démarrage sur un
 `ManifestError` déroutant.
 
-Constaté le 2026-08-30 : total 1,05, `narrative` (0,05) éteint depuis le
-2026-08-03, `sniper_young` (0,10525) ajouté le 2026-08-09 sans rééquilibrage.
-Le dépôt ne démarrait que parce que `narrative` restait éteint.
+Constaté le 2026-08-30 : le total du fichier dépassait 1,0 parce qu'un bras
+éteint gardait une part, pendant que `sniper_young` (0,10525), ajouté le
+2026-08-09, n'avait pas été rééquilibré. Le dépôt démarrait quand même.
+Ce bras a depuis été retiré du manifeste : le fichier du dépôt somme à 1,0.
+L'avertissement, lui, reste, verrouillé ici sur des manifestes synthétiques.
 """
 
 import io
@@ -71,12 +73,12 @@ class TestCapitalDesBrasDormants(unittest.TestCase):
     def test_avertit_quand_reactiver_un_bras_casserait_le_demarrage(self):
         self._manifest([
             {"name": "baseline", "capital_pct": 1.0},
-            {"name": "narrative", "capital_pct": 0.05, "enabled": False},
+            {"name": "retire", "capital_pct": 0.05, "enabled": False},
         ])
         arms, sortie = self._bootstrap()
 
         self.assertEqual([a.name for a in arms], ["baseline"])
-        self.assertIn("narrative", sortie)
+        self.assertIn("retire", sortie)
         self.assertIn("1.05", sortie)
 
     def test_ne_dit_rien_quand_le_manifeste_entier_somme_a_un(self):
@@ -84,7 +86,7 @@ class TestCapitalDesBrasDormants(unittest.TestCase):
         Avertir là-dessus apprendrait à ignorer l'avertissement."""
         self._manifest([
             {"name": "baseline", "capital_pct": 1.0},
-            {"name": "narrative", "capital_pct": 0.0, "enabled": False},
+            {"name": "retire", "capital_pct": 0.0, "enabled": False},
         ])
         _, sortie = self._bootstrap()
         self.assertNotIn("⚠️", sortie)
@@ -100,14 +102,17 @@ class TestCapitalDesBrasDormants(unittest.TestCase):
         self._manifest([
             {"name": "baseline", "capital_pct": 0.8},
             {"name": "runner", "capital_pct": 0.5},
-            {"name": "narrative", "capital_pct": 0.3, "enabled": False},
+            {"name": "retire", "capital_pct": 0.3, "enabled": False},
         ])
         with self.assertRaises(ManifestError):
             bootstrap_arms(with_journals=False)
 
     def test_le_manifeste_reel_du_depot_est_dans_ce_cas(self):
-        """Le constat qui a motivé ce garde-fou, verrouillé sur le vrai
-        fichier : si quelqu'un rééquilibre les parts, ce test le dira."""
+        """Le fichier commité somme à 1,0, actifs compris.
+
+        L'écart du 2026-08-30 (total > 1 à cause d'un bras éteint) est clos :
+        il n'y a plus de part dormante dans le manifeste. Si quelqu'un
+        réintroduit un écart, ce test le dira."""
         # Chemin dérivé du dépôt, PAS de `settings` : d'autres modules de test
         # laissent `STRATEGIES_PATH` pointé sur leur répertoire temporaire, et
         # ce test doit lire le vrai manifeste quel que soit l'ordre d'exécution.
@@ -122,7 +127,7 @@ class TestCapitalDesBrasDormants(unittest.TestCase):
         total_tous = sum(a.get("capital_pct", 0) for a in arms)
 
         self.assertAlmostEqual(total_actifs, 1.0, places=6)
-        self.assertGreater(total_tous, 1.0)
+        self.assertAlmostEqual(total_tous, 1.0, places=6)
 
 
 if __name__ == "__main__":

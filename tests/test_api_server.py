@@ -10,8 +10,8 @@ une capture d'écran envoyée par l'utilisateur. En creusant :
   2. `/api/trades?arm=all` faisait la même chose pour reconstruire la courbe :
      `limit=100` sur 210+ trades réels, donc les ~110 plus anciens
      n'existaient pas pour le calcul cumulatif.
-  3. `arm=all` mélangeait des bras DÉSACTIVÉS (`narrative`, 4 trades réels sur
-     disque) alors qu'ils sont invisibles partout ailleurs dans le dashboard
+  3. `arm=all` mélangeait des bras DÉSACTIVÉS (4 trades réels sur disque)
+     alors qu'ils sont invisibles partout ailleurs dans le dashboard
      — `load_manifest()` ne filtre pas `enabled`, contrairement à
      `bootstrap_arms()`.
 """
@@ -123,18 +123,18 @@ class TestTradesEquitySeries(ApiTestCase):
         self.assertAlmostEqual(sum(reponse["equity_series"]), 150.0)
 
     def test_un_bras_desactive_est_exclu_de_arm_all(self):
-        """`narrative` avait 4 trades réels sur disque et restait invisible
-        partout ailleurs dans le dashboard — sauf ici, où il se glissait dans
-        la courbe et le tableau."""
+        """Un bras désactivé avait 4 trades réels sur disque et restait
+        invisible partout ailleurs dans le dashboard — sauf ici, où il se
+        glissait dans la courbe et le tableau."""
         self._manifest([
             {"name": "baseline", "capital_pct": 0.7},
-            {"name": "narrative", "capital_pct": 0.3, "enabled": False},
+            {"name": "retire", "capital_pct": 0.3, "enabled": False},
         ])
         self._ecrire_jsonl(settings.TRADES_LOG_PATH, [
             self._trade("b1", None, "2026-01-01T00:00:00", 5.0),
         ])
-        narrative_path = settings.arm_paths("narrative")["trades"]
-        self._ecrire_jsonl(narrative_path, [
+        retire_path = settings.arm_paths("retire")["trades"]
+        self._ecrire_jsonl(retire_path, [
             self._trade("n1", None, "2026-01-01T00:01:00", 999.0),
         ])
 
@@ -146,16 +146,16 @@ class TestTradesEquitySeries(ApiTestCase):
 
     def test_un_bras_desactive_reste_interrogeable_directement(self):
         """Exclu de `arm=all`, mais toujours consultable par son nom : les
-        données de `narrative` restent réelles, pas supprimées."""
+        données d'un bras désactivé restent réelles, pas supprimées."""
         self._manifest([
             {"name": "baseline", "capital_pct": 0.7},
-            {"name": "narrative", "capital_pct": 0.3, "enabled": False},
+            {"name": "retire", "capital_pct": 0.3, "enabled": False},
         ])
-        narrative_path = settings.arm_paths("narrative")["trades"]
-        self._ecrire_jsonl(narrative_path, [
+        retire_path = settings.arm_paths("retire")["trades"]
+        self._ecrire_jsonl(retire_path, [
             self._trade("n1", None, "2026-01-01T00:01:00", 42.0),
         ])
-        reponse = self.server.get_trades(limit=100, arm="narrative")
+        reponse = self.server.get_trades(limit=100, arm="retire")
         self.assertEqual(len(reponse["trades"]), 1)
 
     def test_equity_series_est_dans_lordre_chronologique(self):

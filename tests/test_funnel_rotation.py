@@ -33,7 +33,7 @@ from src.core.funnel import (  # noqa: E402
 )
 
 ARM = "sniper"
-SEPT_BRAS = ("baseline", ARM, "scalp", "runner", "quality", "narrative", "consensus")
+SEPT_BRAS = ("baseline", ARM, "scalp", "runner", "quality", "sniper_young", "consensus")
 
 
 def _ligne(arm: str, kept: int, ts: float) -> str:

@@ -1,6 +1,6 @@
 ---
 name: bras-strategies
-description: Ajouter, modifier, désactiver ou comparer un bras de stratégie de CryptobBot (config/strategies.json, config/arms/, src/core/arm.py). Utilise ce skill dès qu'il est question d'un bras (baseline, sniper, scalp, runner, quality, narrative, consensus), du manifeste des stratégies, de capital_pct, de bornes par bras, de verdict_vs_reference, de confluence, d'un bras qui ne trade pas, ou de « tester une nouvelle stratégie » — même formulé comme un simple changement de seuil dans un fichier de config.
+description: Ajouter, modifier, désactiver ou comparer un bras de stratégie de CryptobBot (config/strategies.json, config/arms/, src/core/arm.py). Utilise ce skill dès qu'il est question d'un bras (baseline, sniper, scalp, runner, quality, consensus), du manifeste des stratégies, de capital_pct, de bornes par bras, de verdict_vs_reference, de confluence, d'un bras qui ne trade pas, ou de « tester une nouvelle stratégie » — même formulé comme un simple changement de seuil dans un fichier de config.
 ---
 
 # Bras de stratégie
@@ -16,7 +16,6 @@ filtres, ses sorties, son portefeuille, son journal, son shadow log, son
 | scalp | 30 m-4 h | 5 K | −25 % | +25 % | 1 h |
 | runner | 1-12 h | 10 K | −35 % | +150 % | 6 h |
 | quality | 4-48 h | 20 K | −25 % | +50 % | 4 h |
-| narrative | 6 h-∞ | 40 K | −30 % | +80 % | 24 h |
 | consensus | 1m30-24 h | 4 K | −25 % | +50 % | 3 h |
 
 ## La règle du manifeste qui piège tout le monde

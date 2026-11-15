@@ -50,8 +50,8 @@ RELAXATIONS = {
     "volume": ("filters.min_volume_1h", -2000),
     # PAS UN FILTRE : la porte du score. Un bras dont les candidats passent
     # les filtres et meurent au seuil alpha ne sera JAMAIS débloqué en
-    # desserrant un filtre. Mesuré au 2026-08-02 : c'est le cas de `narrative`
-    # (869 cycles sans entrée) et de `consensus` (383).
+    # desserrant un filtre. Mesuré au 2026-08-02 : 869 cycles sans entrée
+    # pour un bras depuis retiré du manifeste, et 383 pour `consensus`.
     #
     # Le pas est petit et la borne basse haute (voir PARAM_BOUNDS) : baisser
     # ce seuil, c'est accepter d'entrer sur un signal plus faible. C'est le
@@ -498,8 +498,8 @@ class LearningEngine:
         # LES DEUX RELÂCHEMENTS PASSENT AVANT LA PORTE DES 15 TRADES, et ils
         # sont indépendants : le shadow prouve que les rejets montaient,
         # l'inactivité prouve que le bras ne joue plus. Un bras peut être dans
-        # le second cas sans jamais atteindre le premier — c'est justement
-        # `narrative`, zéro entrée sur 927 cycles.
+        # le second cas sans jamais atteindre le premier — zéro entrée sur
+        # 927 cycles, mesuré au 2026-08-02.
         applied: list[str] = self._relax_from_inactivity()
 
         if total < MIN_TRADES_PER_ARM:
@@ -1230,7 +1230,7 @@ class LearningEngine:
         `trough_pct` : **une trajectoire est une trajectoire**, elle ne dépend
         pas du bras dont les filtres l'ont admise. Mesuré au 2026-08-02 : 6
         positions instrumentées pour `scalp`, `runner` et `consensus`, 2 pour
-        `quality`, 0 pour `narrative` — tous sous `EXIT_BACKTEST_MIN_COVERAGE`
+        `quality` — tous sous `EXIT_BACKTEST_MIN_COVERAGE`
         = 15, donc aucun verdict possible. Mises en commun : 75.
 
         POURQUOI FILTRER SUR LA FENÊTRE. Les trajectoires ne sont PAS

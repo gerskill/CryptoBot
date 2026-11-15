@@ -283,7 +283,7 @@ class TestShadowParBras(ArmsTestCase):
     pouvait donc rien rendre pour eux.
 
     Un bras rejette sur SES seuils : le shadow du témoin ne dit rien de ce que
-    `quality` ou `narrative` ont écarté.
+    `quality` a écarté.
     """
 
     def _loop(self, arms, evaluations, dex):
@@ -361,7 +361,7 @@ class TestRelachementDepuisLeCycle(ArmsTestCase):
     `_after_trade_closed`. Un bras qui n'ouvre jamais de position n'en ferme
     jamais, donc `run` n'est jamais appelé, donc le relâchement sur inactivité
     serait inatteignable EXACTEMENT pour les bras qu'il doit débloquer.
-    `narrative` était à 0 entrée sur 927 cycles.
+    Mesuré : 0 entrée sur 927 cycles.
 
     Même famille que les poules-et-œufs corrigées dans `economics` et dans la
     porte des 15 trades, un cran plus haut : cette fois ce n'est pas un seuil
