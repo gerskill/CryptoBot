@@ -26,6 +26,8 @@ from typing import Any, Callable, Iterable, Optional
 
 SCHEMA_VERSION = 1
 CONFIG_NAME = os.path.join("config", "research_log.json")
+# Uniquement ces dossiers. Le reste de data/ est la mémoire de trading.
+RESEARCH_DIRS = ("candidates", "price_track", "klines_pre")
 
 # Portes d'entrée, dans l'ordre. La première qui échoue est `gate_failed`.
 ENTRY_GATES = (
@@ -500,16 +502,23 @@ class ResearchDisk:
         return True
 
     def maintain(self) -> None:
-        """Gzip des jours précédents, puis respect du plafond. Ne touche pas au jour courant."""
+        """Gzip des jours précédents, puis respect du plafond. Ne touche pas au jour courant.
+
+        Seulement les journaux de recherche. Un `.gz` de trades ou un
+        funnel trop gros ne déclenche pas l'arrêt et n'est pas effacé.
+        """
         today = self._today()
-        for dirpath, _dirs, files in os.walk(self.root):
-            for name in files:
+        for kind in RESEARCH_DIRS:
+            directory = os.path.join(self.root, kind)
+            if not os.path.isdir(directory):
+                continue
+            for name in os.listdir(directory):
                 if not name.endswith(".jsonl"):
                     continue
                 day = name[:8]
                 if not (day.isdigit() and day < today):
                     continue
-                src = os.path.join(dirpath, name)
+                src = os.path.join(directory, name)
                 dst = src + ".gz"
                 if os.path.exists(dst):
                     continue
@@ -544,14 +553,17 @@ class ResearchDisk:
 
     def _files(self) -> list[tuple[str, int, float]]:
         found = []
-        if not os.path.isdir(self.root):
-            return found
-        for dirpath, _dirs, files in os.walk(self.root):
-            for name in files:
-                path = os.path.join(dirpath, name)
+        for kind in RESEARCH_DIRS:
+            directory = os.path.join(self.root, kind)
+            if not os.path.isdir(directory):
+                continue
+            for name in os.listdir(directory):
+                path = os.path.join(directory, name)
                 try:
                     st = os.stat(path)
                 except OSError:
+                    continue
+                if not st.st_mode or not os.path.isfile(path):
                     continue
                 found.append((path, st.st_size, st.st_mtime))
         return found
@@ -805,8 +817,13 @@ class ResearchJournal:
                     "last": now,
                     "reason": reason,
                 }
-            elif reason == "entered":
+            elif reason == "entered" and track.get("reason") != "entered":
+                # L'entrée repart pour deux heures. L'ancien tirage ne
+                # coupe pas le suivi au milieu de la position.
                 track["reason"] = "entered"
+                track["since"] = now
+                track["until"] = now + horizon
+                track["last"] = now
         if price is None and liquidity is None:
             return
         self.disk.append("price_track", {

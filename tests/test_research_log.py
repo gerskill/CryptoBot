@@ -242,6 +242,46 @@ class TestCycle(unittest.TestCase):
         self.assertTrue(disk.halted)
         self.assertIn("espace libre", disk.halt_reason)
 
+    def test_le_menage_ne_touche_pas_a_la_memoire_de_trading(self):
+        disk = ResearchDisk(
+            os.path.join(self.tmp, "data"),
+            max_total_bytes=1000,
+            min_free_bytes=0,
+            free_bytes=lambda: 9_000_000_000,
+            today=lambda: "20261115",
+        )
+        root = os.path.join(self.tmp, "data")
+        os.makedirs(root, exist_ok=True)
+        trades = os.path.join(root, "trades_log.jsonl.gz")
+        with open(trades, "wb") as fh:
+            fh.write(b"x" * 5000)
+        stray = os.path.join(root, "20200101.jsonl")
+        with open(stray, "w", encoding="utf-8") as fh:
+            fh.write("{}\n")
+        old = disk.path_for("candidates", "20261114")
+        with open(old, "w", encoding="utf-8") as fh:
+            fh.write("{}\n")
+        disk.maintain()
+        self.assertTrue(os.path.exists(trades))
+        self.assertEqual(os.path.getsize(trades), 5000)
+        self.assertTrue(os.path.exists(stray))
+        self.assertFalse(os.path.exists(stray + ".gz"))
+        self.assertTrue(os.path.exists(old + ".gz"))
+        self.assertFalse(disk.halted)
+
+    def test_une_entree_relance_les_deux_heures(self):
+        now = 1_700_000_000
+        self.journal._register("MINT", now, 1.0, 2.0, "sample")
+        first = self.journal._tracks["MINT"]["until"]
+        self.journal._register("MINT", now + 3000, 1.1, 2.0, "entered")
+        track = self.journal._tracks["MINT"]
+        self.assertEqual(track["reason"], "entered")
+        self.assertEqual(track["since"], now + 3000)
+        self.assertEqual(track["until"], now + 3000 + 7200)
+        self.assertGreater(track["until"], first)
+        self.journal._register("MINT", now + 4000, 1.2, 2.0, "entered")
+        self.assertEqual(self.journal._tracks["MINT"]["until"], now + 3000 + 7200)
+
     def test_klines_deja_lues_bornees_a_30_min(self):
         now = 1_700_000_000
         self.journal.clock = lambda: now
