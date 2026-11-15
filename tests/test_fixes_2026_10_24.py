@@ -48,7 +48,8 @@ class TestCoutRameneALaMise(unittest.TestCase):
         self.assertIsNotNone(row)
         pnl = row.get("pnl_pct")
         self.assertGreater(pnl, -120.0)
-        self.assertAlmostEqual(pnl, -99.5 - 3728.0 * 0.005, places=1)
+        # 2026-11-05 : perte plafonnée à la mise (-100 %), coût ≤ 100 % du revendu
+        self.assertAlmostEqual(pnl, -100.0, places=1)
         self.assertEqual(row.get("exit_cost_pct"), 3728.0)  # mesure brute conservée
 
 
@@ -107,7 +108,8 @@ class TestCorrectionLecture(unittest.TestCase):
         row = {"pnl_pct": -3828.0, "pnl_usd": -1914.0, "exit_cost_pct": 3728.0, "entry_price": 1.0,
                "exit_price": 0.005, "timestamp_exit": "2026-10-21T10:00:00+00:00"}
         out = correct_legacy_cost(dict(row))
-        self.assertAlmostEqual(out["pnl_pct"], -3828.0 + 3728.0 - 3728.0 * 0.005, places=3)
+        # 2026-11-05 : -118,6 % puis plancher -100 % (une position ne perd pas plus que sa mise)
+        self.assertAlmostEqual(out["pnl_pct"], -100.0, places=3)
         self.assertAlmostEqual(out["pnl_usd"], -1914.0 * out["pnl_pct"] / -3828.0, places=2)
         self.assertEqual(out["pnl_pct_journal"], -3828.0)
         self.assertEqual(correct_legacy_cost(dict(out))["pnl_pct"], out["pnl_pct"])

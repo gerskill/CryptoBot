@@ -256,7 +256,7 @@ class TestManifesteNouveauxBras(ArmsTestCase):
         with open(os.path.join(ROOT, "config", "strategies.json"), encoding="utf-8") as fh:
             doc = json.load(fh)
         active = [a for a in doc["arms"] if a.get("enabled", True)]
-        self.assertEqual(len(active), 16)  # +tp1_20_vl2 (2026-10-24), +copy_smart (2026-10-29)
+        self.assertEqual(len(active), 19)  # +tp1_20_vl2 (2026-10-24), +copy_smart (2026-10-29), +fixes3 (2026-11-02), +consensus_af (2026-11-02), +sniper_ar (2026-11-02)
         arms = {a["name"]: a for a in active}
         for name in ("anti_rug", "mature_liquid"):
             e = arms[name]

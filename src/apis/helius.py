@@ -2,16 +2,24 @@
 
 Repli de Birdeye pour les holders. Sans clé, les méthodes retournent None et
 le pipeline continue en mode dégradé.
+
+Un seul limiteur pour tout le processus (scan et surveillance des positions).
+La surveillance passe devant. Après un 429, on attend, on ne rappelle pas
+tout de suite, et on s'arrête au bout de quelques essais.
 """
 
-from dataclasses import dataclass
-from typing import Any, Optional
-
+import contextvars
+import json
+import random
 import re
+import threading
+import time
+from collections import deque
+from dataclasses import dataclass
+from email.utils import parsedate_to_datetime
+from typing import Any, Callable, Optional
 
 import requests
-
-from src.core.ratelimit import RateLimiter
 
 REQUEST_TIMEOUT = 15
 MAX_HOLDER_PAGES = 5  # au-delà on renvoie une borne inférieure
@@ -41,6 +49,123 @@ ALLOWED_RPC_METHODS = frozenset({
 # lecteur futur sache que c'est une supposition, pas un fait mesuré.
 ASSUMED_SWAP_COMPUTE_UNITS = 200_000
 
+# Données stables. `getTokenAccounts` n'y est pas : c'est le compte de
+# holders lu par les filtres, on ne le fige pas.
+CACHE_TTL_SECONDS = {
+    "getTokenSupply": 300.0,
+    "getTokenLargestAccounts": 120.0,
+    "getAsset": 3600.0,
+    "getRecentPrioritizationFees": 20.0,
+}
+# 2/s : sous le palier gratuit (souvent 10/s), qui répondait 429 en rafale.
+DEFAULT_MAX_PER_SECOND = 2
+MAX_RPC_ATTEMPTS = 3
+MAX_BACKOFF_SECONDS = 8.0
+
+_HELIUS_PRIORITY: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "helius_priority", default="normal"
+)
+
+
+class use_watch_priority:
+    """Les appels Helius du bloc passent devant ceux du scan."""
+
+    def __enter__(self) -> "use_watch_priority":
+        self._token = _HELIUS_PRIORITY.set("watch")
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        _HELIUS_PRIORITY.reset(self._token)
+
+
+class PriorityLimiter:
+    """Fenêtre glissante, partagée, avec priorité `watch` sur `normal`.
+
+    `max_calls` est le plafond réel sur `period` secondes, pas 90 % de
+    ce chiffre. Thread-safe. Un 429 noté ici fait attendre tout le monde.
+    """
+
+    def __init__(
+        self,
+        max_calls: int,
+        period: float = 1.0,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        if max_calls <= 0:
+            raise ValueError("max_calls doit être > 0")
+        self.max_calls = int(max_calls)
+        self.period = float(period)
+        self._clock = clock
+        self._sleep = sleep
+        self._calls: deque[float] = deque()
+        self._waiters = {"watch": 0, "normal": 0}
+        self._backoff_until = 0.0
+        self._cv = threading.Condition()
+
+    def note_backoff(self, seconds: float) -> None:
+        delay = max(0.0, float(seconds))
+        with self._cv:
+            self._backoff_until = max(self._backoff_until, self._clock() + delay)
+            self._cv.notify_all()
+
+    def _sleep_backoff(self) -> None:
+        with self._cv:
+            delay = self._backoff_until - self._clock()
+        if delay > 0:
+            self._sleep(min(delay, MAX_BACKOFF_SECONDS))
+
+    def waiting(self, priority: str) -> int:
+        with self._cv:
+            return self._waiters.get(priority, 0)
+
+    def acquire(self, timeout: Optional[float] = None, priority: Optional[str] = None) -> bool:
+        """Prend un créneau. `watch` passe avant `normal`. False si timeout."""
+        priority = priority or "normal"
+        if priority not in self._waiters:
+            priority = "normal"
+        self._sleep_backoff()
+        deadline = None if timeout is None else self._clock() + timeout
+        with self._cv:
+            self._waiters[priority] += 1
+            try:
+                while True:
+                    now = self._clock()
+                    self._evict(now)
+                    # Un 429 noté pendant l'attente concerne aussi ceux qui
+                    # étaient déjà en file : un créneau libre ne suffit pas.
+                    backoff_left = self._backoff_until - now
+                    if backoff_left > 0:
+                        if deadline is not None and now >= deadline:
+                            return False
+                        wait = backoff_left
+                        if deadline is not None:
+                            wait = min(wait, max(0.0, deadline - now))
+                        self._cv.wait(timeout=max(min(wait, MAX_BACKOFF_SECONDS), 0.01))
+                        continue
+                    watch_ahead = self._waiters["watch"] > (1 if priority == "watch" else 0)
+                    if len(self._calls) < self.max_calls and not (
+                        priority != "watch" and watch_ahead
+                    ):
+                        self._calls.append(now)
+                        return True
+                    if deadline is not None and now >= deadline:
+                        return False
+                    wait = self.period
+                    if self._calls:
+                        wait = min(wait, self.period - (now - self._calls[0]))
+                    if deadline is not None:
+                        wait = min(wait, max(0.0, deadline - now))
+                    self._cv.wait(timeout=max(wait, 0.01))
+            finally:
+                self._waiters[priority] -= 1
+                self._cv.notify_all()
+
+    def _evict(self, now: float) -> None:
+        while self._calls and now - self._calls[0] >= self.period:
+            self._calls.popleft()
+
 
 @dataclass(frozen=True)
 class HolderStats:
@@ -69,56 +194,148 @@ def _safe_error(exc: Exception) -> str:
     return f"{type(exc).__name__} — {texte[:160]}"
 
 
+def _retry_delay(headers: Any, attempt: int, rng: Callable[[], float]) -> float:
+    """Secondes à attendre après un 429. `Retry-After` d'abord, sinon exponentiel."""
+    header = None
+    if headers is not None:
+        header = headers.get("Retry-After") if hasattr(headers, "get") else None
+    if header:
+        try:
+            return min(MAX_BACKOFF_SECONDS, max(0.0, float(header)))
+        except (TypeError, ValueError):
+            try:
+                when = parsedate_to_datetime(str(header))
+                return min(MAX_BACKOFF_SECONDS, max(0.0, when.timestamp() - time.time()))
+            except (TypeError, ValueError, OverflowError):
+                pass
+    # attempt 1 -> 1s, 2 -> 2s, 3 -> 4s, plafonné, avec gigue 0,5–1,5.
+    base = min(MAX_BACKOFF_SECONDS, float(2 ** max(0, attempt - 1)))
+    jitter = 0.5 + rng()
+    return min(MAX_BACKOFF_SECONDS, base * jitter)
+
+
+_MISS = object()
+
+
+def _cache_key(method: str, params: Any) -> Optional[tuple]:
+    if method not in CACHE_TTL_SECONDS:
+        return None
+    try:
+        return (method, json.dumps(params, sort_keys=True, default=str))
+    except (TypeError, ValueError):
+        return None
+
+
 class HeliusAPI:
     """Client RPC Helius (JSON-RPC + DAS)."""
 
-    def __init__(self, api_key: Optional[str]):
+    def __init__(
+        self,
+        api_key: Optional[str],
+        max_per_second: int = DEFAULT_MAX_PER_SECOND,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+        rng: Callable[[], float] = random.random,
+    ):
         self.api_key = api_key
         self.enabled = bool(api_key)
         self.session = requests.Session()
-        # 10/s et non 600/min : le palier gratuit renvoie des 429 bien avant
-        # 600. Mesuré 4 fois dans les logs — et depuis que Birdeye est mort,
-        # TOUTES les recherches de holders retombent ici, donc la charge a
-        # changé de nature. Une fenêtre d'une seconde empêche la rafale qu'un
-        # quota par minute autorise.
-        self.rate_limiter = RateLimiter(10, 1.0, name="helius")
+        self._clock = clock
+        self._rng = rng
+        # Un seul limiteur pour ce client. L'observateur on-chain reçoit
+        # le même objet : scan et surveillance ne peuvent plus additionner
+        # leurs rafales.
+        self.rate_limiter = PriorityLimiter(
+            max(1, int(max_per_second)), 1.0, clock=clock, sleep=sleep,
+        )
         self.rate_limited = 0
         self._request_id = 0
+        self._cache: dict[tuple, tuple[float, Any]] = {}
+        self._cache_lock = threading.Lock()
 
     @property
     def _url(self) -> str:
         return f"https://mainnet.helius-rpc.com/?api-key={self.api_key}"
 
+    def _cached(self, key: tuple) -> Any:
+        ttl = CACHE_TTL_SECONDS.get(key[0])
+        if ttl is None:
+            return _MISS
+        with self._cache_lock:
+            item = self._cache.get(key)
+            if item is None:
+                return _MISS
+            stored_at, value = item
+            if self._clock() - stored_at >= ttl:
+                del self._cache[key]
+                return _MISS
+            return value
+
+    def _store(self, key: Optional[tuple], value: Any) -> None:
+        if key is None or value is None:
+            return
+        with self._cache_lock:
+            self._cache[key] = (self._clock(), value)
+
     def _rpc(self, method: str, params: Any) -> Optional[Any]:
         """Appel JSON-RPC. Retourne None en cas d'échec (jamais d'exception).
 
         Refuse toute méthode absente de la liste blanche — même garde-fou que
-        `gmgn.py`/`jupiter.py`, appliqué AVANT la requête.
+        `gmgn.py`/`jupiter.py`, appliqué AVANT la requête. Au plus
+        `MAX_RPC_ATTEMPTS` essais. Un 429 attend, il ne relance pas tout de suite.
         """
         if method not in ALLOWED_RPC_METHODS:
             raise ForbiddenRpcMethod(f"méthode '{method}' interdite — lecture seule uniquement")
         if not self.enabled:
             return None
-        self.rate_limiter.acquire()
-        self._request_id += 1
-        payload = {"jsonrpc": "2.0", "id": self._request_id, "method": method, "params": params}
-        try:
-            response = self.session.post(self._url, json=payload, timeout=REQUEST_TIMEOUT)
-            response.raise_for_status()
-            body = response.json()
-            if "error" in body:
-                print(f"[Helius] {method} erreur RPC : {body['error'].get('message')}")
+        key = _cache_key(method, params)
+        if key is not None:
+            cached = self._cached(key)
+            if cached is not _MISS:
+                return cached
+        priority = _HELIUS_PRIORITY.get()
+        for attempt in range(1, MAX_RPC_ATTEMPTS + 1):
+            if not self.rate_limiter.acquire(timeout=4.0, priority=priority):
                 return None
-            return body.get("result")
-        except requests.exceptions.RequestException as exc:
-            # FUITE DE CLÉ. `requests` place l'URL COMPLÈTE dans le message
-            # d'exception, et l'URL Helius porte la clé en query string. Chaque
-            # erreur réseau l'écrivait donc en clair dans logs/loop.log —
-            # observé sur 4 réponses 429. Ne jamais laisser une exception
-            # réseau s'imprimer telle quelle quand la clé est dans l'URL.
-            print(f"[Helius] {method} erreur réseau : {_safe_error(exc)}")
-        except ValueError as exc:
-            print(f"[Helius] {method} JSON invalide : {exc}")
+            self._request_id += 1
+            payload = {
+                "jsonrpc": "2.0",
+                "id": self._request_id,
+                "method": method,
+                "params": params,
+            }
+            try:
+                response = self.session.post(self._url, json=payload, timeout=REQUEST_TIMEOUT)
+            except requests.exceptions.RequestException as exc:
+                # FUITE DE CLÉ. `requests` place l'URL COMPLÈTE dans le message
+                # d'exception, et l'URL Helius porte la clé en query string.
+                print(f"[Helius] {method} erreur réseau : {_safe_error(exc)}")
+                return None
+            status = getattr(response, "status_code", 200)
+            if status == 429:
+                self.rate_limited += 1
+                delay = _retry_delay(getattr(response, "headers", {}), attempt, self._rng)
+                self.rate_limiter.note_backoff(delay)
+                print(f"[Helius] {method} 429 — pause {delay:.1f}s (essai {attempt}/{MAX_RPC_ATTEMPTS})")
+                if attempt >= MAX_RPC_ATTEMPTS:
+                    return None
+                continue
+            if status >= 400:
+                print(f"[Helius] {method} HTTP {status}")
+                return None
+            try:
+                body = response.json()
+            except ValueError as exc:
+                print(f"[Helius] {method} JSON invalide : {exc}")
+                return None
+            if isinstance(body, dict) and "error" in body:
+                message = body["error"].get("message") if isinstance(body["error"], dict) else "erreur"
+                print(f"[Helius] {method} erreur RPC : {message}")
+                return None
+            result = body.get("result") if isinstance(body, dict) else None
+            self._store(key, result)
+            return result
         return None
 
     def get_recent_prioritization_fee_lamports(

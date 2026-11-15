@@ -429,6 +429,7 @@ class ScanPipeline:
                 continue
             social_kept.append(candidate)
         scored = score_candidates(social_kept, weights)
+        scored = self._apply_opt_in_gates(scored, params, filters, rejected, label, verbose)
 
         min_alpha = params.get("scan.social_lookup_min_alpha", 70)
         wishlist = tuple(
@@ -449,6 +450,51 @@ class ScanPipeline:
             wishlist=wishlist,
             social_served=served,
         )
+
+    def _apply_opt_in_gates(self, scored, params, filters, rejected, label, verbose):
+        """Réglages opt-in 2026-11-02 (désactivés par défaut) :
+        `entry_rules.top_signal_pct` et `filters.onchain_antirug`."""
+        top_pct = params.get("entry_rules.top_signal_pct", None)
+        use_ar = bool(filters.get("onchain_antirug", False))
+        if not top_pct and not use_ar:
+            return scored
+        from src.core.onchain_antirug import OnchainAntiRug, TopSignalGate
+        out = []
+        threshold = params.get("scan.alpha_score_entry_threshold", 75)
+        key = label or "default"
+        if top_pct:
+            gate = getattr(self, "_top_gate", None) or TopSignalGate()
+            self._top_gate = gate
+            for c in scored:
+                if c.alpha_score_absolute >= threshold:
+                    gate.observe(key, c.token_address, c.alpha_score_absolute)
+            cut = gate.cutoff(key, float(top_pct))
+        for c in scored:
+            reason = None
+            if top_pct and cut is not None and c.alpha_score_absolute >= threshold \
+                    and c.alpha_score_absolute < cut:
+                reason = f"hors top {top_pct}% des signaux (score {c.alpha_score_absolute:.1f} < {cut:.1f})"
+            if reason is None and use_ar and c.alpha_score_absolute >= threshold:
+                ar = getattr(self, "onchain_antirug", None)
+                if ar is None:
+                    from src import settings as _settings
+                    ar = self.onchain_antirug = OnchainAntiRug()
+                try:
+                    reason, note = ar.reason(
+                        c.token_address,
+                        float(filters.get("onchain_max_wallet_pct", 50)),
+                        int(filters.get("onchain_max_shared_funder", 3)))
+                except Exception as exc:
+                    reason, note = None, f"anti-rug on-chain indisponible ({str(exc)[:60]}), token accepté"
+                if note:
+                    print(f"    ⚠️{label} {c.symbol:>10} — {note}")
+            if reason:
+                rejected.append(c.with_fields(rejected_reason=reason))
+                if verbose:
+                    print(f"    ❌{label} {c.symbol:>10} — {reason}")
+                continue
+            out.append(c)
+        return out
 
     @staticmethod
     def _with_social(candidate: Candidate, stats: Any) -> Candidate:
@@ -927,6 +973,12 @@ class ScanPipeline:
         ceiling = f.get("max_price_change_1h")
         if ceiling is not None and c.price_change_1h is not None and c.price_change_1h > ceiling:
             return f"déjà {c.price_change_1h:+.0f}% sur 1h > {ceiling}%"
+        # Anti-chasse 5 min (bras `fixes3`, 2026-11-02) : sur 12 275 trades
+        # PAPER, une hausse 5m >= 10% avant l'entrée fait passer les stops
+        # touchés en <= 10 min de ~11% à 18-38%. Absent = désactivé.
+        ceiling = f.get("max_price_change_5m")
+        if ceiling is not None and c.price_change_5m is not None and c.price_change_5m > ceiling:
+            return f"déjà {c.price_change_5m:+.1f}% sur 5m > {ceiling}%"
         floor = f.get("min_price_change_5m")
         if floor is not None and c.price_change_5m is not None and c.price_change_5m < floor:
             return f"momentum 5m {c.price_change_5m:+.1f}% < {floor}%"

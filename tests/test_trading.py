@@ -289,13 +289,18 @@ class TestPaperPortfolioExitFeeMeasurer(unittest.TestCase):
 
         portfolio = self._portfolio(measurer)
         position = portfolio.open(make_candidate(), PARAMS_MINIMAL, 100.0)
-        rows = portfolio.update(position.id, price=0.6)  # -40% nu -> -50% avec coût
+        rows = portfolio.update(position.id, price=0.6)  # -40% nu
 
-        self.assertEqual(len(self.calls), 1)
-        self.assertEqual(rows[0]["exit_cost_pct"], 10.0)
+        # Un appel à l'achat, un à la vente. Chacun déduit la moitié.
+        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(rows[0]["exit_cost_pct"], 5.0)
+        self.assertEqual(rows[0]["exit_cost_round_trip_pct"], 10.0)
+        self.assertEqual(rows[0]["entry_cost_version"], "buy-leg-v1")
+        self.assertEqual(rows[0]["entry_cost_pct"], 5.0)
         self.assertEqual(rows[0]["exit_cost_partial"], False)
-        # Correctif 2026-10-24 : 10 % du notionnel revendu (x0,6) = 6 % de la mise.
-        self.assertAlmostEqual(rows[0]["pnl_pct"], -46.0)
+        # -40 de prix, -3 de moitié de sortie ramenée à la mise (5 % x 0,6),
+        # -5 de moitié d'entrée.
+        self.assertAlmostEqual(rows[0]["pnl_pct"], -48.0)
 
     def test_jambe_partielle_tp1_ignore_le_measurer(self):
         def measurer(token_address, size_usd):
@@ -306,9 +311,11 @@ class TestPaperPortfolioExitFeeMeasurer(unittest.TestCase):
         position = portfolio.open(make_candidate(), PARAMS_MINIMAL, 100.0)
         rows = portfolio.update(position.id, price=2.0)  # +100% -> TP1, jambe non finale
 
-        self.assertEqual(self.calls, [])
+        # Le devis de sortie n'est pas rappelé sur une vente partielle.
+        # L'achat, lui, a déjà payé sa moitié (5 %).
+        self.assertEqual(len(self.calls), 1)
         self.assertIsNone(rows[0]["exit_cost_pct"])
-        self.assertAlmostEqual(rows[0]["pnl_pct"], 100.0)
+        self.assertAlmostEqual(rows[0]["pnl_pct"], 95.0)
 
     def test_notionnel_final_suit_le_prix_pas_la_mise_dentree(self):
         """Régression Codex : le devis doit porter sur la valeur COURANTE de
@@ -324,11 +331,12 @@ class TestPaperPortfolioExitFeeMeasurer(unittest.TestCase):
 
         portfolio = self._portfolio(measurer)
         position = portfolio.open(make_candidate(), PARAMS_MINIMAL, 100.0)
-        portfolio.update(position.id, price=2.0)  # +100% -> TP1, 50% vendus, measurer pas appelé
+        portfolio.update(position.id, price=2.0)  # +100% -> TP1, 50% vendus, pas de devis de sortie
         portfolio.update(position.id, price=6.0)  # +500% -> TP3, reste vendu, jambe finale
 
-        self.assertEqual(len(self.calls), 1)
-        _, notional = self.calls[0]
+        # Le premier appel est l'achat (100 $). Le dernier est la vente finale.
+        self.assertEqual(len(self.calls), 2)
+        _, notional = self.calls[-1]
         self.assertAlmostEqual(notional, 300.0)
 
     def test_force_close_deduit_le_cout_mesure(self):
@@ -340,9 +348,11 @@ class TestPaperPortfolioExitFeeMeasurer(unittest.TestCase):
         position = portfolio.open(make_candidate(), PARAMS_MINIMAL, 100.0)
         row = portfolio.force_close(position.id, price=1.5, reason="PANIC_STOP")
 
-        self.assertEqual(len(self.calls), 1)
-        self.assertAlmostEqual(row["pnl_pct"], 38.0)  # 50% nu - 8% x1,5 (coût ramené à la mise, 2026-10-24)
-        self.assertEqual(row["exit_cost_pct"], 8.0)
+        self.assertEqual(len(self.calls), 2)
+        # 50 % de prix, moins 4 % x 1,5 (moitié de sortie) et moins 4 % d'entrée.
+        self.assertAlmostEqual(row["pnl_pct"], 40.0)
+        self.assertEqual(row["exit_cost_pct"], 4.0)
+        self.assertEqual(row["exit_cost_round_trip_pct"], 8.0)
         self.assertEqual(row["exit_cost_partial"], False)
 
     def test_force_close_measurer_qui_leve_ne_bloque_pas(self):

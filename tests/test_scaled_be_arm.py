@@ -286,7 +286,8 @@ class TestManifesteReel(unittest.TestCase):
             if name != "scaled_be":
                 for key in (arm.get("overrides") or {}):
                     self.assertNotIn("scale_in", key, name)
-                    self.assertNotIn("max_exit_cost_pct_entry", key, name)
+                    if name not in ("fixes3", "consensus_af"):  # fixes3, consensus_af (2026-11-02) : plafond frais A/R 3 %
+                        self.assertNotIn("max_exit_cost_pct_entry", key, name)
 
 
 

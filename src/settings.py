@@ -82,6 +82,20 @@ _load_dotenv()
 
 # --- Clés API (None = module désactivé, pipeline continue en mode dégradé) ---
 HELIUS_API_KEY = os.getenv("HELIUS_API_KEY") or None
+# Débit Helius, en requêtes par seconde. 2 est sous le palier gratuit
+# (souvent 10/s) : les rafales à 10/s recevaient des 429. Pas un secret.
+def _env_positive_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        value = int(str(raw).strip())
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+HELIUS_MAX_PER_SECOND = _env_positive_int("HELIUS_MAX_PER_SECOND", 2)
 BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY") or None
 TWITTER_BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN") or None
 # Jupiter : prix par lot (50 mints/appel) et impact de prix réel. Le client
@@ -89,6 +103,13 @@ TWITTER_BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN") or None
 JUPITER_API_KEY = os.getenv("JUPITER_API_KEY") or None
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or None
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID") or None
+# Chainstack : RPC Solana JSON (copy / antirug). Jamais loggé.
+# Auth : soit URL path-token (CHAINSTACK_RPC_URL / AUTH_TOKEN),
+# soit HTTP basic (CHAINSTACK_USERNAME + CHAINSTACK_PASSWORD) sur la base host.
+CHAINSTACK_AUTH_TOKEN = os.getenv("CHAINSTACK_AUTH_TOKEN") or None
+CHAINSTACK_RPC_URL = os.getenv("CHAINSTACK_RPC_URL") or None
+CHAINSTACK_USERNAME = os.getenv("CHAINSTACK_USERNAME") or None
+CHAINSTACK_PASSWORD = os.getenv("CHAINSTACK_PASSWORD") or None
 
 # DexScreener et RugCheck : API publiques, aucune clé requise.
 
@@ -105,6 +126,7 @@ def key_status() -> dict[str, bool]:
         "dexscreener": True,
         "rugcheck": True,
         "helius": HELIUS_API_KEY is not None,
+        "chainstack": bool(CHAINSTACK_RPC_URL or CHAINSTACK_AUTH_TOKEN or (CHAINSTACK_USERNAME and CHAINSTACK_PASSWORD)),
         "birdeye": BIRDEYE_API_KEY is not None,
         "twitter": TWITTER_BEARER_TOKEN is not None,
         "jupiter": JUPITER_API_KEY is not None,

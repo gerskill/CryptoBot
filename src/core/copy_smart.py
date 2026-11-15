@@ -277,3 +277,124 @@ class CopySources:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(self.data, f)
         os.replace(tmp, self.path)
+
+
+# ---------------------------------------------------------------------------
+# Wallets MANUELS (2026-11-02, accord Killian) : toujours suivis, hors règle de
+# réussite. Le flux GMGN smart money ne contient QUE les wallets choisis par
+# GMGN : un wallet manuel absent de ce flux ne déclencherait jamais. On lit
+# donc ses transactions sur le RPC Solana (Chainstack → Helius → public),
+# au plus toutes les `poll_sec`, et on les rend au même format que GMGN.
+
+from src.core.rpc_endpoint import PUBLIC_RPC_URL, RpcClient, default_rpc_url, redact_exc
+
+
+QUOTE_MINTS = {
+    "So11111111111111111111111111111111111111112",   # WSOL
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",  # USDC
+    "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",  # USDT
+    "pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn",   # PUMP
+}
+
+
+def load_manual_wallets(path: str) -> dict[str, dict[str, Any]]:
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for row in data.get("wallets", []) if isinstance(data, dict) else []:
+        addr = row.get("address") if isinstance(row, dict) else row
+        if isinstance(addr, str) and 32 <= len(addr) <= 44:
+            out[addr] = {"manual": True}
+    return out
+
+
+def merge_manual(listed: dict, manual: dict) -> dict:
+    merged = dict(listed or {})
+    for w, info in (manual or {}).items():
+        merged.setdefault(w, dict(info))
+    return merged
+
+
+def trades_from_tx(tx: Optional[dict], wallet: str, signature: str = "") -> list[dict]:
+    """Achats/ventes du wallet dans une transaction RPC `jsonParsed`, format GMGN."""
+    if not tx or not isinstance(tx.get("meta"), dict) or tx["meta"].get("err") is not None:
+        return []
+    meta = tx["meta"]
+    ts = tx.get("blockTime")
+    delta: dict[str, float] = {}
+    for sign, key in ((-1.0, "preTokenBalances"), (1.0, "postTokenBalances")):
+        for b in meta.get(key) or []:
+            if b.get("owner") != wallet or b.get("mint") in QUOTE_MINTS:
+                continue
+            amt = (b.get("uiTokenAmount") or {}).get("uiAmount") or 0.0
+            delta[b["mint"]] = delta.get(b["mint"], 0.0) + sign * float(amt)
+    out = []
+    for mint, d in delta.items():
+        if d == 0:
+            continue
+        out.append({"maker": wallet, "base_address": mint, "side": "buy" if d > 0 else "sell",
+                    "timestamp": ts, "tx": signature, "source": "rpc_manual"})
+    return out
+
+
+class ManualWalletWatcher:
+    """Lit les dernières transactions des wallets manuels (RPC Chainstack→Helius→public)."""
+
+    def __init__(self, rpc_url: str | None = None, poll_sec: float = 60.0,
+                 sig_limit: int = 15, keep_sec: float = 7200.0, post=None) -> None:
+        self._rpc_client = RpcClient(rpc_url=rpc_url, post=post, timeout=8.0)
+        self.rpc_url = self._rpc_client.rpc_url
+        self.poll_sec, self.sig_limit, self.keep_sec = poll_sec, sig_limit, keep_sec
+        self._post = post
+        self._last_poll = 0.0
+        self._seen: set[str] = set()
+        self._trades: list[dict] = []
+        self.errors = 0
+
+    def _rpc(self, method: str, params: list) -> Any:
+        result = self._rpc_client.call(method, params)
+        self.rpc_url = self._rpc_client.rpc_url
+        return result
+
+    def trades(self, wallets: Iterable[str], force: bool = False) -> list[dict]:
+        wallets = list(wallets)
+        now = time.time()
+        if wallets and (force or now - self._last_poll >= self.poll_sec):
+            self._last_poll = now
+            for w in wallets:
+                try:
+                    self._poll(w)
+                except Exception as exc:  # jamais bloquant
+                    self.errors += 1
+                    print(f"[CopySmart] wallet manuel {w[:6]}… lecture RPC échouée : {redact_exc(exc)}")
+            cutoff = now - self.keep_sec
+            self._trades = [t for t in self._trades if (t.get("timestamp") or 0) >= cutoff]
+        return list(self._trades)
+
+    def _poll(self, wallet: str) -> None:
+        sigs = self._rpc("getSignaturesForAddress", [wallet, {"limit": self.sig_limit}]) or []
+        first = not any(t["maker"] == wallet for t in self._trades) and not self._seen
+        new = 0
+        for s in sigs:
+            sig = s.get("signature")
+            if not sig or sig in self._seen:
+                continue
+            if s.get("err") is not None or (s.get("blockTime") or 0) < time.time() - self.keep_sec:
+                self._seen.add(sig)
+                continue
+            if self._post is None:
+                time.sleep(0.25)  # RPC public : éviter le 429
+            tx = self._rpc("getTransaction", [sig, {"encoding": "jsonParsed",
+                                                    "maxSupportedTransactionVersion": 0}])
+            self._seen.add(sig)  # marqué lu seulement après succès (réessai si 429)
+            got = trades_from_tx(tx, wallet, sig)
+            self._trades.extend(got)
+            new += len(got)
+        if len(self._seen) > 5000:
+            self._seen = set(list(self._seen)[-2000:])
+        if new or first:
+            print(f"[CopySmart] wallet manuel {wallet[:6]}… : {new} trade(s) lu(s)"
+                  f"{' (démarrage)' if first else ''}")

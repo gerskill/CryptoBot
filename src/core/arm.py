@@ -510,5 +510,8 @@ def bootstrap_arms(
             )
         )
 
-    arms.sort(key=lambda arm: arm.role == CONSENSUS)
+    # Les bras à quorum (consensus, ou `entry_rules.consensus_gate`) en
+    # dernier : ils lisent les votes, complets seulement après les votants.
+    arms.sort(key=lambda arm: arm.role == CONSENSUS or bool(
+        arm.params.get("entry_rules.consensus_gate", False)))
     return arms

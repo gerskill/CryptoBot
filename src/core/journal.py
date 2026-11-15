@@ -20,7 +20,28 @@ from src.core.positions import Position
 COST_FIX_CUTOFF = "2026-10-24T08:59:00+00:00"
 
 
+# Une position longue ne peut pas perdre plus que sa mise (-100 %). Les
+# lignes plus basses viennent de devis de sortie absurdes (> 100 % du revendu)
+# sur des pools vidés par un rug ; plafonnées À LA LECTURE (fichier intact,
+# valeur d'origine dans `pnl_pct_journal`) pour que l'apprentissage et le
+# dashboard ne soient pas faussés par un seul rug. Correctif 2026-11-05.
+MIN_PNL_PCT = -100.0
+
+
 def correct_legacy_cost(row: dict[str, Any]) -> dict[str, Any]:
+    row = _correct_legacy_cost(row)
+    pnl = row.get("pnl_pct")
+    if row.get("entry_price") and isinstance(pnl, (int, float)) and pnl < MIN_PNL_PCT:
+        usd = row.get("pnl_usd") or 0.0
+        row.setdefault("pnl_pct_journal", pnl)
+        row.setdefault("pnl_usd_journal", usd)
+        row["pnl_pct"] = MIN_PNL_PCT
+        row["pnl_usd"] = round(usd * MIN_PNL_PCT / pnl, 4)
+        row["pnl_floor_applied"] = True
+    return row
+
+
+def _correct_legacy_cost(row: dict[str, Any]) -> dict[str, Any]:
     if row.get("cost_basis") == "stake" or "pnl_pct_journal" in row:
         return row
     cost = row.get("exit_cost_pct")
@@ -57,6 +78,9 @@ class TradeJournal:
         exit_cost_pct: Optional[float] = None,
         exit_cost_partial: Optional[bool] = None,
         exit_cost_estimated: bool = False,
+        exit_cost_round_trip_pct: Optional[float] = None,
+        entry_cost_version: str = "",
+        entry_cost_pct: Optional[float] = None,
     ) -> dict[str, Any]:
         row = {
             "id": f"{position.id}-{len(position.exit_reasons)}",
@@ -116,6 +140,17 @@ class TradeJournal:
             # exclure ces lignes, sinon l'estimation se confirme
             # elle-même. `PartialCostEstimator` les filtre déjà.
             "exit_cost_estimated": exit_cost_estimated,
+            # Aller-retour brut quand la vente n'en déduit que la moitié
+            # (buy-leg-v1). Les estimations de ventes partielles lisent CE
+            # champ, pas la moitié. Absent = l'ancien modèle, tout sur la vente.
+            "exit_cost_round_trip_pct": (
+                round(exit_cost_round_trip_pct, 3)
+                if exit_cost_round_trip_pct is not None else None
+            ),
+            "entry_cost_version": entry_cost_version or None,
+            "entry_cost_pct": (
+                round(entry_cost_pct, 3) if entry_cost_pct is not None else None
+            ),
             "cost_basis": "stake",
         }
         # JOURNAL ENRICHI (observationnel) : contexte figé à l'entrée. Ne

@@ -55,6 +55,11 @@ class Position:
     social_score: Optional[int] = None
     age_hours_at_entry: float = 0.0
     params_version: str = ""
+    # Coût d'entrée PAPER. "" = position ouverte avant le partage : la sortie
+    # finale porte encore l'aller-retour complet, et on ne la recalcule pas.
+    entry_cost_version: str = ""
+    entry_cost_pct: float = 0.0
+    entry_impact_charged: bool = False
 
     # Règles figées à l'entrée : un changement de params ne doit pas modifier
     # rétroactivement les règles d'une position déjà ouverte.
@@ -316,6 +321,9 @@ def evaluate_exits(
     return actions
 
 
+MAX_EXIT_COST_PCT = 100.0
+
+
 def cost_vs_entry(cost_pct: float, price: float, entry_price: float) -> float:
     """Ramène un coût mesuré en % du montant REVENDU au % du montant INVESTI.
 
@@ -324,6 +332,11 @@ def cost_vs_entry(cost_pct: float, price: float, entry_price: float) -> float:
     exprimé sur la mise. Sur un token à -99,5 %, ~9 $ de frais devenaient
     -3 728 % (KAITE, 21/10). Équivalent : coût_usd / mise.
     """
+    # Correctif 2026-11-05 (rug going/up sur tp1_30, -231,7 %) : un devis
+    # Jupiter sur un pool vidé peut annoncer un coût > 100 % du montant
+    # revendu. Impossible en vrai : au pire la revente rapporte 0. On plafonne
+    # à 100 % pour que la perte d'une position ne dépasse jamais sa mise.
+    cost_pct = min(float(cost_pct or 0.0), MAX_EXIT_COST_PCT)
     if not cost_pct or entry_price <= 0 or price <= 0:
         return float(cost_pct or 0.0)
     return float(cost_pct) * (price / entry_price)
