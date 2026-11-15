@@ -30,7 +30,7 @@ from src.analysis.technical import (
 from src.apis.birdeye import BirdeyeAPI
 from src.apis.dexscreener import DexScreenerAPI
 from src.core.pair_resolver import PairResolver
-from src.apis.gmgn import GmgnAPI
+from src.apis.gmgn import CACHE_TTL_SECONDS as GMGN_CACHE_TTL_SECONDS, GmgnAPI
 from src.apis.helius import HeliusAPI, use_watch_priority
 from src.apis.rugcheck import RugCheckAPI
 from src.apis.twitter import TwitterAPI
@@ -1216,12 +1216,20 @@ class AlphaLoop:
                 return False, why, None
         return True, "", set(hit["wallets"])
 
-    def _copy_trades(self):
-        """Flux GMGN (cache 120 s) + trades des wallets manuels (RPC public, 60 s)."""
+    def _copy_trades(self, refresh: bool = True):
+        """Flux GMGN (cache 120 s) + trades des wallets manuels (RPC public, 60 s).
+
+        `refresh=False` (tick de surveillance) : lit seulement les caches et
+        relance la relève GMGN dans un fil à part si elle est périmée. Le CLI
+        GMGN a 30 s de délai max : il ne doit jamais retarder SL, TP ou rug.
+        """
         trades = []
         gmgn_ok = bool(self.pipeline.gmgn and self.pipeline.gmgn.enabled)
         if gmgn_ok:
-            trades.extend(self.pipeline.gmgn.fetch_smart_money_trades() or [])
+            if refresh:
+                trades.extend(self.pipeline.gmgn.fetch_smart_money_trades() or [])
+            else:
+                trades.extend(self._gmgn_trades_cached())
         if self.copy_manual:
             # Lecture du cache seulement (liste vide = pas de relève) : la
             # relève RPC tourne dans son propre fil, voir `_poll_manual_wallets`.
@@ -1229,6 +1237,20 @@ class AlphaLoop:
         elif not gmgn_ok:
             return None
         return trades
+
+    def _gmgn_trades_cached(self) -> list:
+        """Dernier instantané smart money GMGN, sans jamais attendre le CLI."""
+        gmgn = self.pipeline.gmgn
+        snapshot = getattr(gmgn, "_smart_money_snapshot", None)
+        stale = not snapshot or time.time() - snapshot[0] >= GMGN_CACHE_TTL_SECONDS
+        fil = getattr(self, "_gmgn_refresh_thread", None)
+        if stale and (fil is None or not fil.is_alive()):
+            fil = threading.Thread(
+                target=gmgn.fetch_smart_money_trades, name="gmgn-refresh", daemon=True
+            )
+            self._gmgn_refresh_thread = fil
+            fil.start()
+        return list(snapshot[1]) if snapshot else []
 
     def _poll_manual_wallets(self) -> None:
         """Relève RPC des wallets manuels dans un fil à part, jamais bloquante.
@@ -1266,7 +1288,7 @@ class AlphaLoop:
             rules = copy_smart.rules_from(arm.params.get("entry_rules", {}) or {})
             if not rules["copy_smart_exit_on_wallet_sell"] or not arm.portfolio.positions:
                 continue
-            trades = self._copy_trades()
+            trades = self._copy_trades(refresh=False)
             if trades is None:
                 return
             with _books_lock(self):

@@ -62,5 +62,34 @@ class TestExpositionSousVerrou(unittest.TestCase):
         self.assertEqual(pris, [True])
 
 
+class _GmgnLent:
+    def __init__(self, snapshot):
+        self._smart_money_snapshot = snapshot
+        self.appels = 0
+        self.fini = threading.Event()
+
+    def fetch_smart_money_trades(self, limit=200):
+        self.appels += 1
+        time.sleep(0.5)  # CLI lent
+        self._smart_money_snapshot = (time.time(), [{"tx": "neuf"}])
+        self.fini.set()
+        return self._smart_money_snapshot[1]
+
+
+class TestGmgnHorsTick(unittest.TestCase):
+    def test_cache_perime_lu_sans_attendre_et_relance_en_fond(self):
+        gmgn = _GmgnLent((time.time() - 999, [{"tx": "vieux"}]))
+        loop = SimpleNamespace(pipeline=SimpleNamespace(gmgn=gmgn))
+        debut = time.monotonic()
+        self.assertEqual(AlphaLoop._gmgn_trades_cached(loop), [{"tx": "vieux"}])
+        AlphaLoop._gmgn_trades_cached(loop)  # relève en cours : pas une 2e
+        self.assertLess(time.monotonic() - debut, 0.2)
+        self.assertTrue(gmgn.fini.wait(2.0))
+        loop._gmgn_refresh_thread.join(2.0)
+        self.assertEqual(gmgn.appels, 1)
+        self.assertEqual(AlphaLoop._gmgn_trades_cached(loop), [{"tx": "neuf"}])
+        self.assertEqual(gmgn.appels, 1)  # cache frais : pas de relève
+
+
 if __name__ == "__main__":
     unittest.main()
