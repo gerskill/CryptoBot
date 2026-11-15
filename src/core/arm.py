@@ -345,7 +345,7 @@ def attach_portfolios(
             # d'une jambe partielle se lit dans le journal DU BRAS, sur ses
             # propres mesures. Les fenêtres de liquidité des sept bras sont
             # volontairement disjointes — la médiane de `sniper` (4 K de
-            # liquidité) n'a rien à voir avec celle de `narrative` (40 K).
+            # liquidité) n'a rien à voir avec celle de `quality` (20 K).
             partial_cost_estimator=(
                 PartialCostEstimator(arm.journal) if arm.journal is not None else None
             ),
@@ -388,11 +388,12 @@ def bootstrap_arms(
     # `enabled: true`, sans rapport apparent avec l'allocation — faisait
     # échouer le démarrage sur un `ManifestError` déroutant.
     #
-    # Constaté le 2026-08-30 : 1,05 au total, `narrative` (0,05) désactivé
-    # depuis le 2026-08-03, `sniper_young` (0,10525) ajouté le 2026-08-09 sans
-    # rééquilibrage. Le manifeste ne démarrait que parce que `narrative`
-    # restait éteint. On avertit au démarrage plutôt que d'échouer plus tard :
-    # la configuration actuelle est valide, c'est la SUIVANTE qui casserait.
+    # Constaté le 2026-08-30 : le total du fichier dépassait 1,0 parce qu'un
+    # bras éteint gardait une part, pendant que `sniper_young` (0,10525),
+    # ajouté le 2026-08-09, n'avait pas été rééquilibré. Le manifeste
+    # démarrait quand même. On avertit au démarrage plutôt que d'échouer
+    # plus tard : la configuration actuelle est valide, c'est la SUIVANTE
+    # qui casserait. Ce bras éteint a depuis été retiré du fichier.
     dormants = [e for e in all_entries if not e.get("enabled", True)]
     total_manifeste = sum(float(e.get("capital_pct", 0)) for e in all_entries)
     if dormants and abs(total_manifeste - 1.0) > 1e-6:

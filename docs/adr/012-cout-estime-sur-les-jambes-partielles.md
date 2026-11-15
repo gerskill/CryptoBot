@@ -32,7 +32,7 @@ direct :
    des `exit_cost_pct` réellement mesurés sur ses jambes finales. Par bras, et
    pas globalement : les fenêtres de liquidité des sept bras sont
    volontairement disjointes, la médiane de `sniper` (4 K) n'a rien à voir
-   avec celle de `narrative` (40 K).
+   avec celle de `quality` (20 K).
 3. **La moitié de cette médiane.** `round_trip_cost_pct` mesure un aller-retour,
    achat plus vente. La jambe finale porte volontairement le round-trip complet
    puisque l'entrée n'est facturée nulle part ailleurs ; facturer un round-trip

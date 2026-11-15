@@ -415,7 +415,7 @@ class AlphaLoop:
         n'est appelé qu'à la fermeture d'une position. Un bras qui n'ouvre
         jamais rien n'en ferme jamais, donc `run` n'est jamais appelé, donc le
         relâchement sur inactivité serait inatteignable **exactement pour les
-        bras qu'il doit débloquer**. `narrative` : 0 entrée sur 927 cycles.
+        bras qu'il doit débloquer**. Mesuré : 0 entrée sur 927 cycles.
 
         C'est la même poule-et-œuf que celles corrigées dans `economics` et
         dans la porte des 15 trades, un cran plus haut : cette fois ce n'est
@@ -767,7 +767,7 @@ class AlphaLoop:
         le témoin était alimenté : les six autres logs restaient vides, donc
         `_relax_from_shadow` — le seul contrepoids au resserrage — ne rendait
         jamais rien pour eux. Un bras rejette sur SES seuils ; le shadow du
-        témoin ne dit rien de ce que `quality` ou `narrative` ont écarté.
+        témoin ne dit rien de ce que `quality` a écarté.
 
         LE PRIX EST RAFRAÎCHI UNE FOIS, sur l'UNION des adresses en attente.
         Les bras jugent le même lot, donc leurs listes se recouvrent largement.
