@@ -138,6 +138,29 @@ class TestCoutEntree(unittest.TestCase):
         realized = portfolio._realized_pnl_from_journal()
         self.assertAlmostEqual(portfolio.capital, 1000.0 + realized)
 
+    def test_un_gain_de_prix_plus_petit_que_le_frais_compte_comme_une_perte(self):
+        """Le streak et la notification lisent le réalisé, pas le prix nu."""
+        portfolio = self._portfolio(2.0)
+        position = portfolio.open(candidate(), PARAMS, 100.0)
+        row = portfolio.force_close(position.id, price=1.02, reason="MANUAL")
+        self.assertLess(row["pnl_pct"], 0)
+        self.assertLess(row["pnl_usd"], 0)
+        self.assertEqual(portfolio.consecutive_losses, 1)
+
+    def test_devis_deja_pris_nest_pas_redemande_a_louverture(self):
+        calls = []
+
+        def measurer(token, size):
+            calls.append(size)
+            return Cost(10.0)
+
+        portfolio = PaperPortfolio(
+            capital=1000.0, journal=self.journal, exit_fee_measurer=measurer,
+        )
+        quote = portfolio._measure_entry_leg("mint1", 100.0)
+        portfolio.open(candidate(), PARAMS, 100.0, entry_quote=quote)
+        self.assertEqual(calls, [100.0])
+
 
 if __name__ == "__main__":
     unittest.main()

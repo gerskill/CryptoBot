@@ -70,7 +70,12 @@ from src.core.learning import LearningEngine
 from src.core.lock import InstanceLock
 from src.core.models import Candidate, ScanResult
 from src.core.params import ParamsStore
-from src.core.portfolio import MAX_POSITION_PCT_OF_CAPITAL, PREPARED_UNSET, SCALE_IN_RETRY_SECONDS
+from src.core.portfolio import (
+    ENTRY_COST_VERSION,
+    MAX_POSITION_PCT_OF_CAPITAL,
+    PREPARED_UNSET,
+    SCALE_IN_RETRY_SECONDS,
+)
 from src.core.position_watch import (
     PositionWatch,
     fetch_unique,
@@ -1334,24 +1339,46 @@ class AlphaLoop:
                     )
                 except Exception:  # noqa: BLE001
                     scale_check = None
+        entry_quote = PREPARED_UNSET
+        if (
+            scale_add
+            and getattr(position, "entry_cost_version", "") == ENTRY_COST_VERSION
+            and getattr(position, "entry_impact_charged", False)
+            and portfolio.exit_fee_measurer is not None
+        ):
+            entry_quote = portfolio._measure_entry_leg(position.token_address, scale_add)
         return (
             position.remaining_fraction,
             position.size_usd,
             final_cost,
             scale_check,
             scale_add,
+            entry_quote,
         )
 
     def _close_at_price(self, portfolio, position, price, reason):
-        """Ferme une position. Le devis, s'il y en a un, est pris avant le verrou."""
-        cost = PREPARED_UNSET
-        if portfolio.exit_fee_measurer is not None and quote_is_usable(price):
-            cost = portfolio.quote_final_cost(position, price)
-        with _books_lock(self):
-            live = portfolio.positions.get(position.id)
-            if live is None or live.remaining_fraction != position.remaining_fraction:
-                return None
-            return portfolio.force_close(position.id, price, reason, exit_cost=cost)
+        """Ferme une position. Le devis est pris avant le verrou.
+
+        Si la position a changé pendant le devis (vente partielle du fil de
+        surveillance), on reprend ce qui reste et on redemande un devis.
+        Un seul nouvel essai : /STOP ne doit pas laisser le reliquat ouvert.
+        """
+        for _attempt in range(2):
+            cost = PREPARED_UNSET
+            if portfolio.exit_fee_measurer is not None and quote_is_usable(price):
+                cost = portfolio.quote_final_cost(position, price)
+            with _books_lock(self):
+                live = portfolio.positions.get(position.id)
+                if live is None:
+                    return None
+                if (
+                    live.remaining_fraction != position.remaining_fraction
+                    or live.size_usd != position.size_usd
+                ):
+                    position = live
+                    continue
+                return portfolio.force_close(position.id, price, reason, exit_cost=cost)
+        return None
 
     def _monitor_arm(self, arm, verbose: bool = True) -> None:
         portfolio = arm.portfolio
@@ -1405,7 +1432,7 @@ class AlphaLoop:
             # Devis HORS verrou. L'application (sortie, capital, journal)
             # reprend le verrou et revérifie que la position est encore la
             # même : un devis calculé pour une autre taille ne sort pas.
-            remaining, size, final_cost, scale_check, scale_add = self._prepare_exit(
+            remaining, size, final_cost, scale_check, scale_add, entry_quote = self._prepare_exit(
                 portfolio, position, price, liquidity, drop
             )
             with _books_lock(self):
@@ -1421,6 +1448,7 @@ class AlphaLoop:
                     prepared_final_cost=final_cost,
                     prepared_scale_check=scale_check,
                     prepared_scale_add=scale_add,
+                    prepared_entry_quote=entry_quote,
                 )
             for row in rows:
                 self.funnel.record_exit(
@@ -1992,9 +2020,19 @@ class AlphaLoop:
             entry_context["social_score_source"] = SOCIAL_SCORE_SOURCE
         except Exception as exc:
             print(f"[Journal] ⚠️ contexte social — {type(exc).__name__}")
+        # Le devis d'entrée est un appel réseau : hors du verrou, sinon la
+        # surveillance des sorties attend la réponse.
+        entry_quote = PREPARED_UNSET
+        if (
+            arm.portfolio.exit_fee_measurer is not None
+            and getattr(arm.portfolio, "mode", "PAPER") == "PAPER"
+        ):
+            engaged = arm.portfolio._engaged_size(arm.params.data, size)
+            entry_quote = arm.portfolio._measure_entry_leg(candidate.token_address, engaged)
         with _books_lock(self):
             position = arm.portfolio.open(
-                candidate, arm.params.data, size, entry_context=entry_context
+                candidate, arm.params.data, size, entry_context=entry_context,
+                entry_quote=entry_quote,
             )
         # `position.size_usd` = taille réellement engagée (== `size` pour
         # tous les bras sauf entrée progressive, où c'est la fraction initiale).

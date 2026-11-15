@@ -244,6 +244,28 @@ class TestSortiesInchangees(unittest.TestCase):
         self.assertTrue(any(p.token_address == "b" for p in portfolio.positions.values()))
         self.assertNotIn(position.id, portfolio.positions)
 
+    def test_stop_referme_le_reliquat_si_la_vente_partielle_arrive_pendant_le_devis(self):
+        from dataclasses import replace
+
+        from src.main import AlphaLoop
+
+        calls = []
+
+        def measurer(token, size):
+            calls.append(size)
+            if len(calls) == 1:
+                live = portfolio.positions[position.id]
+                portfolio.positions[position.id] = replace(live, remaining_fraction=0.4)
+            return FakeCost(4.0)
+
+        portfolio = self._portfolio(measurer)
+        position = portfolio.open(candidate(), PARAMS, 100.0)
+        calls.clear()
+        row = AlphaLoop._close_at_price(AlphaLoop, portfolio, position, 1.0, "PANIC_STOP")
+        self.assertIsNotNone(row)
+        self.assertEqual(len(calls), 2)
+        self.assertNotIn(position.id, portfolio.positions)
+
 
 if __name__ == "__main__":
     unittest.main()
