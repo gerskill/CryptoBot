@@ -61,7 +61,7 @@
   },
   "exit_rules": {
     "stop_loss_pct": -21.0,
-    "take_profit_1": 150.0,
+    "take_profit_1": 15.0,
     "take_profit_2": 250.0,
     "take_profit_3": 400,
     "breakeven_trigger": 100,
@@ -3746,6 +3746,14 @@
         },
         "reason": "backtest sorties : P&L/trade -5.6437 → -5.6437, pas d'amélioration ≥ 10% — annulé",
         "trades_sample_size": 40
+      },
+      {
+        "timestamp": "2026-11-15T13:43:49.555624+00:00",
+        "param_name": "exit_rules.take_profit_1",
+        "old_value": 150.0,
+        "new_value": 15.0,
+        "reason": "plafond propriétaire à 15 % : l'apprentissage ne doit pas restaurer les anciens take_profit_1 plus hauts. Borne [15, 15] pour quality et consensus seulement.",
+        "trades_sample_size": 0
       }
     ],
     "last_adjustment_at": {
