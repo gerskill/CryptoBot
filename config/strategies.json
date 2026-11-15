@@ -62,6 +62,49 @@
       }
     },
     {
+      "name": "sniper_ar",
+      "role": "test",
+      "enabled": true,
+      "capital_pct": 0.0,
+      "notify": "none",
+      "description": "TEST 2026-11-02 (accord Killian, point 3 Moon Dev) : copie COMPLETE de sniper + anti-rug on-chain (RPC public) : refus si un wallet hors pool detient > 20% de l'offre, ou si >= 3 des 8 premiers acheteurs ont le meme financeur. Historique sniper : tokens concernes 168 lignes, -337$, PF 0.57 ; sans eux PF 0.70 -> 0.73. role test : ne vote pas, capital_pct 0, learning=false.",
+      "overrides": {
+        "filters.min_liquidity_usd": 4000,
+        "filters.min_volume_1h": 2000,
+        "filters.min_holders": 40,
+        "filters.max_top_wallet_concentration": 30,
+        "filters.min_age_hours": 0.025,
+        "filters.max_age_hours": 0.5,
+        "scan.alpha_score_entry_threshold": 65,
+        "exit_rules.stop_loss_pct": -40,
+        "exit_rules.take_profit_1": 40,
+        "exit_rules.take_profit_2": 120,
+        "exit_rules.take_profit_3": 400,
+        "exit_rules.partial_sell_tp1_pct": 0.5,
+        "exit_rules.trailing_stop_activation": 80,
+        "exit_rules.trailing_stop_distance_pct": 35,
+        "exit_rules.max_hold_time_minutes": 30,
+        "risk_rules.max_concurrent_positions": 2,
+        "filters.max_bundler_rate": 0.3,
+        "filters.max_insider_rate": 0.15,
+        "filters.max_entrapment_ratio": 0.2,
+        "filters.max_sniper_count": 60,
+        "filters.reject_wash_trading": true,
+        "filters.reject_creator_sold": true,
+        "filters.max_dev_tokens_launched": 5,
+        "filters.max_twitter_renames": 0,
+        "filters.min_swaps": 80,
+        "filters.min_buy_sell_ratio": 0.55,
+        "filters.min_volume_liquidity_ratio": 0.5,
+        "filters.require_social": true,
+        "filters.max_price_change_1h": 400,
+        "filters.onchain_antirug": true,
+        "filters.onchain_max_wallet_pct": 20,
+        "filters.onchain_max_shared_funder": 3
+      },
+      "learning": false
+    },
+    {
       "name": "sniper_young",
       "role": "voter",
       "enabled": true,
@@ -161,12 +204,6 @@
       "capital_pct": 0.0526,
       "notify": "none",
       "description": "4h a 24h, selection stricte. La tranche 2-4h est la SEULE rentable du journal (+2.95 $/trade, WR 33%, pic median +28%). Ce bras teste si aller plus loin dans l'age garde cet avantage, avec la liquidite que seul l'age permet.",
-      "bounds": {
-        "exit_rules.take_profit_1": [
-          15,
-          15
-        ]
-      },
       "overrides": {
         "filters.min_liquidity_usd": 40000,
         "filters.min_volume_1h": 20000,
@@ -205,6 +242,232 @@
         "filters.require_social": true,
         "filters.max_dev_tokens_launched": 5,
         "filters.max_twitter_renames": 0
+      },
+      "bounds": {
+        "exit_rules.take_profit_1": [
+          15,
+          15
+        ]
+      }
+    },
+    {
+      "name": "tp1_15",
+      "role": "test",
+      "enabled": true,
+      "capital_pct": 0.0,
+      "notify": "none",
+      "learning": false,
+      "description": "TEST 2026-10-04 (demande Killian) : TP1 court +15% avec vente de 50%, puis stop remonte EXACTEMENT au prix d'entree (breakeven_stop_exact, tampon ignore) sur la moitie restante, qui court sous trailing stop active des le TP1 (activation = TP1, distance 20 pts de P&L sous le plus-haut). Tout le reste = copie du document VIVANT du temoin (baseline / config/params.json) au 2026-10-04 : memes filtres, seuil d'entree, poids, SL -25 + tampon 10 (seuil effectif -15), TP2 300 / TP3 500, max hold 330 min. role 'test' : ne vote pas, hors exposition sectorielle de flotte et hors pool de rejeu des autres bras. learning=false : parametres figes pour que seule la sortie differe entre tp1_15 / tp1_20 / tp1_30. capital_pct 0 : en PAPER chaque bras a quand meme capital_total (7000 $), capital_pct n'est qu'un plan d'allocation LIVE ; 0 evite de modifier les bras existants.",
+      "overrides": {
+        "exit_rules.take_profit_1": 15.0,
+        "exit_rules.partial_sell_tp1_pct": 0.5,
+        "exit_rules.breakeven_stop_exact": true,
+        "exit_rules.trailing_stop_activation": 15.0,
+        "exit_rules.trailing_stop_distance_pct": 20.0
+      }
+    },
+    {
+      "name": "tp1_20",
+      "role": "test",
+      "enabled": true,
+      "capital_pct": 0.0,
+      "notify": "none",
+      "learning": false,
+      "description": "TEST 2026-10-04 (demande Killian) : TP1 court +20% avec vente de 50%, puis stop remonte EXACTEMENT au prix d'entree (breakeven_stop_exact, tampon ignore) sur la moitie restante, qui court sous trailing stop active des le TP1 (activation = TP1, distance 20 pts de P&L sous le plus-haut). Tout le reste = copie du document VIVANT du temoin (baseline / config/params.json) au 2026-10-04 : memes filtres, seuil d'entree, poids, SL -25 + tampon 10 (seuil effectif -15), TP2 300 / TP3 500, max hold 330 min. role 'test' : ne vote pas, hors exposition sectorielle de flotte et hors pool de rejeu des autres bras. learning=false : parametres figes pour que seule la sortie differe entre tp1_15 / tp1_20 / tp1_30. capital_pct 0 : en PAPER chaque bras a quand meme capital_total (7000 $), capital_pct n'est qu'un plan d'allocation LIVE ; 0 evite de modifier les bras existants.",
+      "overrides": {
+        "exit_rules.take_profit_1": 20.0,
+        "exit_rules.partial_sell_tp1_pct": 0.5,
+        "exit_rules.breakeven_stop_exact": true,
+        "exit_rules.trailing_stop_activation": 20.0,
+        "exit_rules.trailing_stop_distance_pct": 20.0
+      }
+    },
+    {
+      "name": "tp1_20_vl2",
+      "role": "test",
+      "enabled": true,
+      "capital_pct": 0.0,
+      "notify": "none",
+      "learning": false,
+      "description": "TEST 2026-10-24 (validé Killian) : clone EXACT de tp1_20 (meme sortie TP1 +20% / 50%, breakeven exact, trailing 20) avec UNE seule difference : anti-pump entry_rules.max_volume_liquidity_ratio = 2 au lieu de 5. tp1_20 reste le temoin a 5. Audit 24/10 : vol/liq 2-5 = PF 0.59, -5 562 $. role test, learning=false (parametres figes), capital_pct 0 (PAPER : capital_total par bras).",
+      "overrides": {
+        "exit_rules.take_profit_1": 20.0,
+        "exit_rules.partial_sell_tp1_pct": 0.5,
+        "exit_rules.breakeven_stop_exact": true,
+        "exit_rules.trailing_stop_activation": 20.0,
+        "exit_rules.trailing_stop_distance_pct": 20.0,
+        "entry_rules.max_volume_liquidity_ratio": 2
+      }
+    },
+    {
+      "name": "tp1_30",
+      "role": "test",
+      "enabled": true,
+      "capital_pct": 0.0,
+      "notify": "none",
+      "learning": false,
+      "description": "TEST 2026-10-04 (demande Killian) : TP1 court +30% avec vente de 50%, puis stop remonte EXACTEMENT au prix d'entree (breakeven_stop_exact, tampon ignore) sur la moitie restante, qui court sous trailing stop active des le TP1 (activation = TP1, distance 20 pts de P&L sous le plus-haut). Tout le reste = copie du document VIVANT du temoin (baseline / config/params.json) au 2026-10-04 : memes filtres, seuil d'entree, poids, SL -25 + tampon 10 (seuil effectif -15), TP2 300 / TP3 500, max hold 330 min. role 'test' : ne vote pas, hors exposition sectorielle de flotte et hors pool de rejeu des autres bras. learning=false : parametres figes pour que seule la sortie differe entre tp1_15 / tp1_20 / tp1_30. capital_pct 0 : en PAPER chaque bras a quand meme capital_total (7000 $), capital_pct n'est qu'un plan d'allocation LIVE ; 0 evite de modifier les bras existants.",
+      "overrides": {
+        "exit_rules.take_profit_1": 30.0,
+        "exit_rules.partial_sell_tp1_pct": 0.5,
+        "exit_rules.breakeven_stop_exact": true,
+        "exit_rules.trailing_stop_activation": 30.0,
+        "exit_rules.trailing_stop_distance_pct": 20.0
+      }
+    },
+    {
+      "name": "scaled_be",
+      "role": "test",
+      "enabled": true,
+      "capital_pct": 0.0,
+      "notify": "none",
+      "learning": false,
+      "description": "TEST 2026-10-10 (proposition Killingbot validee par Killian, PAPER uniquement) : ENTREE PROGRESSIVE + BREAKEVEN. Entree a 1/3 de la taille normale du temoin (memes signaux, filtres, seuil, Kelly et garde economie calcules sur la taille PLEINE) ; ajout UNIQUE des 2/3 restants si le prix atteint +scale_in_trigger_pct (5 %, plage prevue 5-10) depuis l'entree, tant qu'aucune sortie n'a eu lieu ; des l'ajout, stop de TOUTE la position au prix MOYEN exact (breakeven exact, tampon ignore). Avant l'ajout : stop initial (-25 + tampon 10 = -15) et toutes les autres sorties identiques au temoin. Refus d'entree si le cout de sortie estime (devis Jupiter aller-retour a la taille retenue) depasse max_exit_cost_pct_entry (5 %). Evenements SCALE_IN dans data/arms/scaled_be/scale_events.jsonl ; sorties dans trades_log.jsonl (champs scaled_in/initial_entry_price/total_size_usd). Le reste = copie du document VIVANT du temoin au 2026-10-10. role 'test' : ne vote pas, hors exposition sectorielle de flotte et hors pool de rejeu ; learning=false ; capital_pct 0. Verdict vs baseline apres >= 200 trades. MAJ 2026-10-10 10:40 (demande Killian) : ajout seulement si le prix est dans la fenetre +5..+10 % depuis l'entree initiale (scale_in_max_pct 10), au prix EFFECTIF d'un devis Jupiter reel (timeout court), apres controles liquidite min / revente (honeypot) / cout aller-retour a la taille totale <= 5 % ; tout echec ou devis indisponible = pas d'ajout (fail closed), journalise SCALE_IN_SKIPPED (above_max, quote_failed, safety_failed, cost_too_high). Si le prix revient dans la fenetre et qu'aucune sortie n'a eu lieu, l'ajout reste possible (nouveau devis au plus toutes les 60 s).",
+      "overrides": {
+        "entry_rules.scale_in_trigger_pct": 5.0,
+        "entry_rules.scale_in_max_pct": 10.0,
+        "entry_rules.scale_in_initial_fraction": 0.3333333333,
+        "entry_rules.max_exit_cost_pct_entry": 5.0
+      }
+    },
+    {
+      "name": "anti_rug",
+      "role": "test",
+      "enabled": true,
+      "capital_pct": 0.0,
+      "notify": "none",
+      "learning": false,
+      "social_wishlist": false,
+      "description": "TEST 2026-10-11 (demande Killian, PAPER uniquement) : fork EXACT du temoin (memes filtres, seuil alpha, sorties ; copie du document vivant au 11/10) + porte anti-arnaque a l'entree (src/core/anti_rug.py) lisant l'instantane on-chain deja calcule AVANT la decision (src/agents/onchain_observer.py) : autorites mint/freeze revoquees, top 10 des WALLETS (hors pool/courbe/lockers detenus par un programme, hors burn) <= 20 %, part du createur <= 5 %, transferts sortants du dev <= 5, acheteurs au slot de lancement <= 4, wallets frais <= 1 dans le top 10 et <= 1 parmi les 10 premiers acheteurs. Seuils = heuristiques standard + pire quartile de la distribution observee du 10/10 au 11/10 (168 tokens), PAS optimises sur le P&L. Donnees on-chain pas pretes : pas d'entree, token reevalue aux cycles suivants ; chaque refus journalise (porte 'anti_rug', champ missing). role 'test' : ne vote pas, hors exposition de flotte, hors pool de rejeu, hors arbitrage social ; learning=false ; capital_pct 0. Verdict vs baseline apres >= 200 trades, bilan prevu 24/10. Decision : pas d'API X. Voir docs/anti_rug_2026-10-11.md. | 2026-10-29 (accord Killian) : seuils assouplis wallets frais top10 1->3, wallets frais 10 premiers acheteurs 1->2, acheteurs au slot de lancement 4->8 ; dev<=5%, mint/freeze revoques, top10<=20% inchanges.",
+      "overrides": {
+        "entry_rules.anti_rug_enabled": true,
+        "entry_rules.anti_rug_require_authorities_revoked": true,
+        "entry_rules.anti_rug_max_top10_wallets_pct": 20.0,
+        "entry_rules.anti_rug_max_creator_pct": 5.0,
+        "entry_rules.anti_rug_max_dev_out_transfers": 5,
+        "entry_rules.anti_rug_reject_any_dev_sale": false,
+        "entry_rules.anti_rug_max_launch_slot_buyers": 8,
+        "entry_rules.anti_rug_max_fresh_top10": 3,
+        "entry_rules.anti_rug_max_fresh_first_buyers": 2,
+        "entry_rules.anti_rug_max_data_age_sec": 3600
+      }
+    },
+    {
+      "name": "mature_liquid",
+      "role": "test",
+      "enabled": true,
+      "capital_pct": 0.0,
+      "notify": "none",
+      "learning": false,
+      "discovery": "mature",
+      "social_wishlist": false,
+      "description": "TEST 2026-10-11 (demande Killian, PAPER uniquement) : fork du temoin (seuil alpha, score, sorties IDENTIQUES) sur des tokens vieux et liquides : age 24 h - 30 j, liquidite >= 250 000 $, volume 1 h >= 20 000 $. Le scanner principal plafonne l'age a 24 h (enveloppe) : source de candidats SEPAREE et opt-in (discovery 'mature', pipeline.collect_mature) = classement GMGN market trending 24 h filtre serveur (age/liquidite, not_wash_trading), rafraichi tous les 10 cycles, 15 tokens max, prix via 1 appel DexScreener groupe par cycle. Hors enveloppe, hors watchlist/blacklist partagees, hors arbitrage social, hors observation on-chain : les autres bras voient exactement les memes candidats. Sorties du temoin gardees telles quelles (une seule variable testee) bien que TP1 +150 % / 7 h soit probablement inadapte a des tokens matures. role 'test' ; learning=false ; capital_pct 0. Bilan prevu 24/10.",
+      "overrides": {
+        "filters.min_age_hours": 24.0,
+        "filters.max_age_hours": 720.0,
+        "filters.min_liquidity_usd": 250000,
+        "filters.min_volume_1h": 20000,
+        "scan.mature_source": {
+          "refresh_cycles": 10,
+          "max_candidates": 15,
+          "gmgn_interval": "24h",
+          "gmgn_limit": 50,
+          "gmgn_order_by": "volume",
+          "gmgn_filters": [
+            "not_wash_trading"
+          ]
+        }
+      }
+    },
+    {
+      "name": "copy_smart",
+      "role": "test",
+      "enabled": true,
+      "capital_pct": 0.0,
+      "notify": "none",
+      "learning": false,
+      "social_wishlist": false,
+      "description": "TEST 2026-10-29 (demande Killian, PAPER uniquement, active le 29/10 avec accord Killian) : copie de smart wallets. Liste = wallets vus EN AVANCE (>=1 min) sur >=20 tokens deja juges (journal+shadow) avec un taux de +100% >= 1.5x le taux de base (wallet_scoreboard, zero appel). Signal = achat d'un wallet de la liste dans les 10 dernieres minutes, lu dans le flux GMGN track smartmoney deja recupere (cache 120 s, zero appel en plus). Puis refus si deja +100% sur 1h, puis porte anti_rug (memes seuils, meme budget on-chain, reutilise), puis filtres/pre_trade/technique du temoin. Seuil alpha a 0 : c'est la copie qui decide, pas le score. SL pose a l'ouverture (avant tout tick). Sortie : wallet copie revend (COPY_WALLET_SOLD) + SL/TP/trailing normaux. role test, learning false, capital_pct 0. Code : src/core/copy_smart.py. | 2026-10-29 (accord Killian) : seuils assouplis wallets frais top10 1->3, wallets frais 10 premiers acheteurs 1->2, acheteurs au slot de lancement 4->8 ; dev<=5%, mint/freeze revoques, top10<=20% inchanges. | 2026-10-29 soir (accord Killian) : +filtre token copieur (ticker/nom qui reprend ou imite un token connu/deja vu, local), +taux de reussite du wallet copie >=55% (token monte apres son avance ; si <3 wallets passent, repli sur les 3 meilleurs, signale dans le log), +SL -8% (au lieu de -25%) avec tampon SL 0 (sinon -8+10 declencherait en positif). | 2026-10-29 soir (accord Killian) : SL -8 -> -15 (compromis, -8 trop serre), tampon SL 0 inchange.",
+      "overrides": {
+        "scan.alpha_score_entry_threshold": 0,
+        "entry_rules.copy_smart_enabled": true,
+        "entry_rules.copy_smart_window_minutes": 10,
+        "entry_rules.copy_smart_min_tokens_judged": 20,
+        "entry_rules.copy_smart_min_lift": 1.5,
+        "entry_rules.copy_smart_max_change_1h_pct": 100.0,
+        "entry_rules.copy_smart_exit_on_wallet_sell": true,
+        "entry_rules.anti_rug_enabled": true,
+        "entry_rules.anti_rug_require_authorities_revoked": true,
+        "entry_rules.anti_rug_max_top10_wallets_pct": 20.0,
+        "entry_rules.anti_rug_max_creator_pct": 5.0,
+        "entry_rules.anti_rug_max_dev_out_transfers": 5,
+        "entry_rules.anti_rug_reject_any_dev_sale": false,
+        "entry_rules.anti_rug_max_launch_slot_buyers": 8,
+        "entry_rules.anti_rug_max_fresh_top10": 3,
+        "entry_rules.anti_rug_max_fresh_first_buyers": 2,
+        "entry_rules.anti_rug_max_data_age_sec": 3600,
+        "entry_rules.copy_smart_min_win_rate_pct": 55.0,
+        "entry_rules.copy_smart_win_peak_pct": 0.01,
+        "entry_rules.copy_smart_min_wallets_fallback": 3,
+        "entry_rules.copy_smart_copycat_filter": true,
+        "entry_rules.copy_smart_copycat_similarity": 0.85,
+        "entry_rules.copy_smart_copycat_min_len_fuzzy": 4,
+        "exit_rules.stop_loss_pct": -15,
+        "exit_rules.stop_loss_slippage_buffer_pct": 0.0
+      }
+    },
+    {
+      "name": "fixes3",
+      "role": "test",
+      "enabled": true,
+      "capital_pct": 0.0,
+      "notify": "none",
+      "learning": false,
+      "description": "TEST 2026-11-02 (accord Killian, rebase sur tp1_15) : copie COMPLETE de config/arms/tp1_15.json (filtres, SL -25 + tampon 10, TP1 +15 vente 50% puis stop au prix d'entree exact, trailing 20 pts, TP2 300 / TP3 500) + 3 corrections : (1) frais A/R estimes > 3% refuses (max_exit_cost_pct_entry) ; (2) breakeven_trigger 20 exact : filet de securite, TP1 +15 remonte deja le stop a l'entree avant +20 ; (3) anti-chasse : refus si > +10% sur 5m ou > +200% sur 1h. learning=false, capital_pct 0.",
+      "overrides": {
+        "exit_rules.take_profit_1": 15.0,
+        "exit_rules.partial_sell_tp1_pct": 0.5,
+        "exit_rules.breakeven_stop_exact": true,
+        "exit_rules.trailing_stop_activation": 15.0,
+        "exit_rules.trailing_stop_distance_pct": 20.0,
+        "entry_rules.max_exit_cost_pct_entry": 3.0,
+        "filters.max_price_change_5m": 10.0,
+        "filters.max_price_change_1h": 200.0,
+        "exit_rules.breakeven_trigger": 20.0
+      }
+    },
+    {
+      "name": "consensus_af",
+      "role": "test",
+      "enabled": true,
+      "capital_pct": 0.0,
+      "notify": "none",
+      "learning": false,
+      "min_confluence": 2,
+      "description": "TEST 2026-11-02 (accord Killian : copie de consensus avec les deux filtres) : copie COMPLETE de config/arms/consensus.json + (1) frais A/R estimes > 3% refuses (max_exit_cost_pct_entry) ; (2) refus si deja > +10% sur 5m (max_price_change_5m). consensus_gate=true : meme quorum (60%, min_confluence identique) sur les MEMES votants (role voter) ; role test donc ne vote pas et ne change rien au consensus original. learning=false, capital_pct 0.",
+      "overrides": {
+        "filters.min_liquidity_usd": 4000,
+        "filters.min_volume_1h": 2000,
+        "filters.min_holders": 40,
+        "filters.min_age_hours": 0.025,
+        "filters.max_age_hours": 24.0,
+        "scan.alpha_score_entry_threshold": 65,
+        "exit_rules.stop_loss_pct": -25,
+        "exit_rules.take_profit_1": 50,
+        "exit_rules.take_profit_2": 150,
+        "exit_rules.take_profit_3": 400,
+        "exit_rules.trailing_stop_activation": 100,
+        "exit_rules.trailing_stop_distance_pct": 35,
+        "exit_rules.max_hold_time_minutes": 180,
+        "risk_rules.max_concurrent_positions": 2,
+        "filters.max_bundler_rate": 0.5,
+        "filters.max_insider_rate": 0.25,
+        "filters.reject_wash_trading": true,
+        "filters.reject_creator_sold": true,
+        "filters.min_swaps": 50,
+        "entry_rules.max_exit_cost_pct_entry": 3.0,
+        "filters.max_price_change_5m": 10.0,
+        "entry_rules.consensus_gate": true
       }
     },
     {
@@ -215,12 +478,6 @@
       "notify": "exits",
       "description": "N'entre que si au moins min_confluence bras VOTERS acceptent le token. Son propre vote ne compte pas, sinon la regle est auto-referentielle. Fenetre large expres : il doit pouvoir suivre n'importe quel bras.",
       "min_confluence": 2,
-      "bounds": {
-        "exit_rules.take_profit_1": [
-          15,
-          15
-        ]
-      },
       "overrides": {
         "filters.min_liquidity_usd": 4000,
         "filters.min_volume_1h": 2000,
@@ -241,8 +498,28 @@
         "filters.reject_wash_trading": true,
         "filters.reject_creator_sold": true,
         "filters.min_swaps": 50
+      },
+      "bounds": {
+        "exit_rules.take_profit_1": [
+          15,
+          15
+        ]
+      }
+    },
+    {
+      "name": "score_v2",
+      "role": "test",
+      "enabled": true,
+      "capital_pct": 0.0,
+      "notify": "none",
+      "learning": false,
+      "description": "TEST (proposition 2026-10-10, NON deploye tant que Killian n'a pas valide) : fork EXACT du temoin (memes filtres, seuil alpha v1 55, memes sorties) + filtre d'entree score v2 (src/core/score_v2.py) : probabilite logistique 2 variables (variation 5 min, log10 volume1h/liquidite), entree seulement si prob >= 0.205 (mediane d'entrainement). Anti-pump : les entrees a fort momentum 5 min et fort volume/liquidite finissent plus souvent au stop. Hors echantillon : AUC 0.62 (PnL>0), PF baseline 0.77 -> 0.98 sur la moitie retenue, sans edge prouve. role 'test' : ne vote pas, hors exposition de flotte et hors pool ; learning=false ; capital_pct 0. Verdict vs baseline apres >= 200 trades. Ne sert PAS a la taille (calibration insuffisante).",
+      "overrides": {
+        "entry_rules.score_v2_min_prob": 0.205
       }
     }
   ],
-  "_note_champs": "Chaque bras exploite un jeu de champs DIFFERENT, tous rendus par le meme appel GMGN market trending que la decouverte : les filtrer ne coute aucune requete. sniper mise sur l anti-manipulation (rien d autre n est mesurable a 5 min), scalp sur le momentum court, runner sur la solidite de la LP, quality sur la reputation et les KOL. Un seuil absent d un document ne s applique pas ; une donnee absente ne rejette jamais."
+  "_note_champs": "Chaque bras exploite un jeu de champs DIFFERENT, tous rendus par le meme appel GMGN market trending que la decouverte : les filtrer ne coute aucune requete. sniper mise sur l anti-manipulation (rien d autre n est mesurable a 5 min), scalp sur le momentum court, runner sur la solidite de la LP, quality sur la reputation et les KOL. Un seuil absent d un document ne s applique pas ; une donnee absente ne rejette jamais.",
+  "_note_tp1_tests": "2026-10-04 : bras tp1_15/tp1_20/tp1_30 (role test, learning false). Backup : config/strategies.json.bak-pre-tp1arms-20261004-102744. Pour les retirer : enabled=false.",
+  "_note_scaled_be": "2026-10-10 : bras scaled_be (role test, learning false). Backup : config/strategies.json.bak-pre-scaledbe-*. Pour le retirer : enabled=false."
 }

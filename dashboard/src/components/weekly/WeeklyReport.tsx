@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useWeekTrades } from '../../lib/useWeekTrades'
 import { useStore } from '../../lib/store'
 import { EMPTY_ARRAY } from '../../lib/empty'
 import { Panel, Empty } from '../Panel'
@@ -19,9 +20,10 @@ const ZERO_STAT = (arm: string): ArmWeeklyStat => ({
   pnlUsd: 0,
 })
 
-/** Rapport hebdomadaire calculé côté client : zéro endpoint supplémentaire. */
+/** Rapport hebdomadaire. Les positions de la semaine viennent de
+ *  `/api/trades/range` (semaine COMPLÈTE, tous bras) — plus du store, borné
+ *  aux 100 dernières positions du tableau « derniers trades ». */
 export function WeeklyReport() {
-  const allTrades = useStore((s) => s.trades ?? EMPTY_ARRAY)
   const arms = useStore((s) => s.state.arms ?? EMPTY_ARRAY)
   const startingEquity = useStore((s) => {
     const agg = s.state.aggregate
@@ -31,7 +33,12 @@ export function WeeklyReport() {
   })
   const [weekOffset, setWeekOffset] = useState(0)
 
-  const weekTrades = useMemo(() => filterTradesByWeek(allTrades, weekOffset), [allTrades, weekOffset])
+  const fetched = useWeekTrades(weekOffset)
+  // Double filtre côté client : garde-fou si le serveur renvoyait plus large.
+  const weekTrades = useMemo(
+    () => filterTradesByWeek(fetched.trades ?? EMPTY_ARRAY, weekOffset),
+    [fetched.trades, weekOffset],
+  )
 
   // Le tableau par bras doit rester correct même pour un bras sans trade
   // cette semaine : on complète les stats calculées avec une ligne zéro pour
@@ -55,7 +62,11 @@ export function WeeklyReport() {
     <div className="space-y-4">
       <WeekSelector weekOffset={weekOffset} onChange={setWeekOffset} />
 
-      {weekTrades.length === 0 ? (
+      {fetched.trades === null ? (
+        <Panel title="Rapport hebdomadaire">
+          <Empty>{fetched.error ? `Erreur de chargement : ${fetched.error}` : 'Chargement de la semaine…'}</Empty>
+        </Panel>
+      ) : weekTrades.length === 0 ? (
         <Panel title="Rapport hebdomadaire">
           <Empty>Aucun trade clôturé cette semaine.</Empty>
         </Panel>

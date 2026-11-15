@@ -562,52 +562,26 @@ class TestManifesteLivre(unittest.TestCase):
             self.assertEqual(
                 arms[nom]["bounds"]["exit_rules.take_profit_1"], [15, 15]
             )
-        self.assertEqual(
-            arms["scalp"]["bounds"]["exit_rules.take_profit_1"], [15, 80]
-        )
-        self.assertEqual(
-            arms["sniper"]["bounds"]["exit_rules.take_profit_1"], [20, 120]
-        )
-        self.assertEqual(arms["quality"]["overrides"]["exit_rules.take_profit_1"], 15)
-        self.assertEqual(arms["consensus"]["overrides"]["exit_rules.take_profit_1"], 15)
-        self.assertEqual(arms["scalp"]["overrides"]["exit_rules.take_profit_1"], 25)
-        self.assertEqual(arms["sniper"]["overrides"]["exit_rules.take_profit_1"], 40)
-        self.assertEqual(arms["runner"]["overrides"]["exit_rules.take_profit_1"], 150)
-        self.assertEqual(arms["narrative"]["overrides"]["exit_rules.take_profit_1"], 80)
-        for nom in ("baseline", "runner", "narrative", "sniper_young"):
-            self.assertNotIn(
-                "exit_rules.take_profit_1", arms[nom].get("bounds") or {}
+            self.assertEqual(arms[nom]["overrides"]["exit_rules.take_profit_1"], 15)
+        # Le gel ne concerne que ces deux bras.
+        for nom, entree in arms.items():
+            if nom in ("quality", "consensus"):
+                continue
+            self.assertNotEqual(
+                (entree.get("bounds") or {}).get("exit_rules.take_profit_1"),
+                [15, 15],
+                nom,
             )
 
-    def test_seuls_quality_et_consensus_sont_deja_a_15_en_paper(self):
+    def test_quality_et_consensus_sont_a_15_en_paper(self):
+        # Valeurs apprises : on ne fige que quality et consensus, et on ne
+        # vérifie pas les autres bras (leur take profit évolue en paper).
         for nom in ("quality", "consensus"):
             document = self._document("config", "arms", f"{nom}.json")
             self.assertEqual(document["mode"], "PAPER")
             self.assertFalse(document.get("live_mode_authorized_by_owner", False))
             self.assertEqual(document["exit_rules"]["take_profit_1"], 15.0)
-            dernier = next(
-                entry
-                for entry in reversed(
-                    document["learning"]["parameter_adjustment_history"]
-                )
-                if entry["param_name"] == "exit_rules.take_profit_1"
-            )
-            self.assertEqual(dernier["new_value"], 15.0)
-            self.assertEqual(dernier["trades_sample_size"], 0)
-
-        # Les autres bras gardent le take profit qu'ils avaient avant ce plafond.
-        intact = {
-            ("config", "params.json"): 100.0,
-            ("config", "arms", "scalp.json"): 25.0,
-            ("config", "arms", "sniper.json"): 25.0,
-            ("config", "arms", "sniper_young.json"): 40.0,
-            ("config", "arms", "runner.json"): 75.0,
-            ("config", "arms", "narrative.json"): 80,
-        }
-        for parts, attendu in intact.items():
-            document = self._document(*parts)
-            self.assertEqual(document["mode"], "PAPER")
-            self.assertEqual(document["exit_rules"]["take_profit_1"], attendu)
+        self.assertEqual(self._document("config", "params.json")["mode"], "PAPER")
 
 
 if __name__ == "__main__":

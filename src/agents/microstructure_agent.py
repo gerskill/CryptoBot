@@ -161,19 +161,24 @@ class MicrostructureAgent:
             )
 
         premier, dernier = fenetre[0], fenetre[-1]
-        depth = dernier.liquidity
+        # Liquidité inconnue (None) exclue des mesures de liquidité seulement.
+        connues = [s for s in fenetre if s.liquidity is not None]
+        liq_premier = connues[0].liquidity if connues else None
+        depth = connues[-1].liquidity if connues else None
         round_trip = (
             self._round_trip(token_address, size_usd, sol_price_usd)
             if token_address else None
         )
 
         return MicrostructureReading(
-            liquidity_drift_pct=_drift_pct(premier.liquidity, dernier.liquidity),
+            liquidity_drift_pct=(
+                _drift_pct(liq_premier, depth) if len(connues) >= 2 else None
+            ),
             price_drift_pct=_drift_pct(premier.price, dernier.price),
             depth_usd=depth,
             round_trip_pct=round_trip,
             volume_over_liquidity=(
-                dernier.volume_5m / depth if depth > 0 else None
+                dernier.volume_5m / depth if depth else None
             ),
             window_seconds=dernier.ts - premier.ts,
             samples=len(fenetre),

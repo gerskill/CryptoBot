@@ -235,3 +235,78 @@ class TestToutChiffreEstAttribuableAUnBras(ApiTestCase):
         self.assertNotAlmostEqual(
             sum(agrege["equity_series"]), sum(temoin["equity_series"])
         )
+
+
+class TestTradesRangeRapportHebdo(ApiTestCase):
+    """Rapport hebdo : « cette semaine » affichait +192 $ alors que la vraie
+    semaine était à environ -5 000 $. Il filtrait côté client les 100
+    dernières positions de `/api/trades` (≈ 13 h avec 12 bras).
+    `/api/trades/range` rend TOUTES les positions d'une période, sans limit."""
+
+    def _deux_bras_beaucoup(self):
+        self._manifest([
+            {"name": "baseline", "capital_pct": 0.5},
+            {"name": "sniper", "capital_pct": 0.5},
+        ])
+        base = [self._trade(f"b{i}", None, f"2026-10-0{5 + i % 5}T10:{i % 60:02d}:00+00:00", -1.0)
+                for i in range(150)]
+        snip = [self._trade(f"s{i}", None, f"2026-10-0{5 + i % 5}T11:{i % 60:02d}:00+00:00", 0.5)
+                for i in range(150)]
+        self._ecrire_jsonl(settings.TRADES_LOG_PATH, base)
+        self._ecrire_jsonl(settings.arm_paths("sniper")["trades"], snip)
+
+    def test_range_nest_pas_borne_a_100(self):
+        self._deux_bras_beaucoup()
+        reponse = self.server.get_trades_range(
+            since="2026-10-04T22:00:00Z", until="2026-10-11T22:00:00Z", arm="all"
+        )
+        self.assertEqual(reponse["count"], 300)
+        self.assertEqual(len(reponse["trades"]), 300)
+        self.assertAlmostEqual(reponse["pnl_usd"], 150 * -1.0 + 150 * 0.5)
+        self.assertEqual({r["arm"] for r in reponse["trades"]}, {"baseline", "sniper"})
+
+    def test_derniers_trades_reste_borne_a_100(self):
+        self._deux_bras_beaucoup()
+        self.assertEqual(len(self.server.get_trades(limit=100, arm="all")["trades"]), 100)
+
+    def test_bornes_since_inclus_until_exclu_avec_fuseau(self):
+        """Lundi 00:00 Zurich (UTC+2) = dimanche 22:00 UTC : une sortie à
+        dimanche 23:30 Zurich ne doit PAS compter, une à lundi 00:30 oui."""
+        self._manifest([{"name": "baseline", "capital_pct": 1.0}])
+        self._ecrire_jsonl(settings.TRADES_LOG_PATH, [
+            self._trade("avant", None, "2026-10-04T21:30:00+00:00", 100.0),
+            self._trade("pile", None, "2026-10-04T22:00:00+00:00", 1.0),
+            self._trade("dedans", None, "2026-10-04T22:30:00+00:00", 2.0),
+            self._trade("fin", None, "2026-10-11T22:00:00+00:00", 50.0),
+        ])
+        reponse = self.server.get_trades_range(
+            since="2026-10-05T00:00:00+02:00", until="2026-10-12T00:00:00+02:00", arm="all"
+        )
+        self.assertEqual({r["position_id"] for r in reponse["trades"]}, {"pile", "dedans"})
+        self.assertAlmostEqual(reponse["pnl_usd"], 3.0)
+
+    def test_epoch_millisecondes_accepte(self):
+        self._manifest([{"name": "baseline", "capital_pct": 1.0}])
+        self._ecrire_jsonl(settings.TRADES_LOG_PATH, [
+            self._trade("x", None, "2026-10-06T10:00:00+00:00", 4.0),
+        ])
+        # 2026-10-04T22:00:00Z en ms
+        reponse = self.server.get_trades_range(since="1791151200000", arm="all")
+        self.assertEqual(reponse["count"], 1)
+
+    def test_bras_desactive_exclu(self):
+        self._manifest([
+            {"name": "baseline", "capital_pct": 1.0},
+            {"name": "retire", "capital_pct": 0.0, "enabled": False},
+        ])
+        self._ecrire_jsonl(settings.arm_paths("retire")["trades"], [
+            self._trade("n1", None, "2026-10-06T10:00:00+00:00", 999.0),
+        ])
+        reponse = self.server.get_trades_range(since="2026-10-04T22:00:00Z", arm="all")
+        self.assertEqual(reponse["count"], 0)
+
+    def test_since_illisible_400(self):
+        from fastapi import HTTPException
+        self._manifest([{"name": "baseline", "capital_pct": 1.0}])
+        with self.assertRaises(HTTPException):
+            self.server.get_trades_range(since="pas-une-date", arm="all")

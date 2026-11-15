@@ -1,0 +1,6 @@
+{
+  "_note": "Wallets TOUJOURS suivis par le bras copy_smart (PAPER), quelle que soit la règle de réussite >= 55 %. Achats/ventes lus via le RPC Solana public (gratuit, pas Helius), au plus toutes les 60 s.",
+  "wallets": [
+    {"address": "8zkgFGVZrDLieViwqiXFCydSX6WL5hsxmUu55yBdsNsZ", "added": "2026-11-02", "by": "Killian"}
+  ]
+}

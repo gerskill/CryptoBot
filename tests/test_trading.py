@@ -253,7 +253,8 @@ class TestCoutJambePartielleEstime(unittest.TestCase):
         # Médiane mesurée 3 %, part vente seulement -> 1,5 %.
         self.assertEqual(rows[0]["exit_cost_pct"], 1.5)
         self.assertTrue(rows[0]["exit_cost_estimated"])
-        self.assertAlmostEqual(rows[0]["pnl_pct"], 98.5)
+        # Correctif 2026-10-24 : 1,5 % du notionnel revendu (x2) = 3 % de la mise.
+        self.assertAlmostEqual(rows[0]["pnl_pct"], 97.0)
 
     def test_sans_estimateur_le_comportement_dorigine_est_intact(self):
         """Aucune migration forcée : pas d'estimateur = prix nu, comme avant."""
@@ -288,12 +289,18 @@ class TestPaperPortfolioExitFeeMeasurer(unittest.TestCase):
 
         portfolio = self._portfolio(measurer)
         position = portfolio.open(make_candidate(), PARAMS_MINIMAL, 100.0)
-        rows = portfolio.update(position.id, price=0.6)  # -40% nu -> -50% avec coût
+        rows = portfolio.update(position.id, price=0.6)  # -40% nu
 
-        self.assertEqual(len(self.calls), 1)
-        self.assertEqual(rows[0]["exit_cost_pct"], 10.0)
+        # Un appel à l'achat, un à la vente. Chacun déduit la moitié.
+        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(rows[0]["exit_cost_pct"], 5.0)
+        self.assertEqual(rows[0]["exit_cost_round_trip_pct"], 10.0)
+        self.assertEqual(rows[0]["entry_cost_version"], "buy-leg-v1")
+        self.assertEqual(rows[0]["entry_cost_pct"], 5.0)
         self.assertEqual(rows[0]["exit_cost_partial"], False)
-        self.assertAlmostEqual(rows[0]["pnl_pct"], -50.0)
+        # -40 de prix, -3 de moitié de sortie ramenée à la mise (5 % x 0,6),
+        # -5 de moitié d'entrée.
+        self.assertAlmostEqual(rows[0]["pnl_pct"], -48.0)
 
     def test_jambe_partielle_tp1_ignore_le_measurer(self):
         def measurer(token_address, size_usd):
@@ -304,9 +311,11 @@ class TestPaperPortfolioExitFeeMeasurer(unittest.TestCase):
         position = portfolio.open(make_candidate(), PARAMS_MINIMAL, 100.0)
         rows = portfolio.update(position.id, price=2.0)  # +100% -> TP1, jambe non finale
 
-        self.assertEqual(self.calls, [])
+        # Le devis de sortie n'est pas rappelé sur une vente partielle.
+        # L'achat, lui, a déjà payé sa moitié (5 %).
+        self.assertEqual(len(self.calls), 1)
         self.assertIsNone(rows[0]["exit_cost_pct"])
-        self.assertAlmostEqual(rows[0]["pnl_pct"], 100.0)
+        self.assertAlmostEqual(rows[0]["pnl_pct"], 95.0)
 
     def test_notionnel_final_suit_le_prix_pas_la_mise_dentree(self):
         """Régression Codex : le devis doit porter sur la valeur COURANTE de
@@ -322,11 +331,12 @@ class TestPaperPortfolioExitFeeMeasurer(unittest.TestCase):
 
         portfolio = self._portfolio(measurer)
         position = portfolio.open(make_candidate(), PARAMS_MINIMAL, 100.0)
-        portfolio.update(position.id, price=2.0)  # +100% -> TP1, 50% vendus, measurer pas appelé
+        portfolio.update(position.id, price=2.0)  # +100% -> TP1, 50% vendus, pas de devis de sortie
         portfolio.update(position.id, price=6.0)  # +500% -> TP3, reste vendu, jambe finale
 
-        self.assertEqual(len(self.calls), 1)
-        _, notional = self.calls[0]
+        # Le premier appel est l'achat (100 $). Le dernier est la vente finale.
+        self.assertEqual(len(self.calls), 2)
+        _, notional = self.calls[-1]
         self.assertAlmostEqual(notional, 300.0)
 
     def test_force_close_deduit_le_cout_mesure(self):
@@ -338,9 +348,11 @@ class TestPaperPortfolioExitFeeMeasurer(unittest.TestCase):
         position = portfolio.open(make_candidate(), PARAMS_MINIMAL, 100.0)
         row = portfolio.force_close(position.id, price=1.5, reason="PANIC_STOP")
 
-        self.assertEqual(len(self.calls), 1)
-        self.assertAlmostEqual(row["pnl_pct"], 42.0)  # 50% nu - 8% de coût
-        self.assertEqual(row["exit_cost_pct"], 8.0)
+        self.assertEqual(len(self.calls), 2)
+        # 50 % de prix, moins 4 % x 1,5 (moitié de sortie) et moins 4 % d'entrée.
+        self.assertAlmostEqual(row["pnl_pct"], 40.0)
+        self.assertEqual(row["exit_cost_pct"], 4.0)
+        self.assertEqual(row["exit_cost_round_trip_pct"], 8.0)
         self.assertEqual(row["exit_cost_partial"], False)
 
     def test_force_close_measurer_qui_leve_ne_bloque_pas(self):
@@ -417,8 +429,12 @@ class TestLearning(unittest.TestCase):
         self.assertEqual(self.params.get("filters.min_age_hours"), 0.5)
 
     def test_ajuste_lage_minimum_quand_le_segment_jeune_perd(self):
-        # 15 et non 12 : MIN_TRADES_PER_ARM impose un plancher par stratégie.
-        self._write_trades(15, pnl_pct=-25, age_hours=0.5)
+        # 50 : depuis le 2026-10-11, une famille ne s'ajuste qu'après
+        # LEARNING_CADENCE_TRADES trades clôturés du bras. Moitié de gagnants
+        # plus âgés : avec une fenêtre de backtest de 50, un filtre qui
+        # écarterait TOUS les trades serait annulé (trop restrictif).
+        self._write_trades(25, pnl_pct=-25, age_hours=0.5)
+        self._write_trades(25, pnl_pct=40, age_hours=2)
         changes = self.engine.run()
         self.assertEqual(self.params.get("filters.min_age_hours"), 1.0)
         self.assertTrue(any("min_age_hours" in c for c in changes))
@@ -434,7 +450,7 @@ class TestLearning(unittest.TestCase):
                         "l'attente doit être DITE, pas silencieuse")
 
     def test_cadence_ne_rejoue_pas_le_meme_palier(self):
-        self._write_trades(15, pnl_pct=-25, age_hours=0.5)
+        self._write_trades(50, pnl_pct=-25, age_hours=0.5)
         self.engine.run()
         first = self.params.get("filters.min_age_hours")
         self.engine.run()

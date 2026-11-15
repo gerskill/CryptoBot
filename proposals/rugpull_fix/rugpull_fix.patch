@@ -1,0 +1,410 @@
+diff --git a/src/agents/microstructure_agent.py b/src/agents/microstructure_agent.py
+index 2ee9240..4b44fa9 100644
+--- a/src/agents/microstructure_agent.py
++++ b/src/agents/microstructure_agent.py
+@@ -161,19 +161,24 @@ class MicrostructureAgent:
+             )
+ 
+         premier, dernier = fenetre[0], fenetre[-1]
+-        depth = dernier.liquidity
++        # Liquidité inconnue (None) exclue des mesures de liquidité seulement.
++        connues = [s for s in fenetre if s.liquidity is not None]
++        liq_premier = connues[0].liquidity if connues else None
++        depth = connues[-1].liquidity if connues else None
+         round_trip = (
+             self._round_trip(token_address, size_usd, sol_price_usd)
+             if token_address else None
+         )
+ 
+         return MicrostructureReading(
+-            liquidity_drift_pct=_drift_pct(premier.liquidity, dernier.liquidity),
++            liquidity_drift_pct=(
++                _drift_pct(liq_premier, depth) if len(connues) >= 2 else None
++            ),
+             price_drift_pct=_drift_pct(premier.price, dernier.price),
+             depth_usd=depth,
+             round_trip_pct=round_trip,
+             volume_over_liquidity=(
+-                dernier.volume_5m / depth if depth > 0 else None
++                dernier.volume_5m / depth if depth else None
+             ),
+             window_seconds=dernier.ts - premier.ts,
+             samples=len(fenetre),
+diff --git a/src/analysis/technical.py b/src/analysis/technical.py
+index 37fb36e..34693ba 100644
+--- a/src/analysis/technical.py
++++ b/src/analysis/technical.py
+@@ -33,10 +33,19 @@ DEFAULT_STRUCTURE_MODE = "balanced"
+ 
+ @dataclass(frozen=True)
+ class Snapshot:
++    """`liquidity` vaut None quand elle est INCONNUE (paire pump.fun sans champ
++    liquidité, prix venu du repli Jupiter/Birdeye). 0 signifie « mesurée à 0 ».
++
++    `source` sépare le scan (meilleure paire, max sur toutes les paires) du
++    monitoring (paire de la position) : comparer les deux fabrique de fausses
++    chutes de liquidité.
++    """
++
+     ts: float
+     price: float
+     volume_5m: float
+-    liquidity: float
++    liquidity: Optional[float]
++    source: str = "scan"
+ 
+ 
+ @dataclass(frozen=True)
+@@ -72,12 +81,15 @@ class PriceHistory:
+         )
+ 
+     def record(self, candidate: Candidate, ts: Optional[float] = None) -> None:
++        liquidity = candidate.liquidity_usd
+         self.record_raw(
+             candidate.token_address,
+             price=candidate.price_usd,
+             volume_5m=candidate.volume_5m,
+-            liquidity=candidate.liquidity_usd,
++            # Un candidat sans liquidité renseignée n'a pas une liquidité NULLE.
++            liquidity=liquidity if liquidity and liquidity > 0 else None,
+             ts=ts,
++            source="scan",
+         )
+ 
+     def record_raw(
+@@ -85,11 +97,16 @@ class PriceHistory:
+         token_address: str,
+         price: float,
+         volume_5m: float = 0.0,
+-        liquidity: float = 0.0,
++        liquidity: Optional[float] = 0.0,
+         ts: Optional[float] = None,
++        source: str = "monitor",
+     ) -> None:
+-        """Snapshot hors scan — utilisé par le monitoring des positions ouvertes."""
+-        if price <= 0:
++        """Snapshot hors scan — utilisé par le monitoring des positions ouvertes.
++
++        `liquidity=None` : liquidité inconnue. Ne JAMAIS la convertir en 0 :
++        `liquidity_drop_pct` y verrait une chute de -100 % (faux RUG_PULL).
++        """
++        if price is None or price <= 0:
+             return
+         self._data[token_address].append(
+             Snapshot(
+@@ -97,6 +114,7 @@ class PriceHistory:
+                 price=price,
+                 volume_5m=volume_5m,
+                 liquidity=liquidity,
++                source=source,
+             )
+         )
+ 
+@@ -129,16 +147,48 @@ class PriceHistory:
+             )
+         return candles
+ 
+-    def liquidity_drop_pct(self, token_address: str, window_seconds: float = 120) -> Optional[float]:
+-        """Chute de liquidité sur la fenêtre (détection de rug pull, étape 4.7)."""
++    def liquidity_drop_pct(
++        self,
++        token_address: str,
++        window_seconds: float = 120,
++        source: Optional[str] = None,
++        confirm_readings: int = 1,
++        price_crash_pct: float = -40.0,
++    ) -> Optional[float]:
++        """Chute de liquidité sur la fenêtre (détection de rug pull, étape 4.7).
++
++        - Les snapshots à liquidité inconnue (None) sont ignorés : une lecture
++          absente n'est pas une liquidité vidée.
++        - `source` restreint la comparaison à une seule source (ex. "monitor")
++          pour ne pas comparer la meilleure paire du scan à la paire suivie.
++        - `confirm_readings=N` : la chute retournée est la MOINS sévère des N
++          dernières lectures — il faut N lectures consécutives sous le seuil.
++          Tant qu'il n'y a pas N lectures après la référence : None.
++        - Exception : si le PRIX s'est aussi effondré (≤ `price_crash_pct` vs la
++          référence), une seule lecture suffit — un vrai rug n'attend pas.
++        """
+         snapshots = self._data.get(token_address)
+         if not snapshots:
+             return None
+         now = time.time()
+-        window = [s for s in snapshots if now - s.ts <= window_seconds]
++        window = [
++            s for s in snapshots
++            if now - s.ts <= window_seconds
++            and s.liquidity is not None
++            and (source is None or s.source == source)
++        ]
+         if len(window) < 2 or window[0].liquidity <= 0:
+             return None
+-        return 100 * (window[-1].liquidity - window[0].liquidity) / window[0].liquidity
++        base = window[0]
++        readings = window[1:]
++        needed = max(1, int(confirm_readings))
++        latest = readings[-1]
++        if base.price > 0 and 100 * (latest.price - base.price) / base.price <= price_crash_pct:
++            needed = 1
++        if len(readings) < needed:
++            return None
++        confirmed = max(s.liquidity for s in readings[-needed:])
++        return 100 * (confirmed - base.liquidity) / base.liquidity
+ 
+     def forget(self, token_address: str) -> None:
+         self._data.pop(token_address, None)
+diff --git a/src/main.py b/src/main.py
+index cff6165..6e7fa41 100644
+--- a/src/main.py
++++ b/src/main.py
+@@ -92,6 +92,12 @@ FIRST_SUMMARY_DELAY = 15 * 60
+ # accumule facilement le double.
+ DIGEST_MAX_LINES = 12
+ RUG_WINDOW_SECONDS = 120
++# Un RUG_PULL exige 2 lectures consécutives du monitoring sous le seuil (une de
++# plus = 5 s au tick nominal), sauf si le prix s'est effondré en même temps.
++# 225 des 229 faux RUG_PULL mesurés venaient d'UNE lecture « liquidité 0 » qui
++# n'était qu'une liquidité INCONNUE (repli Jupiter, paire pump.fun).
++RUG_CONFIRM_READINGS = 2
++RUG_PRICE_CRASH_PCT = -40.0
+ # Seuil d'OBSERVATION, pas de sortie : on journalise les chutes bien avant le
+ # seuil de rug pour pouvoir juger après coup si -50% laisse partir trop tard.
+ LIQUIDITY_ALERT_PCT = -25.0
+@@ -951,7 +957,10 @@ class AlphaLoop:
+ 
+         # UN enregistrement par token par tick, pas un par position.
+         for token_address, price, liquidity in self.market.by_token():
+-            self.history.record_raw(token_address, price=price, liquidity=liquidity or 0)
++            # None reste None : liquidité INCONNUE, pas nulle (faux RUG_PULL sinon).
++            self.history.record_raw(
++                token_address, price=price, liquidity=liquidity, source="monitor"
++            )
+             self._last_prices[token_address] = price
+ 
+         # PAR TOKEN, PAS PAR POSITION, et avant les sorties normales : un
+@@ -1076,7 +1085,11 @@ class AlphaLoop:
+                 continue
+ 
+             drop = self.history.liquidity_drop_pct(
+-                position.token_address, window_seconds=RUG_WINDOW_SECONDS
++                position.token_address,
++                window_seconds=RUG_WINDOW_SECONDS,
++                source="monitor",
++                confirm_readings=RUG_CONFIRM_READINGS,
++                price_crash_pct=RUG_PRICE_CRASH_PCT,
+             )
+             # Une chute qui n'a PAS déclenché de sortie est la seule façon de
+             # savoir si le seuil de rug (-50%) est trop permissif : une
+@@ -1162,7 +1175,10 @@ class AlphaLoop:
+             if pairs:
+                 pair = pairs[0]
+                 price = float(pair.get("priceUsd") or 0)
+-                liquidity = float((pair.get("liquidity") or {}).get("usd") or 0)
++                # Paire pump.fun (courbe) ou migrée : pas de champ liquidité.
++                # Inconnue ≠ 0 — renvoyer 0 déclenchait un faux RUG_PULL.
++                raw_liquidity = (pair.get("liquidity") or {}).get("usd")
++                liquidity = float(raw_liquidity) if raw_liquidity is not None else None
+                 if price > 0:
+                     return price, liquidity
+         jupiter_price = self.jupiter.price(position.token_address) if self.jupiter else None
+diff --git a/tests/test_rugpull_fix.py b/tests/test_rugpull_fix.py
+new file mode 100644
+index 0000000..576ea01
+--- /dev/null
++++ b/tests/test_rugpull_fix.py
+@@ -0,0 +1,195 @@
++"""Faux RUG_PULL « liquidité -100 % » — proposals/rugpull_fix.
++
++Mesuré le 2026-10-11 : 229 RUG_PULL sur 290 sortaient à un prix proche de
++l'entrée (médiane +0,5 %), dont 225 sur des positions dont le monitoring n'a
++JAMAIS lu de liquidité (depth_usd = 0). Cause : liquidité INCONNUE (repli
++Jupiter sans pair_address — candidats GMGN —, ou paire pump.fun sans champ
++liquidité) convertie en 0 par `liquidity or 0`, puis comparée à la liquidité
++du scan → -100 % → sortie immédiate.
++"""
++
++import os
++import sys
++import time
++import unittest
++from types import SimpleNamespace
++
++sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
++
++from src.agents.microstructure_agent import MicrostructureAgent  # noqa: E402
++from src.analysis.technical import PriceHistory, Snapshot  # noqa: E402
++from src.core.models import Candidate  # noqa: E402
++from src.core.positions import Position, evaluate_exits  # noqa: E402
++from src.main import (  # noqa: E402
++    AlphaLoop, RUG_CONFIRM_READINGS, RUG_PRICE_CRASH_PCT, RUG_WINDOW_SECONDS,
++)
++
++MINT = "DzMwArmdzPqcqgvyqAmTxy79XdA9NwK9mMteqWLJpump"
++
++
++def drop(history, **kwargs):
++    params = dict(window_seconds=RUG_WINDOW_SECONDS, source="monitor",
++                  confirm_readings=RUG_CONFIRM_READINGS,
++                  price_crash_pct=RUG_PRICE_CRASH_PCT)
++    params.update(kwargs)
++    return history.liquidity_drop_pct(MINT, **params)
++
++
++def position(entry=0.00089059):
++    return Position(token_address=MINT, symbol="Normie", chain="solana",
++                    entry_price=entry, size_usd=20.0)
++
++
++def is_rug(actions):
++    return any(a.reason.startswith("RUG_PULL") for a in actions)
++
++
++class TestCasNormie(unittest.TestCase):
++    """Reproduction du cas réel du 11/10 16:57 UTC : RUG_PULL à +11,8 %."""
++
++    def test_liquidite_inconnue_ne_declenche_pas_de_rug(self):
++        h = PriceHistory()
++        now = time.time()
++        # Scan : candidat GMGN, liquidité 105 650 $, pas de pair_address.
++        h.record(Candidate(token_address=MINT, symbol="Normie", name="",
++                           chain="solana", price_usd=0.00089059,
++                           liquidity_usd=105650.0), ts=now - 60)
++        # Monitoring : prix Jupiter, liquidité None (inconnue).
++        for i, p in enumerate([0.00095, 0.00101, 0.00103126]):
++            h.record_raw(MINT, price=p, liquidity=None, ts=now - 30 + 10 * i)
++        d = drop(h)
++        self.assertIsNone(d)
++        self.assertFalse(is_rug(evaluate_exits(position(), 0.00103126, d)))
++
++    def test_ancien_comportement_reproduit_le_faux_rug(self):
++        """Témoin : avec `liquidity or 0` et sans filtre, -100 % → RUG_PULL."""
++        h = PriceHistory()
++        now = time.time()
++        h.record_raw(MINT, price=0.00089059, liquidity=105650.0, ts=now - 60, source="scan")
++        h.record_raw(MINT, price=0.00103126, liquidity=0, ts=now)
++        d = h.liquidity_drop_pct(MINT, RUG_WINDOW_SECONDS)  # appel d'origine
++        self.assertEqual(d, -100.0)
++        self.assertTrue(is_rug(evaluate_exits(position(), 0.00103126, d)))
++
++
++class TestConfirmation(unittest.TestCase):
++    def test_une_seule_lecture_a_zero_ne_suffit_pas(self):
++        h = PriceHistory()
++        now = time.time()
++        h.record_raw(MINT, price=1.0, liquidity=100000, ts=now - 20)
++        h.record_raw(MINT, price=1.0, liquidity=100000, ts=now - 10)
++        h.record_raw(MINT, price=1.01, liquidity=0, ts=now)
++        self.assertGreater(drop(h), -50)  # la moins sévère des 2 dernières
++
++    def test_lecture_isolee_puis_retour_a_la_normale(self):
++        h = PriceHistory()
++        now = time.time()
++        for i, liq in enumerate([100000, 100000, 0, 99000]):
++            h.record_raw(MINT, price=1.0, liquidity=liq, ts=now - 30 + 10 * i)
++        self.assertGreater(drop(h), -50)
++
++    def test_deux_lectures_consecutives_confirment_le_rug(self):
++        h = PriceHistory()
++        now = time.time()
++        for i, liq in enumerate([100000, 100000, 5000, 3000]):
++            h.record_raw(MINT, price=0.9, liquidity=liq, ts=now - 30 + 10 * i)
++        d = drop(h)
++        self.assertLessEqual(d, -50)
++        self.assertTrue(is_rug(evaluate_exits(position(entry=1.0), 0.9, d)))
++
++    def test_prix_effondre_une_lecture_suffit(self):
++        """Un vrai rug n'attend pas la 2e lecture si le prix s'écroule aussi."""
++        h = PriceHistory()
++        now = time.time()
++        h.record_raw(MINT, price=1.0, liquidity=100000, ts=now - 10)
++        h.record_raw(MINT, price=0.3, liquidity=2000, ts=now)
++        d = drop(h)
++        self.assertLessEqual(d, -50)
++        self.assertTrue(is_rug(evaluate_exits(position(entry=1.0), 0.3, d)))
++
++    def test_pas_assez_de_lectures_rend_none(self):
++        h = PriceHistory()
++        now = time.time()
++        h.record_raw(MINT, price=1.0, liquidity=100000, ts=now - 5)
++        h.record_raw(MINT, price=1.0, liquidity=1000, ts=now)
++        self.assertIsNone(drop(h))
++
++    def test_liquidite_mesuree_zero_confirmee_reste_un_rug(self):
++        """0 MESURÉ (paire vidée) ≠ None : deux lectures à 0 → -100 %."""
++        h = PriceHistory()
++        now = time.time()
++        for i, liq in enumerate([80000, 0, 0]):
++            h.record_raw(MINT, price=1.0, liquidity=liq, ts=now - 20 + 10 * i)
++        self.assertEqual(drop(h), -100.0)
++
++
++class TestSources(unittest.TestCase):
++    def test_meilleure_paire_du_scan_vs_paire_suivie(self):
++        """Scan = max des paires (200 k), monitoring = paire suivie (80 k)."""
++        h = PriceHistory()
++        now = time.time()
++        h.record_raw(MINT, price=1.0, liquidity=200000, ts=now - 50, source="scan")
++        for i in range(4):
++            h.record_raw(MINT, price=1.0, liquidity=80000, ts=now - 40 + 10 * i)
++        self.assertEqual(drop(h), 0.0)
++        # Sans filtre de source, la même série simulait -60 %.
++        self.assertLess(h.liquidity_drop_pct(MINT, 120, confirm_readings=2), -50)
++
++    def test_scan_sans_liquidite_nest_pas_zero(self):
++        h = PriceHistory()
++        h.record(Candidate(token_address=MINT, symbol="X", name="", chain="solana",
++                           price_usd=1.0, liquidity_usd=0.0))
++        self.assertIsNone(h.snapshots(MINT)[0].liquidity)
++
++
++class FakeDex:
++    def __init__(self, pair):
++        self.pair = pair
++
++    def get_pair_data(self, chain, pair_address):
++        return {"pairs": [self.pair]} if self.pair else {}
++
++
++class TestCurrentMarket(unittest.TestCase):
++    def _market(self, pair, pair_address="PAIR", jupiter_price=1.23):
++        fake = SimpleNamespace(
++            dex=FakeDex(pair),
++            jupiter=SimpleNamespace(price=lambda mint: jupiter_price),
++            birdeye=SimpleNamespace(get_price=lambda *a, **k: None),
++        )
++        pos = SimpleNamespace(chain="solana", pair_address=pair_address,
++                              token_address=MINT)
++        return AlphaLoop._current_market(fake, pos)
++
++    def test_paire_pumpfun_sans_champ_liquidite_rend_none(self):
++        self.assertEqual(self._market({"dexId": "pumpfun", "priceUsd": "0.001"}),
++                         (0.001, None))
++
++    def test_liquidite_mesuree_conservee(self):
++        self.assertEqual(
++            self._market({"priceUsd": "0.001", "liquidity": {"usd": 104000}}),
++            (0.001, 104000.0),
++        )
++
++    def test_liquidite_zero_explicite_reste_zero(self):
++        self.assertEqual(
++            self._market({"priceUsd": "0.001", "liquidity": {"usd": 0}}), (0.001, 0.0)
++        )
++
++    def test_sans_pair_address_repli_jupiter_liquidite_inconnue(self):
++        self.assertEqual(self._market(None, pair_address=None), (1.23, None))
++
++
++class TestMicrostructure(unittest.TestCase):
++    def test_liquidite_inconnue_pas_de_derive_de_moins_100(self):
++        snaps = [Snapshot(ts=1000.0 + 10 * i, price=1.0 + 0.01 * i, volume_5m=0.0,
++                          liquidity=(105650.0 if i == 0 else None))
++                 for i in range(6)]
++        lecture = MicrostructureAgent().read(snaps)
++        self.assertIsNone(lecture.liquidity_drift_pct)
++        self.assertEqual(lecture.depth_usd, 105650.0)
++        self.assertIsNotNone(lecture.price_drift_pct)
++
++
++if __name__ == "__main__":
++    unittest.main()

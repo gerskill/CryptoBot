@@ -24,6 +24,16 @@ REQUEST_TIMEOUT = 10
 MAX_RETRIES = 3
 
 
+def _opt_price(value: Any) -> Optional[float]:
+    """None reste None. 0 n'est pas inventé pour combler un champ absent."""
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _f(value: Any, default: float = 0.0) -> float:
     """Cast float tolérant (DexScreener renvoie None / str selon les champs)."""
     try:
@@ -109,6 +119,51 @@ class DexScreenerAPI:
                     out.setdefault(address, []).append(pair)
         return out
 
+    def try_tokens_snapshot(
+        self, addresses: Iterable[str]
+    ) -> Optional[dict[str, tuple[Optional[float], Optional[float]]]]:
+        """Un lot, sans attente et sans nouvel essai.
+
+        Pour le journal de recherche, hors de la boucle. `None` si le
+        limiteur partagé n'a pas de place : on ne bloque pas le scan.
+        Un prix ou une liquidité absents restent `None`, jamais 0.
+        """
+        unique = list(dict.fromkeys(a for a in addresses if a))[:MAX_ADDRESSES_PER_BATCH]
+        if not unique:
+            return {}
+        if not self.rl_data.acquire(timeout=0):
+            return None
+        url = f"{BASE_URL}/latest/dex/tokens/{','.join(unique)}"
+        try:
+            response = self.session.get(url, timeout=REQUEST_TIMEOUT)
+            self.request_count += 1
+        except requests.exceptions.RequestException:
+            return {}
+        if response.status_code != 200:
+            return {}
+        try:
+            data = response.json()
+        except ValueError:
+            return {}
+        found: dict[str, tuple[Optional[float], Optional[float]]] = {
+            address: (None, None) for address in unique
+        }
+        for pair in (data or {}).get("pairs") or []:
+            address = (pair.get("baseToken") or {}).get("address")
+            if address not in found:
+                continue
+            price = pair.get("priceUsd")
+            raw_liq = (pair.get("liquidity") or {}).get("usd") if isinstance(pair.get("liquidity"), dict) else None
+            prev_price, prev_liq = found[address]
+            price_f = _opt_price(price)
+            liq_f = _opt_price(raw_liq)
+            # Garder la paire qui a déjà un prix ; ne pas remplacer par un trou.
+            if prev_price is None and price_f is not None:
+                found[address] = (price_f, liq_f if liq_f is not None else prev_liq)
+            elif prev_liq is None and liq_f is not None and prev_price is not None:
+                found[address] = (prev_price, liq_f)
+        return found
+
     def get_token_data(self, token_address: str, chain: Optional[str] = None) -> list[dict[str, Any]]:
         """Données d'un token unique, optionnellement filtrées par chaîne."""
         pairs = self.get_tokens_data([token_address]).get(token_address, [])
@@ -125,6 +180,67 @@ class DexScreenerAPI:
         """Prix courant d'une paire. None si indisponible."""
         pairs = self.get_pair_data(chain, pair_address).get("pairs") or []
         return _f(pairs[0].get("priceUsd")) if pairs else None
+
+    @staticmethod
+    def _pairs_to_candidate(
+        address: str,
+        pairs: list[dict[str, Any]],
+        chain: str,
+        now_ms: float,
+        profile: dict[str, Any],
+        min_liquidity: float,
+        min_volume_1h: float,
+        min_age_hours: float,
+        max_age_hours: float,
+    ) -> Optional[Candidate]:
+        """Meilleure paire (liquidité max) -> Candidate, ou None hors filtres marché."""
+        pairs = [p for p in pairs if p.get("chainId") == chain]
+        if not pairs:
+            return None
+
+        best = max(pairs, key=lambda p: _f((p.get("liquidity") or {}).get("usd")))
+        liquidity = _f((best.get("liquidity") or {}).get("usd"))
+        volume = best.get("volume") or {}
+        volume_1h = _f(volume.get("h1"))
+        created_at = best.get("pairCreatedAt") or 0
+        age_hours = (now_ms - created_at) / 3_600_000 if created_at else 999.0
+
+        if liquidity < min_liquidity:
+            return None
+        if volume_1h < min_volume_1h:
+            return None
+        if not (min_age_hours <= age_hours <= max_age_hours):
+            return None
+
+        txns_5m = (best.get("txns") or {}).get("m5") or {}
+        price_change = best.get("priceChange") or {}
+        base = best.get("baseToken") or {}
+
+        return (
+            Candidate(
+                token_address=address,
+                symbol=base.get("symbol") or "UNKNOWN",
+                name=base.get("name") or "Unknown",
+                chain=chain,
+                pair_address=best.get("pairAddress"),
+                dex=best.get("dexId"),
+                url=best.get("url"),
+                price_usd=_f(best.get("priceUsd")),
+                liquidity_usd=liquidity,
+                market_cap=_f(best.get("marketCap")),
+                volume_5m=_f(volume.get("m5")),
+                volume_1h=volume_1h,
+                volume_24h=_f(volume.get("h24")),
+                age_hours=round(age_hours, 2),
+                volume_liquidity_ratio=round(volume_1h / liquidity, 3) if liquidity else 0.0,
+                price_change_5m=_f(price_change.get("m5")),
+                price_change_1h=_f(price_change.get("h1")),
+                price_change_24h=_f(price_change.get("h24")),
+                buys_5m=int(txns_5m.get("buys") or 0),
+                sells_5m=int(txns_5m.get("sells") or 0),
+                raw={"profile": profile, "pair": best},
+            )
+        )
 
     def scan_new_meme_coins(
         self,
@@ -183,54 +299,12 @@ class DexScreenerAPI:
         for address, pairs in pairs_by_token.items():
             if self.cache:
                 self.cache.mark_seen(address)
-
-            pairs = [p for p in pairs if p.get("chainId") == chain]
-            if not pairs:
-                continue
-
-            best = max(pairs, key=lambda p: _f((p.get("liquidity") or {}).get("usd")))
-            liquidity = _f((best.get("liquidity") or {}).get("usd"))
-            volume = best.get("volume") or {}
-            volume_1h = _f(volume.get("h1"))
-            created_at = best.get("pairCreatedAt") or 0
-            age_hours = (now_ms - created_at) / 3_600_000 if created_at else 999.0
-
-            if liquidity < min_liquidity:
-                continue
-            if volume_1h < min_volume_1h:
-                continue
-            if not (min_age_hours <= age_hours <= max_age_hours):
-                continue
-
-            txns_5m = (best.get("txns") or {}).get("m5") or {}
-            price_change = best.get("priceChange") or {}
-            base = best.get("baseToken") or {}
-
-            candidates.append(
-                Candidate(
-                    token_address=address,
-                    symbol=base.get("symbol") or "UNKNOWN",
-                    name=base.get("name") or "Unknown",
-                    chain=chain,
-                    pair_address=best.get("pairAddress"),
-                    dex=best.get("dexId"),
-                    url=best.get("url"),
-                    price_usd=_f(best.get("priceUsd")),
-                    liquidity_usd=liquidity,
-                    market_cap=_f(best.get("marketCap")),
-                    volume_5m=_f(volume.get("m5")),
-                    volume_1h=volume_1h,
-                    volume_24h=_f(volume.get("h24")),
-                    age_hours=round(age_hours, 2),
-                    volume_liquidity_ratio=round(volume_1h / liquidity, 3) if liquidity else 0.0,
-                    price_change_5m=_f(price_change.get("m5")),
-                    price_change_1h=_f(price_change.get("h1")),
-                    price_change_24h=_f(price_change.get("h24")),
-                    buys_5m=int(txns_5m.get("buys") or 0),
-                    sells_5m=int(txns_5m.get("sells") or 0),
-                    raw={"profile": discovered.get(address, {}), "pair": best},
-                )
+            candidate = self._pairs_to_candidate(
+                address, pairs, chain, now_ms, discovered.get(address, {}),
+                min_liquidity, min_volume_1h, min_age_hours, max_age_hours,
             )
+            if candidate is not None:
+                candidates.append(candidate)
 
         if self.cache:
             self.cache.save()
@@ -238,3 +312,34 @@ class DexScreenerAPI:
         candidates.sort(key=lambda c: c.volume_liquidity_ratio, reverse=True)
         print(f"[DexScreener] {len(candidates)} candidats passent les filtres marché")
         return candidates, skipped
+
+    def candidates_for_tokens(
+        self,
+        addresses: Iterable[str],
+        chain: str = "solana",
+        min_liquidity: float = 0.0,
+        min_volume_1h: float = 0.0,
+        min_age_hours: float = 0.0,
+        max_age_hours: float = float("inf"),
+    ) -> list[Candidate]:
+        """Candidats pour une liste d'adresses DONNÉE (source `mature`, 2026-10-11).
+
+        Même construction que `scan_new_meme_coins`, mais sans toucher au
+        cache de découverte (`mark_seen`) : la source mature ne doit rien
+        changer à ce que voient les autres bras. 1 appel par lot de 30.
+        """
+        addresses = [a for a in dict.fromkeys(addresses) if a]
+        if not addresses:
+            return []
+        pairs_by_token = self.get_tokens_data(addresses)
+        now_ms = datetime.now(timezone.utc).timestamp() * 1000
+        out: list[Candidate] = []
+        for address in addresses:
+            candidate = self._pairs_to_candidate(
+                address, pairs_by_token.get(address) or [], chain, now_ms, {},
+                min_liquidity, min_volume_1h, min_age_hours, max_age_hours,
+            )
+            if candidate is not None:
+                out.append(candidate)
+        out.sort(key=lambda c: c.volume_1h or 0.0, reverse=True)
+        return out

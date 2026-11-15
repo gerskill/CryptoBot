@@ -35,7 +35,20 @@ from src.core.shadow import ShadowTracker
 
 VOTER = "voter"
 CONSENSUS = "consensus"
+# BRAS DE TEST ISOLÉ (2026-10-04). Trade en PAPER comme un votant, mais :
+#   - ne vote PAS (n'altère pas le quorum de `consensus`) ;
+#   - ses positions ne comptent PAS dans l'exposition sectorielle de flotte
+#     (sinon trois clones du témoin consommeraient le plafond par meta et
+#     bloqueraient les bras existants) ;
+#   - son journal n'entre PAS dans le rejeu de sorties (`pool`) des autres bras.
+# But : ajouter des variantes expérimentales sans rien changer aux bras existants.
+TEST = "test"
 NOTIFY_POLICIES = ("all", "exits", "none")
+# SOURCE DE CANDIDATS (2026-10-11). "main" = le lot partagé (enveloppe de
+# découverte de tous les bras). "mature" = lot SÉPARÉ de tokens vieux et
+# liquides (bras `mature_liquid`) : un bras "mature" n'entre PAS dans
+# l'enveloppe, donc ne change rien à ce que voient les autres.
+DISCOVERY_SOURCES = ("main", "mature")
 
 # GAIN À PARTIR DUQUEL UNE STRATÉGIE SILENCIEUSE PARLE QUAND MÊME.
 #
@@ -140,6 +153,16 @@ class StrategyArm:
     # Rempli en phase 4 : en observation, un bras n'a pas de portefeuille.
     portfolio: Optional[Any] = None
     bounds: dict[str, tuple[float, float]] = field(default_factory=dict)
+    discovery: str = "main"
+    # False = la liste de souhaits sociaux de ce bras n'entre pas dans
+    # l'arbitrage du quota partagé (un fork du témoin doublerait sinon la
+    # « demande » sur les mêmes tokens et déplacerait les lookups des autres).
+    social_wishlist: bool = True
+
+    @property
+    def is_test(self) -> bool:
+        """Bras de test isolé : voir la constante `TEST`."""
+        return self.role == TEST
 
     @property
     def is_baseline(self) -> bool:
@@ -304,8 +327,14 @@ def attach_portfolios(
     losses_trigger: int = 3,
     max_drawdown_stop_pct: float = 0.0,
     exit_fee_measurer: Optional[Any] = None,
+    scale_in_checker_factory: Optional[Any] = None,
 ) -> None:
     """Donne à chaque stratégie son portefeuille.
+
+    `scale_in_checker_factory(arm)` (opt-in) : vérificateur d'ajout donné
+    UNIQUEMENT aux bras dont le document configure une entrée progressive
+    (`entry_rules.scale_in_trigger_pct` > 0, aujourd'hui `scaled_be`). Les
+    autres bras reçoivent `None` et ne changent pas.
 
     EN PAPER, CHAQUE BRAS A UNE MISE INDÉPENDANTE ET IDENTIQUE, et
     `capital_pct` n'est PAS appliqué. Deux raisons :
@@ -349,7 +378,27 @@ def attach_portfolios(
             partial_cost_estimator=(
                 PartialCostEstimator(arm.journal) if arm.journal is not None else None
             ),
+            scale_in_checker=(
+                scale_in_checker_factory(arm)
+                if scale_in_checker_factory is not None and _scales_in(arm)
+                else None
+            ),
         )
+        if _scales_in(arm):
+            max_pct = float(arm.params.get("entry_rules.scale_in_max_pct", 0) or 0)
+            migrated = arm.portfolio.apply_scale_in_max(max_pct)
+            if migrated:
+                print(f"[Arms] {arm.name} : plafond d'ajout +{max_pct:.0f}% appliqué "
+                      f"à {migrated} position(s) ouverte(s)")
+
+
+def _scales_in(arm: StrategyArm) -> bool:
+    if arm.params is None:
+        return False
+    try:
+        return float(arm.params.get("entry_rules.scale_in_trigger_pct", 0) or 0) > 0
+    except (TypeError, ValueError):
+        return False
 
 
 def bootstrap_arms(
@@ -373,6 +422,8 @@ def bootstrap_arms(
     names = [e["name"] for e in entries]
     if len(set(names)) != len(names):
         raise ManifestError(f"noms de stratégie en double : {names}")
+    # Les bras de test n'alimentent pas le rejeu de sorties des autres bras.
+    pool_names = [e["name"] for e in entries if e.get("role", VOTER) != TEST]
 
     total = sum(float(e.get("capital_pct", 0)) for e in entries)
     if abs(total - 1.0) > 1e-6:
@@ -413,6 +464,9 @@ def bootstrap_arms(
         notify = entry.get("notify", "none")
         if notify not in NOTIFY_POLICIES:
             raise ManifestError(f"{name} : notify '{notify}' inconnu {NOTIFY_POLICIES}")
+        discovery = entry.get("discovery", "main")
+        if discovery not in DISCOVERY_SOURCES:
+            raise ManifestError(f"{name} : discovery '{discovery}' inconnu {DISCOVERY_SOURCES}")
 
         if name == settings.BASELINE_ARM:
             params = base_params
@@ -423,6 +477,10 @@ def bootstrap_arms(
         paths = settings.arm_paths(name)
         journal = TradeJournal(paths["trades"]) if with_journals else None
         shadow = ShadowTracker(paths["shadow"]) if with_journals else None
+        # `"learning": false` dans le manifeste = paramètres FIGÉS (opt-in,
+        # défaut true). Pour un bras d'expérience, l'apprentissage déplacerait
+        # TP1/SL/filtres et détruirait la variable testée.
+        learns = bool(entry.get("learning", True))
         bounds = {
             key: (float(low), float(high))
             for key, (low, high) in (entry.get("bounds") or {}).items()
@@ -468,14 +526,19 @@ def bootstrap_arms(
                         # Rejeu des SORTIES seulement : une trajectoire ne
                         # dépend pas du bras qui l'a achetée. 6 positions
                         # instrumentées par bras contre 75 mises en commun.
-                        pool=_pool_reader(name, names),
+                        pool=_pool_reader(name, pool_names),
                     )
-                    if journal is not None
+                    if journal is not None and learns
                     else None
                 ),
                 bounds=bounds,
+                discovery=discovery,
+                social_wishlist=bool(entry.get("social_wishlist", True)),
             )
         )
 
-    arms.sort(key=lambda arm: arm.role == CONSENSUS)
+    # Les bras à quorum (consensus, ou `entry_rules.consensus_gate`) en
+    # dernier : ils lisent les votes, complets seulement après les votants.
+    arms.sort(key=lambda arm: arm.role == CONSENSUS or bool(
+        arm.params.get("entry_rules.consensus_gate", False)))
     return arms

@@ -103,8 +103,19 @@ class JupiterAPI:
 
     # ------------------------------------------------------------- transport
 
-    def _get(self, path: str, params: dict[str, Any]) -> Optional[dict[str, Any]]:
-        """Le garde-fou est ICI, pas chez l'appelant."""
+    def _get(
+        self,
+        path: str,
+        params: dict[str, Any],
+        timeout: Optional[float] = None,
+        max_retries: Optional[int] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Le garde-fou est ICI, pas chez l'appelant.
+
+        `timeout` / `max_retries` : surcharge opt-in pour les appels faits
+        DANS la boucle de monitoring (ajout de `scaled_be`), qui ne doivent
+        pas la bloquer. Absents = comportement d'origine (10 s, 3 essais).
+        """
         if path not in ALLOWED_PATHS:
             raise ForbiddenEndpoint(
                 f"chemin '{path}' interdit — ce client est en lecture seule"
@@ -115,14 +126,15 @@ class JupiterAPI:
             self.skipped_no_budget += 1
             return None
 
-        for attempt in range(MAX_RETRIES):
+        retries = max(1, int(max_retries)) if max_retries is not None else MAX_RETRIES
+        for attempt in range(retries):
             self.rate_limiter.acquire()
             try:
                 response = self.session.get(
                     f"{BASE_URL}{path}",
                     params=params,
                     headers={"x-api-key": self.api_key, "Accept": "application/json"},
-                    timeout=TIMEOUT,
+                    timeout=timeout if timeout is not None else TIMEOUT,
                 )
                 self.request_count += 1
 
@@ -137,6 +149,11 @@ class JupiterAPI:
                         backoff = float(retry_after) if retry_after is not None else 2 ** (attempt + 1)
                     except ValueError:
                         backoff = 2 ** (attempt + 1)
+                    if max_retries is not None and attempt + 1 >= retries:
+                        # Appel à budget court : pas de pause inutile après
+                        # le dernier essai.
+                        print("[Jupiter] 429 — quota de débit atteint, abandon (appel court)")
+                        return None
                     print(f"[Jupiter] 429 — quota de débit atteint, pause {backoff:.0f}s")
                     time.sleep(backoff)
                     continue
@@ -155,7 +172,12 @@ class JupiterAPI:
 
     # ------------------------------------------------------------ prix
 
-    def prices(self, mints: Iterable[str]) -> dict[str, float]:
+    def prices(
+        self,
+        mints: Iterable[str],
+        timeout: Optional[float] = None,
+        max_retries: Optional[int] = None,
+    ) -> dict[str, float]:
         """Prix USD de plusieurs tokens. 50 par appel, cache 3 s.
 
         Le cache court est délibéré : le monitoring tourne à 5 s et plusieurs
@@ -178,7 +200,9 @@ class JupiterAPI:
 
         for start in range(0, len(missing), MAX_MINTS_PER_CALL):
             batch = missing[start : start + MAX_MINTS_PER_CALL]
-            payload = self._get("/price/v3", {"ids": ",".join(batch)})
+            payload = self._get(
+                "/price/v3", {"ids": ",".join(batch)}, timeout=timeout, max_retries=max_retries
+            )
             if not payload:
                 continue
             for mint, entry in payload.items():
@@ -189,8 +213,10 @@ class JupiterAPI:
 
         return found
 
-    def price(self, mint: str) -> Optional[float]:
-        return self.prices([mint]).get(mint)
+    def price(
+        self, mint: str, timeout: Optional[float] = None, max_retries: Optional[int] = None
+    ) -> Optional[float]:
+        return self.prices([mint], timeout=timeout, max_retries=max_retries).get(mint)
 
     # ------------------------------------------------------------ devis
 
@@ -200,6 +226,8 @@ class JupiterAPI:
         output_mint: str,
         amount: int,
         slippage_bps: int = 300,
+        timeout: Optional[float] = None,
+        max_retries: Optional[int] = None,
     ) -> Optional[SwapQuote]:
         """Devis pour `amount` unités de `input_mint`. N'exécute RIEN.
 
@@ -217,6 +245,8 @@ class JupiterAPI:
                 # Devis seul : pas de compte payeur, donc rien de signable.
                 "onlyDirectRoutes": "false",
             },
+            timeout=timeout,
+            max_retries=max_retries,
         )
         if not payload:
             return None

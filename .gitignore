@@ -6,6 +6,12 @@ data/*.jsonl
 # Journaux par bras : meme nature que data/*.jsonl, un niveau plus bas.
 # Sans cette ligne, `git add -A` versionne la memoire du bot.
 data/arms/
+# Suivi apparié sans BE : mesure locale, même nature que data/arms.
+data/shadow_nobe/
+# Journal de recherche : observation, pas la mémoire de trading.
+data/candidates/
+data/price_track/
+data/klines_pre/
 logs/
 .venv/
 node_modules/
@@ -29,3 +35,16 @@ data/*.log
 data/*.md
 # Snapshots manuels pre-reset (arms, etc.) : meme nature que backups/.
 archive/
+# Copies de sauvegarde manuelles (*.bak, *.bak-AAAAMMJJ...) : rangées dans ~/Backups.
+*.bak
+*.bak-*
+# Dépôt temporaire de secrets (scripts/apply_chainstack_basic_auth.py) : jamais versionné.
+.tmp_secrets/
+# Sorties et données de recherche ponctuelles (scripts de shortlist copy_smart).
+scripts/out/
+scripts/batch2.json
+scripts/top15.json
+scripts/top30.json
+scripts/candidats_a_verifier.csv
+# Observation GMGN : mesure locale, même nature que data/arms.
+data/gmgn_observe/

@@ -1,0 +1,278 @@
+diff -ruN sv2a/config/strategies.json sv2b/config/strategies.json
+--- a/config/strategies.json	2026-10-10 10:57:13
++++ b/config/strategies.json	2026-10-10 10:57:13
+@@ -339,6 +339,18 @@
+         "filters.reject_creator_sold": true,
+         "filters.min_swaps": 50
+       }
++    },
++    {
++      "name": "score_v2",
++      "role": "test",
++      "enabled": true,
++      "capital_pct": 0.0,
++      "notify": "none",
++      "learning": false,
++      "description": "TEST (proposition 2026-10-10, NON deploye tant que Killian n'a pas valide) : fork EXACT du temoin (memes filtres, seuil alpha v1 55, memes sorties) + filtre d'entree score v2 (src/core/score_v2.py) : probabilite logistique 2 variables (variation 5 min, log10 volume1h/liquidite), entree seulement si prob >= 0.205 (mediane d'entrainement). Anti-pump : les entrees a fort momentum 5 min et fort volume/liquidite finissent plus souvent au stop. Hors echantillon : AUC 0.62 (PnL>0), PF baseline 0.77 -> 0.98 sur la moitie retenue, sans edge prouve. role 'test' : ne vote pas, hors exposition de flotte et hors pool ; learning=false ; capital_pct 0. Verdict vs baseline apres >= 200 trades. Ne sert PAS a la taille (calibration insuffisante).",
++      "overrides": {
++        "entry_rules.score_v2_min_prob": 0.205
++      }
+     }
+   ],
+   "_note_champs": "Chaque bras exploite un jeu de champs DIFFERENT, tous rendus par le meme appel GMGN market trending que la decouverte : les filtrer ne coute aucune requete. sniper mise sur l anti-manipulation (rien d autre n est mesurable a 5 min), scalp sur le momentum court, runner sur la solidite de la LP, quality sur la reputation et les KOL. Un seuil absent d un document ne s applique pas ; une donnee absente ne rejette jamais.",
+diff -ruN sv2a/src/core/score_v2.py sv2b/src/core/score_v2.py
+--- a/src/core/score_v2.py	1970-01-01 01:00:00
++++ b/src/core/score_v2.py	2026-10-10 10:57:13
+@@ -0,0 +1,69 @@
++"""SCORE V2 (PROPOSITION 2026-10-10) — probabilité de trade gagnant, anti-pump.
++
++POURQUOI. Le score alpha v1 est anti-prédictif sur nos propres fills
++(docs/score_calibration_2026-10-10.md) : il récompense le momentum 5 min et le
++ratio volume/liquidité, c'est-à-dire qu'il achète les tokens qui viennent de
++pomper. Ce sont justement ceux qui finissent le plus souvent au stop.
++
++CE QUE C'EST. Une régression logistique à DEUX variables, poids explicites,
++ajustée sur la période d'entraînement (2026-08-06 → 2026-09-24, 909 entrées
++uniques token+heure) et validée hors échantillon (2026-09-24 → 2026-10-10,
++606 entrées uniques) : AUC test 0,62 [IC95 0,57–0,68] pour « PnL net > 0 ».
++
++CE QUE CE N'EST PAS. Ni un edge (aucune tranche ne passe PF > 1 de façon
++significative), ni une probabilité assez bien calibrée pour la TAILLE :
++les probabilités vont de ~0,14 à ~0,27, Brier à peine meilleur que le taux de
++base. Usage autorisé : FILTRE d'entrée sur un bras de test PAPER, opt-in via
++`entry_rules.score_v2_min_prob` (> 0). Aucun bras existant n'est touché.
++
++Entrées : uniquement des données connues AVANT la décision (Candidate).
++"""
++
++import math
++from typing import Any
++
++# Poids explicites (logit). Ajustés sur la période d'entraînement uniquement.
++INTERCEPT = -1.2065
++W_PRICE_CHANGE_5M = -0.004636   # par point de % de variation 5 min
++W_LOG10_VOL_LIQ = -0.115594     # par décade de volume 1h / liquidité
++
++# Bornes identiques à l'entraînement : un pump à +3000 % ne doit pas peser
++# 30 fois plus qu'un pump à +100 %.
++PRICE_CHANGE_5M_CLIP = (-50.0, 100.0)
++VOL_LIQ_FLOOR = 0.01
++
++# Médiane de la probabilité sur l'entraînement (= « garder la moitié haute »).
++DEFAULT_MIN_PROB = 0.205
++
++
++def _clip(value: float, low: float, high: float) -> float:
++    return max(low, min(high, value))
++
++
++def score_v2_logit(price_change_5m: float, volume_liquidity_ratio: float) -> float:
++    momentum = _clip(float(price_change_5m or 0.0), *PRICE_CHANGE_5M_CLIP)
++    ratio = max(float(volume_liquidity_ratio or 0.0), VOL_LIQ_FLOOR)
++    return (
++        INTERCEPT
++        + W_PRICE_CHANGE_5M * momentum
++        + W_LOG10_VOL_LIQ * math.log10(ratio)
++    )
++
++
++def score_v2_probability(candidate: Any) -> float:
++    """Probabilité (non calibrée finement) que le trade finisse en PnL net > 0."""
++    z = score_v2_logit(
++        getattr(candidate, "price_change_5m", 0.0),
++        getattr(candidate, "volume_liquidity_ratio", 0.0),
++    )
++    return 1.0 / (1.0 + math.exp(-z))
++
++
++def score_v2_gate(candidate: Any, min_prob: float) -> tuple[bool, float, str]:
++    """(passe, probabilité, raison). `min_prob` <= 0 = porte désactivée."""
++    prob = score_v2_probability(candidate)
++    if not min_prob or min_prob <= 0:
++        return True, prob, ""
++    if prob >= min_prob:
++        return True, prob, ""
++    return False, prob, f"score_v2 {prob:.3f} < {min_prob:.3f}"
+diff -ruN sv2a/src/main.py sv2b/src/main.py
+--- a/src/main.py	2026-10-10 10:57:13
++++ b/src/main.py	2026-10-10 10:57:13
+@@ -39,6 +39,7 @@
+     TelegramReporterAgent,
+     VolatilityAgent,
+ )
++from src.core.score_v2 import score_v2_gate
+ from src.core.arm import CONSENSUS, attach_portfolios, bootstrap_arms
+ from src.apis.jupiter import SOL_MINT, JupiterAPI
+ from src.core import correlation, economics
+@@ -1176,6 +1177,19 @@
+                 break
+ 
+             trace = (arm.name, candidate.token_address, candidate.symbol)
++
++            # SCORE V2 (opt-in, 2026-10-10) : filtre anti-pump APRÈS le seuil
++            # alpha v1, pour que le bras reste un sous-ensemble exact du témoin.
++            # `continue` et non `break` : la liste est triée par alpha v1, pas
++            # par score v2. Désactivé (0) pour tous les bras sauf `score_v2`.
++            min_prob_v2 = float(arm.params.get("entry_rules.score_v2_min_prob", 0) or 0)
++            if min_prob_v2 > 0:
++                ok_v2, prob_v2, why_v2 = score_v2_gate(candidate, min_prob_v2)
++                self.funnel.record(
++                    *trace, "score_v2", ok_v2, why_v2, {"prob": round(prob_v2, 4)}
++                )
++                if not ok_v2:
++                    continue
+ 
+             if arm.role == CONSENSUS:
+                 # Quorum sur les VOTANTS PRÉSENTS. Un bras dont la fenêtre
+diff -ruN sv2a/tests/test_score_v2.py sv2b/tests/test_score_v2.py
+--- a/tests/test_score_v2.py	1970-01-01 01:00:00
++++ b/tests/test_score_v2.py	2026-10-10 10:57:13
+@@ -0,0 +1,148 @@
++"""Score v2 (proposition 2026-10-10) et bras de test `score_v2`.
++
++Verrouille :
++  - la formule (poids explicites, bornes, monotonie anti-pump) ;
++  - l'opt-in : sans `entry_rules.score_v2_min_prob`, aucun bras n'est filtré ;
++  - le bras `score_v2` du manifeste : rôle test, apprentissage figé, capital 0,
++    même seuil alpha v1 et mêmes sorties que le témoin ;
++  - dans `_try_entries`, un candidat refusé par le v2 n'atteint jamais
++    `pre_trade_check` et l'entonnoir garde la raison.
++"""
++
++import json
++import math
++import os
++import sys
++import unittest
++from types import SimpleNamespace
++from unittest import mock
++
++sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
++
++from src import main as main_module  # noqa: E402
++from src.core import score_v2  # noqa: E402
++from src.core.arm import TEST, bootstrap_arms  # noqa: E402
++from src.core.models import Candidate  # noqa: E402
++from tests.test_arms import ArmsTestCase  # noqa: E402
++
++ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
++
++
++def _cand(pc5m: float, ratio: float, alpha: float = 80.0, addr: str = "T") -> Candidate:
++    return Candidate(
++        token_address=addr, symbol=addr, name=addr, chain="solana",
++        price_change_5m=pc5m, volume_liquidity_ratio=ratio,
++    ).with_fields(alpha_score_absolute=alpha, alpha_score=alpha)
++
++
++class TestFormule(unittest.TestCase):
++    def test_point_neutre(self):
++        # momentum 0, volume = liquidité -> logit = intercept
++        p = score_v2.score_v2_probability(_cand(0.0, 1.0))
++        self.assertAlmostEqual(p, 1 / (1 + math.exp(1.2065)), places=6)
++
++    def test_anti_pump_monotone(self):
++        probs = [score_v2.score_v2_probability(_cand(m, 1.0)) for m in (-20, 0, 20, 60)]
++        self.assertEqual(probs, sorted(probs, reverse=True))
++        probs = [score_v2.score_v2_probability(_cand(0, r)) for r in (0.5, 1, 5, 50)]
++        self.assertEqual(probs, sorted(probs, reverse=True))
++
++    def test_bornes(self):
++        self.assertEqual(
++            score_v2.score_v2_probability(_cand(100, 1.0)),
++            score_v2.score_v2_probability(_cand(3000, 1.0)),
++        )
++        self.assertEqual(
++            score_v2.score_v2_probability(_cand(0, 0.0)),
++            score_v2.score_v2_probability(_cand(0, 0.001)),
++        )
++
++    def test_seuil(self):
++        ok, prob, why = score_v2.score_v2_gate(_cand(0, 1.0), 0.205)
++        self.assertTrue(ok)
++        self.assertEqual(why, "")
++        ok, prob, why = score_v2.score_v2_gate(_cand(80, 20.0), 0.205)
++        self.assertFalse(ok)
++        self.assertIn("score_v2", why)
++
++    def test_desactive_a_zero(self):
++        self.assertTrue(score_v2.score_v2_gate(_cand(100, 100.0), 0)[0])
++        self.assertTrue(score_v2.score_v2_gate(_cand(100, 100.0), None)[0])
++
++
++class TestManifesteProduction(unittest.TestCase):
++    def test_bras_score_v2(self):
++        with open(os.path.join(ROOT, "config", "strategies.json"), encoding="utf-8") as fh:
++            doc = json.load(fh)
++        arms = {a["name"]: a for a in doc["arms"]}
++        entry = arms["score_v2"]
++        self.assertEqual(entry["role"], "test")
++        self.assertIs(entry["learning"], False)
++        self.assertEqual(entry["capital_pct"], 0.0)
++        self.assertEqual(entry["overrides"], {"entry_rules.score_v2_min_prob": 0.205})
++        total = sum(float(a.get("capital_pct", 0)) for a in doc["arms"] if a.get("enabled", True))
++        self.assertAlmostEqual(total, 1.0, places=6)
++        # Aucun autre bras n'active le filtre.
++        for name, a in arms.items():
++            if name != "score_v2":
++                self.assertNotIn("entry_rules.score_v2_min_prob", a.get("overrides", {}))
++
++
++class TestBootstrap(ArmsTestCase):
++    def test_fork_du_temoin(self):
++        self._manifest([
++            {"name": "baseline", "role": "voter", "capital_pct": 1.0, "notify": "all"},
++            {"name": "score_v2", "role": "test", "capital_pct": 0.0, "learning": False,
++             "overrides": {"entry_rules.score_v2_min_prob": 0.205}},
++        ])
++        arms = {a.name: a for a in bootstrap_arms(with_journals=False)}
++        v2, base = arms["score_v2"], arms["baseline"]
++        self.assertEqual(v2.role, TEST)
++        self.assertIsNone(v2.learning)
++        self.assertEqual(v2.params.get("entry_rules.score_v2_min_prob"), 0.205)
++        self.assertEqual(base.params.get("entry_rules.score_v2_min_prob", 0), 0)
++        self.assertEqual(v2.entry_threshold, base.entry_threshold)
++        self.assertEqual(v2.params.get("exit_rules"), base.params.get("exit_rules"))
++
++
++class TestTryEntries(unittest.TestCase):
++    def _run(self, min_prob, candidates):
++        recorded = []
++        funnel = SimpleNamespace(record=lambda *a, **k: recorded.append(a))
++        params = {"entry_rules.score_v2_min_prob": min_prob}
++        arm = SimpleNamespace(
++            name="score_v2", role=TEST, entry_threshold=55, max_positions=3,
++            params=SimpleNamespace(get=lambda k, d=None: params.get(k, d)),
++            portfolio=SimpleNamespace(capital=7000.0), label="[score_v2]",
++        )
++        fake = SimpleNamespace(
++            funnel=funnel, mode="PAPER", learning=None, params={},
++            max_sector_positions=3, max_sector_exposure_pct=50,
++            _fleet_exposure=lambda: {}, _last_evaluations={}, arms=[], voters=[],
++        )
++        evaluation = SimpleNamespace(result=SimpleNamespace(candidates=candidates))
++        with mock.patch.object(main_module, "pre_trade_check", return_value="STOP test") as ptc, \
++                mock.patch.object(main_module, "is_soft_reject", return_value=False):
++            main_module.AlphaLoop._try_entries(fake, evaluation, arm, {})
++        return recorded, ptc
++
++    def test_pump_refuse_avant_pre_trade(self):
++        recorded, ptc = self._run(0.205, [_cand(90, 30.0, addr="PUMP")])
++        ptc.assert_not_called()
++        gates = [(r[1], r[3], r[4]) for r in recorded]
++        self.assertEqual(gates[0][:2], ("PUMP", "score_v2"))
++        self.assertFalse(gates[0][2])
++
++    def test_pump_refuse_puis_suivant_evalue(self):
++        recorded, ptc = self._run(0.205, [_cand(90, 30.0, 90, "PUMP"), _cand(0, 1.0, 80, "CALME")])
++        self.assertEqual(ptc.call_count, 1)
++        self.assertEqual(ptc.call_args.kwargs["candidate"].token_address, "CALME")
++
++    def test_desactive_ne_change_rien(self):
++        recorded, ptc = self._run(0, [_cand(90, 30.0, addr="PUMP")])
++        ptc.assert_called_once()
++        self.assertNotIn("score_v2", [r[3] for r in recorded])
++
++
++if __name__ == "__main__":
++    unittest.main()

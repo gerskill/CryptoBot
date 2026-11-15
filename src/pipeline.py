@@ -255,6 +255,11 @@ class ScanPipeline:
         self.journal = journal
         self.shadow = shadow
         self._audit_cache: dict[str, tuple[float, dict]] = {}
+        # Source `mature` (opt-in) : adresses issues du classement GMGN 24 h,
+        # rafraîchies tous les `refresh_cycles` cycles seulement.
+        self._mature_addresses: list[str] = []
+        self._mature_calls = 0
+        self._mature_cycles = 0
 
     # ------------------------------------------------------------ collecte
 
@@ -309,6 +314,78 @@ class ScanPipeline:
             blacklist=blacklist,
         )
 
+    # ------------------------------------------------- collecte « mature »
+
+    def collect_mature(self, filters: dict[str, Any], cfg: Optional[dict] = None) -> CollectedBatch:
+        """Lot SÉPARÉ de tokens vieux et liquides (bras `mature_liquid`, 2026-10-11).
+
+        POURQUOI. L'enveloppe de découverte plafonne l'âge à 24 h (bras le plus
+        large : runner) et DexScreener /token-profiles ne liste que des tokens
+        récents : aucun token de 24 h+ n'atteint le pipeline principal.
+        L'élargir changerait le lot (25 enrichis max) de TOUS les bras.
+
+        COÛT. 1 appel GMGN `market trending` (24 h, filtré serveur sur
+        âge/liquidité) tous les `refresh_cycles` cycles, 1 appel DexScreener
+        groupé par cycle pour les prix, enrichissement RugCheck/Helius en
+        cache 15 min, au plus `max_candidates` tokens. Ne touche ni au cache
+        de découverte, ni à la watchlist, ni à la blacklist partagés.
+        """
+        started = time.time()
+        cfg = cfg or {}
+        self._mature_cycles += 1
+        refresh = max(1, int(cfg.get("refresh_cycles", 10)))
+        limit = max(1, int(cfg.get("max_candidates", 15)))
+        min_age = float(filters.get("min_age_hours") or 24)
+        max_age = float(filters.get("max_age_hours") or 720)
+        min_liq = float(filters.get("min_liquidity_usd") or 0)
+        min_vol = float(filters.get("min_volume_1h") or 0)
+
+        if (self._mature_cycles - 1) % refresh == 0 or not self._mature_addresses:
+            if self.gmgn and self.gmgn.enabled:
+                try:
+                    rows = self.gmgn.market_trending(
+                        interval=cfg.get("gmgn_interval", "24h"),
+                        limit=int(cfg.get("gmgn_limit", 50)),
+                        order_by=cfg.get("gmgn_order_by", "volume"),
+                        min_liquidity=min_liq,
+                        min_created=_duration(min_age),
+                        max_created=_duration(max_age),
+                        filters=cfg.get("gmgn_filters") or ["not_wash_trading"],
+                    )
+                    self._mature_calls += 1
+                    addresses = []
+                    for row in rows or []:
+                        address = row.get("address") or row.get("token_address")
+                        if address:
+                            addresses.append(address)
+                    if addresses:
+                        self._mature_addresses = addresses
+                except Exception as exc:  # une source opt-in ne casse jamais le cycle
+                    print(f"[Mature] ⚠️ GMGN — {type(exc).__name__}")
+
+        addresses = self._mature_addresses[:limit]
+        raw = self.dex.candidates_for_tokens(
+            addresses, min_liquidity=min_liq, min_volume_1h=min_vol,
+            min_age_hours=min_age, max_age_hours=max_age,
+        ) if addresses else []
+        enriched = self._enrich_wallet_reliability(
+            self._enrich_smart_money(self._enrich_all(raw, filters))
+        )
+        if self.history is not None:
+            self.history.record_all(enriched)
+        print(
+            f"[Mature] {len(addresses)} adresses suivies | {len(raw)} passent âge "
+            f"{min_age:g}-{max_age:g} h, liq ≥ {min_liq:.0f}$, vol 1h ≥ {min_vol:.0f}$ "
+            f"| {time.time() - started:.1f}s"
+        )
+        return CollectedBatch(
+            enriched=tuple(enriched),
+            scanned_count=len(addresses),
+            cached_skipped=0,
+            duration_sec=round(time.time() - started, 2),
+            blacklist=(),
+        )
+
     # ---------------------------------------------------------- évaluation
 
     def evaluate(
@@ -352,6 +429,7 @@ class ScanPipeline:
                 continue
             social_kept.append(candidate)
         scored = score_candidates(social_kept, weights)
+        scored = self._apply_opt_in_gates(scored, params, filters, rejected, label, verbose)
 
         min_alpha = params.get("scan.social_lookup_min_alpha", 70)
         wishlist = tuple(
@@ -372,6 +450,51 @@ class ScanPipeline:
             wishlist=wishlist,
             social_served=served,
         )
+
+    def _apply_opt_in_gates(self, scored, params, filters, rejected, label, verbose):
+        """Réglages opt-in 2026-11-02 (désactivés par défaut) :
+        `entry_rules.top_signal_pct` et `filters.onchain_antirug`."""
+        top_pct = params.get("entry_rules.top_signal_pct", None)
+        use_ar = bool(filters.get("onchain_antirug", False))
+        if not top_pct and not use_ar:
+            return scored
+        from src.core.onchain_antirug import OnchainAntiRug, TopSignalGate
+        out = []
+        threshold = params.get("scan.alpha_score_entry_threshold", 75)
+        key = label or "default"
+        if top_pct:
+            gate = getattr(self, "_top_gate", None) or TopSignalGate()
+            self._top_gate = gate
+            for c in scored:
+                if c.alpha_score_absolute >= threshold:
+                    gate.observe(key, c.token_address, c.alpha_score_absolute)
+            cut = gate.cutoff(key, float(top_pct))
+        for c in scored:
+            reason = None
+            if top_pct and cut is not None and c.alpha_score_absolute >= threshold \
+                    and c.alpha_score_absolute < cut:
+                reason = f"hors top {top_pct}% des signaux (score {c.alpha_score_absolute:.1f} < {cut:.1f})"
+            if reason is None and use_ar and c.alpha_score_absolute >= threshold:
+                ar = getattr(self, "onchain_antirug", None)
+                if ar is None:
+                    from src import settings as _settings
+                    ar = self.onchain_antirug = OnchainAntiRug()
+                try:
+                    reason, note = ar.reason(
+                        c.token_address,
+                        float(filters.get("onchain_max_wallet_pct", 50)),
+                        int(filters.get("onchain_max_shared_funder", 3)))
+                except Exception as exc:
+                    reason, note = None, f"anti-rug on-chain indisponible ({str(exc)[:60]}), token accepté"
+                if note:
+                    print(f"    ⚠️{label} {c.symbol:>10} — {note}")
+            if reason:
+                rejected.append(c.with_fields(rejected_reason=reason))
+                if verbose:
+                    print(f"    ❌{label} {c.symbol:>10} — {reason}")
+                continue
+            out.append(c)
+        return out
 
     @staticmethod
     def _with_social(candidate: Candidate, stats: Any) -> Candidate:
@@ -918,6 +1041,12 @@ class ScanPipeline:
         ceiling = f.get("max_price_change_1h")
         if ceiling is not None and c.price_change_1h is not None and c.price_change_1h > ceiling:
             return f"déjà {c.price_change_1h:+.0f}% sur 1h > {ceiling}%"
+        # Anti-chasse 5 min (bras `fixes3`, 2026-11-02) : sur 12 275 trades
+        # PAPER, une hausse 5m >= 10% avant l'entrée fait passer les stops
+        # touchés en <= 10 min de ~11% à 18-38%. Absent = désactivé.
+        ceiling = f.get("max_price_change_5m")
+        if ceiling is not None and c.price_change_5m is not None and c.price_change_5m > ceiling:
+            return f"déjà {c.price_change_5m:+.1f}% sur 5m > {ceiling}%"
         floor = f.get("min_price_change_5m")
         if floor is not None and c.price_change_5m is not None and c.price_change_5m < floor:
             return f"momentum 5m {c.price_change_5m:+.1f}% < {floor}%"

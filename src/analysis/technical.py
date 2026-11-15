@@ -33,10 +33,19 @@ DEFAULT_STRUCTURE_MODE = "balanced"
 
 @dataclass(frozen=True)
 class Snapshot:
+    """`liquidity` vaut None quand elle est INCONNUE (paire pump.fun sans champ
+    liquidité, prix venu du repli Jupiter/Birdeye). 0 signifie « mesurée à 0 ».
+
+    `source` sépare le scan (meilleure paire, max sur toutes les paires) du
+    monitoring (paire de la position) : comparer les deux fabrique de fausses
+    chutes de liquidité.
+    """
+
     ts: float
     price: float
     volume_5m: float
-    liquidity: float
+    liquidity: Optional[float]
+    source: str = "scan"
 
 
 @dataclass(frozen=True)
@@ -72,12 +81,15 @@ class PriceHistory:
         )
 
     def record(self, candidate: Candidate, ts: Optional[float] = None) -> None:
+        liquidity = candidate.liquidity_usd
         self.record_raw(
             candidate.token_address,
             price=candidate.price_usd,
             volume_5m=candidate.volume_5m,
-            liquidity=candidate.liquidity_usd,
+            # Un candidat sans liquidité renseignée n'a pas une liquidité NULLE.
+            liquidity=liquidity if liquidity and liquidity > 0 else None,
             ts=ts,
+            source="scan",
         )
 
     def record_raw(
@@ -85,11 +97,16 @@ class PriceHistory:
         token_address: str,
         price: float,
         volume_5m: float = 0.0,
-        liquidity: float = 0.0,
+        liquidity: Optional[float] = 0.0,
         ts: Optional[float] = None,
+        source: str = "monitor",
     ) -> None:
-        """Snapshot hors scan — utilisé par le monitoring des positions ouvertes."""
-        if price <= 0:
+        """Snapshot hors scan — utilisé par le monitoring des positions ouvertes.
+
+        `liquidity=None` : liquidité inconnue. Ne JAMAIS la convertir en 0 :
+        `liquidity_drop_pct` y verrait une chute de -100 % (faux RUG_PULL).
+        """
+        if price is None or price <= 0:
             return
         self._data[token_address].append(
             Snapshot(
@@ -97,6 +114,7 @@ class PriceHistory:
                 price=price,
                 volume_5m=volume_5m,
                 liquidity=liquidity,
+                source=source,
             )
         )
 
@@ -129,16 +147,48 @@ class PriceHistory:
             )
         return candles
 
-    def liquidity_drop_pct(self, token_address: str, window_seconds: float = 120) -> Optional[float]:
-        """Chute de liquidité sur la fenêtre (détection de rug pull, étape 4.7)."""
+    def liquidity_drop_pct(
+        self,
+        token_address: str,
+        window_seconds: float = 120,
+        source: Optional[str] = None,
+        confirm_readings: int = 1,
+        price_crash_pct: float = -40.0,
+    ) -> Optional[float]:
+        """Chute de liquidité sur la fenêtre (détection de rug pull, étape 4.7).
+
+        - Les snapshots à liquidité inconnue (None) sont ignorés : une lecture
+          absente n'est pas une liquidité vidée.
+        - `source` restreint la comparaison à une seule source (ex. "monitor")
+          pour ne pas comparer la meilleure paire du scan à la paire suivie.
+        - `confirm_readings=N` : la chute retournée est la MOINS sévère des N
+          dernières lectures — il faut N lectures consécutives sous le seuil.
+          Tant qu'il n'y a pas N lectures après la référence : None.
+        - Exception : si le PRIX s'est aussi effondré (≤ `price_crash_pct` vs la
+          référence), une seule lecture suffit — un vrai rug n'attend pas.
+        """
         snapshots = self._data.get(token_address)
         if not snapshots:
             return None
         now = time.time()
-        window = [s for s in snapshots if now - s.ts <= window_seconds]
+        window = [
+            s for s in snapshots
+            if now - s.ts <= window_seconds
+            and s.liquidity is not None
+            and (source is None or s.source == source)
+        ]
         if len(window) < 2 or window[0].liquidity <= 0:
             return None
-        return 100 * (window[-1].liquidity - window[0].liquidity) / window[0].liquidity
+        base = window[0]
+        readings = window[1:]
+        needed = max(1, int(confirm_readings))
+        latest = readings[-1]
+        if base.price > 0 and 100 * (latest.price - base.price) / base.price <= price_crash_pct:
+            needed = 1
+        if len(readings) < needed:
+            return None
+        confirmed = max(s.liquidity for s in readings[-needed:])
+        return 100 * (confirmed - base.liquidity) / base.liquidity
 
     def forget(self, token_address: str) -> None:
         self._data.pop(token_address, None)

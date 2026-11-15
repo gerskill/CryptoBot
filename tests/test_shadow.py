@@ -10,7 +10,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.core.journal import TradeJournal  # noqa: E402
-from src.core.learning import INACTIVITY_CYCLES, LearningEngine  # noqa: E402
+from src.core.learning import BACKTEST_WINDOW, INACTIVITY_CYCLES, LearningEngine  # noqa: E402
 from src.core.models import Candidate  # noqa: E402
 from src.core.params import ParamsStore  # noqa: E402
 from src.core.shadow import ShadowTracker, reason_family  # noqa: E402
@@ -187,6 +187,8 @@ class TestBornesEtRelachement(unittest.TestCase):
         self.assertEqual(self.params.get("filters.min_age_hours"), 3.0)
 
     def test_valeur_clampee_a_la_borne(self):
+        # Partir près de la borne : le pas max (±15 %) s'applique avant.
+        self.params.set("filters.min_liquidity_usd", 95000, log=False)
         change = self.engine._bounded_set("filters.min_liquidity_usd", 500000, "test", 10)
         self.assertEqual(self.params.get("filters.min_liquidity_usd"), 100000)
         self.assertIn("100000", change)
@@ -457,7 +459,7 @@ class TestBacktestValidation(unittest.TestCase):
         self.assertEqual(large["win_rate"], 100.0)
 
     def test_annule_un_changement_sans_amelioration(self):
-        for _ in range(20):
+        for _ in range(BACKTEST_WINDOW):
             self._trade(+10, liquidity=60000)
         avant = self.params.get("filters")
         self.params.set("filters.min_liquidity_usd", 20000, log=False)
@@ -468,9 +470,9 @@ class TestBacktestValidation(unittest.TestCase):
     def test_valide_un_changement_qui_ecarte_les_perdants(self):
         # Les perdants doivent être AU-DESSUS du filtre d'origine (15000),
         # sinon ils n'auraient jamais été pris et le backtest ne voit rien.
-        for _ in range(10):
+        for _ in range(BACKTEST_WINDOW // 2):
             self._trade(-30, liquidity=20000)
-        for _ in range(10):
+        for _ in range(BACKTEST_WINDOW // 2):
             self._trade(+40, liquidity=60000)
         avant = self.params.get("filters")
         self.params.set("filters.min_liquidity_usd", 30000, log=False)
@@ -479,7 +481,7 @@ class TestBacktestValidation(unittest.TestCase):
         self.assertEqual(self.params.get("filters.min_liquidity_usd"), 30000)
 
     def test_annule_des_filtres_trop_restrictifs(self):
-        for _ in range(20):
+        for _ in range(BACKTEST_WINDOW):
             self._trade(+10, liquidity=20000)
         avant = self.params.get("filters")
         self.params.set("filters.min_liquidity_usd", 90000, log=False)  # ne garde rien

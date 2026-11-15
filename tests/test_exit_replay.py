@@ -324,21 +324,22 @@ class TestGrilleEtRecherche(unittest.TestCase):
         self.assertEqual(engine.params.get("exit_rules.take_profit_1"), 15.0)
 
     def test_sans_plafond_150_reste_un_take_profit_legal(self):
-        engine = self._moteur("baseline", tp1=100)
+        # Départ à 140 : le pas max d'un ajustement (±15 pts) ne bride pas
+        # le test, seule la borne compte.
+        engine = self._moteur("baseline", tp1=140)
         self.assertEqual(engine.bounds["exit_rules.take_profit_1"], (30, 300))
         engine._bounded_set("exit_rules.take_profit_1", 150.0, "essai", 20)
         self.assertEqual(engine.params.get("exit_rules.take_profit_1"), 150.0)
 
     def test_scalp_accepte_25_et_plafonne_toujours_a_80(self):
-        engine = self._moteur(
-            "scalp",
-            bounds={"exit_rules.take_profit_1": (15.0, 80.0)},
-            tp1=40.0,
-        )
+        bornes = {"exit_rules.take_profit_1": (15.0, 80.0)}
+        engine = self._moteur("scalp", bounds=bornes, tp1=40.0)
         engine._bounded_set("exit_rules.take_profit_1", 25.0, "essai", 20)
         self.assertEqual(engine.params.get("exit_rules.take_profit_1"), 25.0)
-        engine._bounded_set("exit_rules.take_profit_1", 150.0, "essai", 20)
-        self.assertEqual(engine.params.get("exit_rules.take_profit_1"), 80.0)
+        # Départ à 75 : le pas max (±15 pts) laisserait 90, la borne garde 80.
+        haut = self._moteur("scalp-haut", bounds=bornes, tp1=75.0)
+        haut._bounded_set("exit_rules.take_profit_1", 150.0, "essai", 20)
+        self.assertEqual(haut.params.get("exit_rules.take_profit_1"), 80.0)
 
     def test_plafond_15_empeche_la_recherche_de_reposer_les_anciens_niveaux(self):
         engine = self._moteur(
@@ -355,7 +356,11 @@ class TestGrilleEtRecherche(unittest.TestCase):
         engine = self._moteur("recherche-libre", tp1=100)
         self._positions_qui_favorisent_un_tp1_haut(engine)
         changes = engine._search_exits()
-        self.assertEqual(engine.params.get("exit_rules.take_profit_1"), 150.0)
+        # La recherche vise 150 ; le pas max d'un ajustement (±15 pts) la
+        # fait monter par étapes. Sans plafond, elle monte bien au-dessus de 100.
+        tp1 = engine.params.get("exit_rules.take_profit_1")
+        self.assertGreater(tp1, 100.0)
+        self.assertLessEqual(tp1, 150.0)
         self.assertTrue(any("take_profit_1" in change for change in changes))
 
     def test_scalp_cherche_encore_un_tp1_dans_sa_fenetre(self):

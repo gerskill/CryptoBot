@@ -233,7 +233,9 @@ def build_from_logs(
     """
     board = AgentScoreboard()
 
-    for row in _read_jsonl(trades_path):
+    from src.core.journal import correct_legacy_cost
+
+    for row in map(correct_legacy_cost, _read_jsonl(trades_path)):
         signals = row.get(signals_key)
         if not signals or not row.get("is_final_exit"):
             continue

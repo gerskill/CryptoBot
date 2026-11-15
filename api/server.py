@@ -15,6 +15,7 @@ import json
 import os
 import secrets
 import time
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
@@ -148,6 +149,36 @@ def get_state() -> dict[str, Any]:
     return _state()
 
 
+def _collect_positions(arm: Optional[str]) -> list[dict[str, Any]]:
+    """Positions clôturées (jambes agrégées), triées par `timestamp_exit`
+    croissant, champ `arm` renseigné. `arm="all"` = tous les bras ACTIVÉS.
+    Source commune de `/api/trades` et `/api/trades/range`."""
+    if arm == "all":
+        # Défaut du dashboard. Sans ça il n'affichait que le témoin : 4
+        # gagnants visibles sur 14 réels, les cinq de `sniper` invisibles.
+        # Un tableau de bord qui cache les trades gagnants d'une stratégie
+        # empêche exactement la comparaison qu'on cherche à faire.
+        positions = []
+        for entry in load_manifest():
+            if not entry.get("enabled", True):
+                continue
+            path = settings.arm_paths(entry["name"])["trades"]
+            if not os.path.exists(path):
+                continue
+            for row in TradeJournal(path).read_positions():
+                row["arm"] = entry["name"]
+                positions.append(row)
+        positions.sort(key=lambda r: r.get("timestamp_exit") or "")
+    else:
+        name = _resolve_arm(arm)
+        path = settings.arm_paths(name)["trades"]
+        positions = TradeJournal(path).read_positions() if os.path.exists(path) else []
+        for row in positions:
+            row["arm"] = name
+
+    return positions
+
+
 @app.get("/api/trades")
 def get_trades(limit: int = 100, arm: Optional[str] = None) -> dict[str, Any]:
     """Un trade = une POSITION, jambes agrégées.
@@ -174,34 +205,82 @@ def get_trades(limit: int = 100, arm: Optional[str] = None) -> dict[str, Any]:
     3. `trades` reste borné par `limit` : le tableau « derniers trades »
        n'a besoin que d'une fenêtre récente, lui.
     """
-    if arm == "all":
-        # Défaut du dashboard. Sans ça il n'affichait que le témoin : 4
-        # gagnants visibles sur 14 réels, les cinq de `sniper` invisibles.
-        # Un tableau de bord qui cache les trades gagnants d'une stratégie
-        # empêche exactement la comparaison qu'on cherche à faire.
-        positions = []
-        for entry in load_manifest():
-            if not entry.get("enabled", True):
-                continue
-            path = settings.arm_paths(entry["name"])["trades"]
-            if not os.path.exists(path):
-                continue
-            for row in TradeJournal(path).read_positions():
-                row["arm"] = entry["name"]
-                positions.append(row)
-        positions.sort(key=lambda r: r.get("timestamp_exit") or "")
-    else:
-        name = _resolve_arm(arm)
-        path = settings.arm_paths(name)["trades"]
-        positions = TradeJournal(path).read_positions() if os.path.exists(path) else []
-        for row in positions:
-            row["arm"] = name
+    positions = _collect_positions(arm)
 
     partials = sum(row.get("legs", 1) - 1 for row in positions)
     return {
         "trades": list(reversed(positions))[:limit],
         "equity_series": [round(row.get("pnl_usd") or 0.0, 4) for row in positions],
         "partials": partials,
+    }
+
+
+def _parse_ts(value: Optional[str]) -> Optional[datetime]:
+    """ISO 8601 (avec ou sans fuseau ; sans fuseau = UTC) ou epoch en
+    secondes/millisecondes. `None` si absent ou illisible."""
+    if value is None or str(value).strip() == "":
+        return None
+    raw = str(value).strip()
+    try:
+        number = float(raw)
+    except ValueError:
+        number = None
+    if number is not None:
+        if number > 1e11:  # millisecondes
+            number /= 1000.0
+        return datetime.fromtimestamp(number, tz=timezone.utc)
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+@app.get("/api/trades/range")
+def get_trades_range(
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+    arm: Optional[str] = "all",
+) -> dict[str, Any]:
+    """TOUTES les positions clôturées dans [since, until[, sans `limit`.
+
+    Le rapport hebdo filtrait côté client la liste de `/api/trades`, bornée
+    aux 100 positions les plus récentes tous bras confondus : avec ~12 bras,
+    ça ne couvrait qu'une douzaine d'heures. « Cette semaine » affichait
+    +192 $ (une bonne nuit) au lieu d'environ -5 000 $ sur la vraie semaine.
+
+    Les bornes sont des instants absolus (ISO 8601 avec fuseau, ou epoch).
+    Le dashboard envoie lundi 00:00 HEURE LOCALE du navigateur (Europe/Zurich
+    sur le Mac) converti en UTC ; la semaine n'est donc pas décalée de 2 h.
+    Filtre sur `timestamp_exit` : une position compte dans la semaine où
+    elle se clôture, comme partout ailleurs dans le dashboard.
+    """
+    start = _parse_ts(since)
+    end = _parse_ts(until)
+    if since and start is None:
+        raise HTTPException(status_code=400, detail="since illisible")
+    if until and end is None:
+        raise HTTPException(status_code=400, detail="until illisible")
+
+    selected = []
+    for row in _collect_positions(arm):
+        exit_at = _parse_ts(row.get("timestamp_exit"))
+        if exit_at is None:
+            continue
+        if start is not None and exit_at < start:
+            continue
+        if end is not None and exit_at >= end:
+            continue
+        selected.append(row)
+
+    return {
+        "trades": list(reversed(selected)),
+        "count": len(selected),
+        "pnl_usd": round(sum(row.get("pnl_usd") or 0.0 for row in selected), 4),
+        "since": start.isoformat() if start else None,
+        "until": end.isoformat() if end else None,
     }
 
 
