@@ -55,6 +55,12 @@ TUPLE_FIELDS = ("exit_reasons",)
 # là où il attend des paires. Traité à part, pas ajouté à TUPLE_FIELDS.
 NESTED_TUPLE_FIELDS = ("ladder",)
 
+# Le tick de surveillance mesure le coût HORS du verrou des livres, puis
+# passe le résultat ici. `PREPARED_UNSET` veut dire « pas préparé » : on
+# mesure comme avant. `None` veut dire « déjà tenté, rien de mesurable » :
+# on ne rappelle pas le réseau sous le verrou.
+PREPARED_UNSET = object()
+
 
 def normalise_ladder(raw: Any) -> tuple[tuple[float, float], ...]:
     """`[[10, 0.2], [20, 0.2]]` -> `((10.0, 0.2), (20.0, 0.2))`, trié.
@@ -417,14 +423,42 @@ class PaperPortfolio:
             self.notifier.send_entry(position)
         return position
 
+    def quote_final_cost(self, position: Position, price: float) -> Optional[Any]:
+        """Devis de la jambe finale, sans rien modifier.
+
+        Appelé HORS du verrou des livres : le devis est un appel réseau, et
+        une entrée ne doit pas l'attendre. `None` si rien n'est mesurable.
+        """
+        if self.exit_fee_measurer is None or price <= 0:
+            return None
+        fraction = position.remaining_fraction
+        notional = (
+            position.size_usd * fraction * (price / position.entry_price)
+            if position.entry_price > 0
+            else position.size_usd * fraction
+        )
+        try:
+            return self.exit_fee_measurer(position.token_address, notional)
+        except Exception:  # noqa: BLE001
+            return None
+
     def update(
         self,
         position_id: str,
         price: float,
         liquidity_drop_pct: Optional[float] = None,
         liquidity_usd: Optional[float] = None,
+        prepared_final_cost: Any = PREPARED_UNSET,
+        prepared_scale_check: Any = PREPARED_UNSET,
+        prepared_scale_add: Optional[float] = None,
     ) -> list[dict[str, Any]]:
-        """Applique les règles de sortie. Retourne les lignes de journal créées."""
+        """Applique les règles de sortie. Retourne les lignes de journal créées.
+
+        `prepared_final_cost` et `prepared_scale_check`, quand ils ne valent
+        pas `PREPARED_UNSET`, ont été mesurés avant la prise du verrou. On
+        les réutilise tels quels, y compris `None` (mesure ratée) : rappeler
+        le réseau ici bloquerait les entrées.
+        """
         position = self.positions.get(position_id)
         if position is None or price <= 0:
             return []
@@ -461,24 +495,29 @@ class PaperPortfolio:
                 if estime is not None:
                     cost_pct = estime
                     cost_estimated = True
-            if action.is_final and self.exit_fee_measurer is not None:
+            if action.is_final and (
+                prepared_final_cost is not PREPARED_UNSET or self.exit_fee_measurer is not None
+            ):
                 # Notionnel COURANT, pas `size_usd` (figé à l'entrée) : sur une
                 # position qui a fait x3, vendre `fraction` des tokens vaut
                 # `fraction * (price / entry_price)` fois la mise initiale, pas
                 # `fraction` fois. Coder l'ancien montant sous-dimensionnait le
                 # devis d'impact de prix sur tout gagnant ayant déjà pris un TP
                 # partiel — trouvé en revue adversariale Codex.
-                exit_notional = (
-                    position.size_usd * fraction * (price / position.entry_price)
-                    if position.entry_price > 0
-                    else position.size_usd * fraction
-                )
-                try:
-                    exit_cost = self.exit_fee_measurer(position.token_address, exit_notional)
-                except Exception:  # noqa: BLE001
-                    # Une mesure de coût ne doit jamais empêcher une clôture
-                    # réelle. Invariant « la boucle ne meurt jamais ».
-                    exit_cost = None
+                if prepared_final_cost is not PREPARED_UNSET:
+                    exit_cost = prepared_final_cost
+                else:
+                    exit_notional = (
+                        position.size_usd * fraction * (price / position.entry_price)
+                        if position.entry_price > 0
+                        else position.size_usd * fraction
+                    )
+                    try:
+                        exit_cost = self.exit_fee_measurer(position.token_address, exit_notional)
+                    except Exception:  # noqa: BLE001
+                        # Une mesure de coût ne doit jamais empêcher une clôture
+                        # réelle. Invariant « la boucle ne meurt jamais ».
+                        exit_cost = None
                 if exit_cost is not None:
                     cost_pct = exit_cost.total_cost_pct
 
@@ -527,7 +566,11 @@ class PaperPortfolio:
         if not rows:
             # Entrée progressive : uniquement sur un tick SANS sortie, après
             # les règles de sortie (jamais d'ajout sur un tick qui a vendu).
-            self._maybe_scale_in(position_id, price, liquidity_usd)
+            self._maybe_scale_in(
+                position_id, price, liquidity_usd,
+                prepared_scale_check=prepared_scale_check,
+                prepared_scale_add=prepared_scale_add,
+            )
 
         if rows:
             # Une sortie doit survivre à un crash : écriture immédiate.
@@ -576,7 +619,12 @@ class PaperPortfolio:
             print(f"[Portfolio] ⚠️ journal SCALE_IN_SKIPPED impossible ({position.id}) : {exc}")
 
     def _maybe_scale_in(
-        self, position_id: str, price: float, liquidity_usd: Optional[float] = None
+        self,
+        position_id: str,
+        price: float,
+        liquidity_usd: Optional[float] = None,
+        prepared_scale_check: Any = PREPARED_UNSET,
+        prepared_scale_add: Optional[float] = None,
     ) -> bool:
         """Achète le complément de l'entrée progressive si les conditions tiennent.
 
@@ -619,17 +667,30 @@ class PaperPortfolio:
             last = self._scale_in_attempt_at.get(position_id)
             if last is not None and now - last < SCALE_IN_RETRY_SECONDS:
                 return False
-            self._scale_in_attempt_at[position_id] = now
-            if self.scale_in_checker is None:
+            if prepared_scale_check is not PREPARED_UNSET:
+                # Devis déjà fait hors verrou. S'il visait une autre taille
+                # (le capital a bougé), on n'ajoute pas et on ne consomme pas
+                # le délai de retry : le tick suivant redemandera un devis.
+                if (
+                    prepared_scale_add is not None
+                    and abs(prepared_scale_add - add_usd) > 1e-6
+                ):
+                    return False
+                self._scale_in_attempt_at[position_id] = now
+                check = prepared_scale_check
+            elif self.scale_in_checker is None:
+                self._scale_in_attempt_at[position_id] = now
                 self._skip_scale_in(position, "quote_failed",
                                     "aucun vérificateur de devis (fail closed)", price)
                 return False
-            try:
-                check = self.scale_in_checker(position, add_usd, price, liquidity_usd)
-            except Exception as exc:  # noqa: BLE001
-                self._skip_scale_in(position, "quote_failed",
-                                    f"{type(exc).__name__}: {exc}", price)
-                return False
+            else:
+                self._scale_in_attempt_at[position_id] = now
+                try:
+                    check = self.scale_in_checker(position, add_usd, price, liquidity_usd)
+                except Exception as exc:  # noqa: BLE001
+                    self._skip_scale_in(position, "quote_failed",
+                                        f"{type(exc).__name__}: {exc}", price)
+                    return False
             if check is None or not check.ok or not check.effective_price:
                 self._skip_scale_in(
                     position, getattr(check, "reason", "quote_failed") or "quote_failed",
@@ -680,7 +741,11 @@ class PaperPortfolio:
         return True
 
     def force_close(
-        self, position_id: str, price: float, reason: str = "MANUAL_STOP"
+        self,
+        position_id: str,
+        price: float,
+        reason: str = "MANUAL_STOP",
+        exit_cost: Any = PREPARED_UNSET,
     ) -> Optional[dict[str, Any]]:
         """Sortie totale immédiate, hors règles — utilisée par le panic button.
 
@@ -697,20 +762,11 @@ class PaperPortfolio:
 
         fraction = position.remaining_fraction
 
-        exit_cost = None
         cost_pct = 0.0
-        if self.exit_fee_measurer is not None:
-            exit_notional = (
-                position.size_usd * fraction * (price / position.entry_price)
-                if position.entry_price > 0
-                else position.size_usd * fraction
-            )
-            try:
-                exit_cost = self.exit_fee_measurer(position.token_address, exit_notional)
-            except Exception:  # noqa: BLE001
-                exit_cost = None
-            if exit_cost is not None:
-                cost_pct = exit_cost.total_cost_pct
+        if exit_cost is PREPARED_UNSET:
+            exit_cost = self.quote_final_cost(position, price)
+        if exit_cost is not None:
+            cost_pct = exit_cost.total_cost_pct
 
         cost_entry = cost_vs_entry(cost_pct, price, position.entry_price)
         pnl_pct = position.pnl_pct(price) - cost_entry

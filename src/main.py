@@ -13,6 +13,7 @@ Arrêt     : Ctrl-C, ou /STOP depuis Telegram (ferme toutes les positions).
 
 import math
 import signal
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Optional
@@ -68,8 +69,20 @@ from src.core.learning import LearningEngine
 from src.core.lock import InstanceLock
 from src.core.models import Candidate, ScanResult
 from src.core.params import ParamsStore
-from src.core.portfolio import MAX_POSITION_PCT_OF_CAPITAL
-from src.core.positions import RUG_LIQUIDITY_DROP_PCT
+from src.core.portfolio import MAX_POSITION_PCT_OF_CAPITAL, PREPARED_UNSET, SCALE_IN_RETRY_SECONDS
+from src.core.position_watch import (
+    PositionWatch,
+    fetch_unique,
+    quote_is_usable,
+    sample_gap_line,
+    watch_snapshot,
+)
+from src.core.positions import (
+    RUG_LIQUIDITY_DROP_PCT,
+    evaluate_exits,
+    scale_in_due,
+    update_water_marks,
+)
 from src.core.quota_agent import QuotaAgent
 from src.core.pricefeed import (
     MONITOR_BUDGET_PER_MIN,
@@ -295,6 +308,21 @@ class AlphaLoop:
         self.pipeline.journal = self.journal
         self.pipeline.shadow = self.shadow
         self.market = CycleMarketCache()
+        # Livres (positions, capital, journal de sortie) : le scan et le fil
+        # de surveillance s'y retrouvent. Le verrou n'est PAS tenu pendant
+        # les lectures de prix, de liquidité ou de devis.
+        self._books = threading.RLock()
+        self._watch_metrics = {
+            "quotes_ok": 0,
+            "quotes_missing": 0,
+            "last_quote_at": None,
+            "last_tick_sec": None,
+            "last_scan_sec": None,
+        }
+        self._position_watch = PositionWatch(
+            self._watch_tick, self._monitor_interval_seconds
+        )
+        self._last_stretched_interval = None
         # Paire DexScreener des positions entrées sans paire (GMGN) : liquidité
         # réellement lue au monitoring. Appel groupé, cache 120 s par token.
         self.pair_resolver = PairResolver(self.dex.get_tokens_data)
@@ -337,6 +365,9 @@ class AlphaLoop:
         interval = self.params.get("scan.interval_seconds", 90)
         self._print_banner(interval)
         self.telegram.send(f"🤖 <b>Alpha Loop démarré</b> — mode {self.mode}")
+        # La surveillance des positions tourne pendant le scan, pas seulement
+        # dans le temps qui reste après. Un seul fil, arrêté avec la boucle.
+        self._position_watch.start()
 
         while _running:
             started = time.monotonic()
@@ -348,10 +379,12 @@ class AlphaLoop:
 
             elapsed = time.monotonic() - started
             self._last_cycle_duration_sec = round(elapsed, 1)
+            self._watch_metrics["last_scan_sec"] = round(elapsed, 1)
             if elapsed > interval:
                 print(f"[Loop] ⏱️ Cycle {elapsed:.0f}s > {interval}s — enchaînement direct")
             self._sleep_monitoring(max(0.0, interval - elapsed))
 
+        self._position_watch.stop()
         self.cache.save()
         stats = self.portfolio.stats()
         print(
@@ -368,6 +401,13 @@ class AlphaLoop:
         memecoin. Coût : 1 requête par position et par tick, sur un quota de
         300/min — négligeable.
         """
+        if self._position_watch.alive:
+            # Le fil surveille déjà, y compris pendant le scan. Un second
+            # passage ici doublerait les sorties et les lignes de journal.
+            deadline = time.monotonic() + duration
+            while _running and time.monotonic() < deadline:
+                time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
+            return
         base = self.params.get("scan.monitor_interval_seconds", 20)
         # Garde EXPLICITE : le limiteur DexScreener bloque au lieu d'échouer,
         # donc un dépassement ne se voit nulle part — il ressort plus tard en
@@ -404,9 +444,13 @@ class AlphaLoop:
         print(f"\n{'=' * 78}\n⏱️  CYCLE {self.cycle_count} — {timestamp} UTC\n{'=' * 78}")
 
         self._handle_commands()
-        # Le monitoring passe AVANT le scan : une position en cours prime
-        # toujours sur la recherche d'une nouvelle entrée.
-        self._monitor_positions()
+        # Le fil de surveillance couvre ce passage en continu, y compris
+        # pendant le scan qui suit. S'il est tombé, on le relance ; s'il ne
+        # repart pas, on garde l'ancien passage synchrone avant le scan.
+        if not self._position_watch.alive:
+            self._position_watch.start()
+        if not self._position_watch.alive:
+            self._monitor_positions()
 
         self.market.reset_cycle()
         result = self._scan_all_arms()
@@ -634,20 +678,25 @@ class AlphaLoop:
             # du témoin affichait « 1 position » alors que deux stratégies en
             # détenaient une chacune : le panneau mentait sur l'exposition
             # réelle, qui est justement ce qu'un tableau de bord doit montrer.
-            positions = []
-            for arm in self.arms:
-                for position in arm.portfolio.positions.values():
-                    # Garde-fou : une position fermée (`remaining_fraction`
-                    # à 0) ne doit jamais atteindre le dashboard, même si
-                    # elle traîne encore dans `arm.portfolio.positions`
-                    # (crash de finalisation). Sinon elle s'affiche gelée
-                    # pour de bon — figée, grisée, incompréhensible.
-                    if not position.is_open:
-                        continue
-                    price = self._last_prices.get(position.token_address)
-                    payload = position_to_dict(position, price)
-                    payload["arm"] = arm.name
-                    positions.append(payload)
+            with self._books:
+                positions = []
+                for arm in self.arms:
+                    for position in list(arm.portfolio.positions.values()):
+                        # Garde-fou : une position fermée (`remaining_fraction`
+                        # à 0) ne doit jamais atteindre le dashboard, même si
+                        # elle traîne encore dans `arm.portfolio.positions`
+                        # (crash de finalisation). Sinon elle s'affiche gelée
+                        # pour de bon — figée, grisée, incompréhensible.
+                        if not position.is_open:
+                            continue
+                        price = self._last_prices.get(position.token_address)
+                        payload = position_to_dict(position, price)
+                        payload["arm"] = arm.name
+                        positions.append(payload)
+                book_stats = self.portfolio.stats()
+                book_aggregate = self._aggregate_stats()
+                book_exposure = self._fleet_exposure().as_dict()
+                book_arms = self._arms_payload()
 
             self.state.write(
                 {
@@ -660,13 +709,13 @@ class AlphaLoop:
                     # `stats` reste celui du TÉMOIN : l'API, les 36 trades
                     # historiques et la courbe d'équité s'y appuient.
                     # `aggregate` donne la vue d'ensemble sans casser ça.
-                    "stats": self.portfolio.stats(),
-                    "aggregate": self._aggregate_stats(),
+                    "stats": book_stats,
+                    "aggregate": book_aggregate,
                     # Concentration par meta sur les sept bras. Publiée pour
                     # la même raison que `positions` l'a été : l'exposition
                     # réelle est justement ce qu'un tableau de bord doit
                     # montrer, et elle était invisible.
-                    "sector_exposure": self._fleet_exposure().as_dict(),
+                    "sector_exposure": book_exposure,
                     "positions": positions,
                     "candidates": [
                         candidate_to_dict(c) for c in (scan.candidates if scan else ())
@@ -683,11 +732,12 @@ class AlphaLoop:
                     "shadow_by_family": self.shadow.missed_rate_by_family(min_sample=1),
                     "entry_threshold": self.params.get("scan.alpha_score_entry_threshold", 75),
                     "live_allowed": self.learning.live_mode_allowed(),
+                    "position_watch": watch_snapshot(self._position_watch, self._watch_metrics),
                     # Additif : les clés ci-dessus restent celles du bras
                     # témoin, le dashboard existant ne bouge pas. Pas de
                     # listes de candidats par bras ici — `state.json` est
                     # resérialisé sur le WebSocket toutes les secondes.
-                    "arms": self._arms_payload(),
+                    "arms": book_arms,
                     "confluence": top_confluence(self._last_confluence),
                     # Dégradation VISIBLE. Deux sources sont mortes en cours
                     # de route sans que rien ne le dise ; le dashboard doit
@@ -888,8 +938,13 @@ class AlphaLoop:
         self.telegram.send("🛑 <b>/STOP reçu</b> — fermeture de toutes les positions.")
         self.market.reset()
         for arm in self.arms:
-            for position_id in list(arm.portfolio.positions):
-                position = arm.portfolio.positions[position_id]
+            with self._books:
+                position_ids = list(arm.portfolio.positions)
+            for position_id in position_ids:
+                with self._books:
+                    position = arm.portfolio.positions.get(position_id)
+                if position is None:
+                    continue
                 price = self.market.price(position.token_address) or self._current_price(
                     position.token_address, position.chain, position.pair_address
                 )
@@ -903,14 +958,18 @@ class AlphaLoop:
                     position.chain, position.pair_address, position.token_address,
                     price, None,
                 )
-                row = arm.portfolio.force_close(position_id, price, "PANIC_STOP")
+                row = self._close_at_price(arm.portfolio, position, price, "PANIC_STOP")
                 if row:
                     print(f"  💰{arm.label} {position.symbol} fermé à {row['pnl_pct']:+.1f}%")
                     self._after_trade_closed(arm)
         self.paused = True
 
     def _open_positions(self) -> list:
-        return [p for arm in self.arms for p in arm.portfolio.positions.values()]
+        with self._books:
+            return [
+                p for arm in self.arms
+                for p in list(arm.portfolio.positions.values())
+            ]
 
     # ------------------------------------------------ concentration sectorielle
 
@@ -957,20 +1016,46 @@ class AlphaLoop:
             positions = self._open_positions()
 
         self.market.reset()
+        # Réseau HORS verrou. Une paire partagée par plusieurs bras n'est lue
+        # qu'une fois. Un prix inutilisable reste vide : on ne reprend pas
+        # `_last_prices`, qui ne sert qu'à l'affichage.
+        quotes = fetch_unique(
+            positions,
+            lambda position: self.market.key(
+                position.chain, position.pair_address, position.token_address
+            ),
+            self._current_market,
+        )
         token_pairs: dict[str, Optional[str]] = {}
+        ok = 0
+        missing = 0
+        counted: set[str] = set()
         for position in positions:
             key = self.market.key(
                 position.chain, position.pair_address, position.token_address
             )
-            if key in self.market.market:
-                continue
-            price, liquidity = self._current_market(position)
+            price, liquidity = quotes[key]
+            if key not in counted:
+                counted.add(key)
+                if quote_is_usable(price):
+                    ok += 1
+                else:
+                    missing += 1
+            if not quote_is_usable(price):
+                price = None
             self.market.put(
                 position.chain, position.pair_address, position.token_address,
                 price, liquidity,
             )
             if price:
                 token_pairs[position.token_address] = position.pair_address
+        # `ok` / `missing` comptent les PAIRES, pas les positions : deux bras
+        # sur le même token ne font qu'une lecture. L'âge ne bouge que
+        # lorsqu'au moins un prix frais est arrivé.
+        self._watch_metrics["quotes_ok"] = ok
+        self._watch_metrics["quotes_missing"] = missing
+        if ok:
+            self._watch_metrics["last_quote_at"] = time.time()
 
         # UN enregistrement par token par tick, pas un par position.
         for token_address, price, liquidity in self.market.by_token():
@@ -1090,8 +1175,11 @@ class AlphaLoop:
             if not (self.pipeline.gmgn and self.pipeline.gmgn.enabled):
                 return
             trades = self.pipeline.gmgn.fetch_smart_money_trades()
-            for position_id in list(arm.portfolio.positions):
-                position = arm.portfolio.positions.get(position_id)
+            with self._books:
+                position_ids = list(arm.portfolio.positions)
+            for position_id in position_ids:
+                with self._books:
+                    position = arm.portfolio.positions.get(position_id)
                 if position is None:
                     continue
                 src = self.copy_sources.get(arm.name, position.token_address)
@@ -1107,7 +1195,9 @@ class AlphaLoop:
                 )
                 if price is None or not math.isfinite(price):
                     continue  # pas de prix : on réessaie au tick suivant
-                row = arm.portfolio.force_close(position_id, price, "COPY_WALLET_SOLD")
+                row = self._close_at_price(
+                    arm.portfolio, position, price, "COPY_WALLET_SOLD"
+                )
                 if not row:
                     continue
                 self.copy_sources.forget(arm.name, position.token_address)
@@ -1147,7 +1237,7 @@ class AlphaLoop:
                     )
                     self.dev_watchdog.unflag(token_address)
                     continue
-                row = arm.portfolio.force_close(position_id, price, reason)
+                row = self._close_at_price(arm.portfolio, position, price, reason)
                 if not row:
                     continue
                 self.funnel.record_exit(
@@ -1160,10 +1250,94 @@ class AlphaLoop:
                 self._measure_hold(arm, position, row)
                 self._after_trade_closed(arm)
 
+    def _watch_tick(self) -> None:
+        """Un passage de surveillance. Appelé par le fil, jamais par le scan."""
+        if not _running:
+            return
+        started = time.monotonic()
+        try:
+            self._monitor_positions(verbose=False)
+            self._publish_state()
+        finally:
+            self._watch_metrics["last_tick_sec"] = round(time.monotonic() - started, 3)
+
+    def _monitor_interval_seconds(self) -> float:
+        """Cadence réelle : le réglage, allongé si le budget de paires est dépassé.
+
+        Le plafond de 180 requêtes/minute est inchangé. Plus de paires =
+        un tick plus lent, pas plus d'appels.
+        """
+        base = float(self.params.get("scan.monitor_interval_seconds", 20) or 20)
+        pairs = len({
+            self.market.key(p.chain, p.pair_address, p.token_address)
+            for p in self._open_positions()
+        })
+        interval = float(effective_monitor_interval(base, pairs))
+        if interval > base and interval != self._last_stretched_interval:
+            print(
+                f"[Monitor] {pairs} paires — tick allongé à {interval}s "
+                f"(budget {MONITOR_BUDGET_PER_MIN} req/min)"
+            )
+            self._last_stretched_interval = interval
+        elif interval <= base:
+            self._last_stretched_interval = None
+        return interval
+
+    def _prepare_exit(self, portfolio, position, price, liquidity, drop):
+        """Mesure ce que la sortie va coûter, sans toucher aux livres.
+
+        Le réseau (devis de sortie, devis d'ajout) est ici. L'application
+        est ensuite faite sous le verrou, qui revérifie la taille.
+        """
+        marked = update_water_marks(position, price)
+        actions = evaluate_exits(marked, price, drop)
+        final_cost = PREPARED_UNSET
+        scale_check = PREPARED_UNSET
+        scale_add = None
+        if any(action.is_final for action in actions) and portfolio.exit_fee_measurer is not None:
+            final_cost = portfolio.quote_final_cost(position, price)
+        elif (
+            not actions
+            and portfolio.scale_in_checker is not None
+            and scale_in_due(position, price)
+        ):
+            with self._books:
+                capital = portfolio.capital
+                last = portfolio._scale_in_attempt_at.get(position.id)
+            if last is None or time.time() - last >= SCALE_IN_RETRY_SECONDS:
+                scale_add = min(position.scale_in_pending_usd, max(0.0, capital))
+                try:
+                    scale_check = portfolio.scale_in_checker(
+                        position, scale_add, price, liquidity
+                    )
+                except Exception:  # noqa: BLE001
+                    scale_check = None
+        return (
+            position.remaining_fraction,
+            position.size_usd,
+            final_cost,
+            scale_check,
+            scale_add,
+        )
+
+    def _close_at_price(self, portfolio, position, price, reason):
+        """Ferme une position. Le devis, s'il y en a un, est pris avant le verrou."""
+        cost = PREPARED_UNSET
+        if portfolio.exit_fee_measurer is not None and quote_is_usable(price):
+            cost = portfolio.quote_final_cost(position, price)
+        with self._books:
+            live = portfolio.positions.get(position.id)
+            if live is None or live.remaining_fraction != position.remaining_fraction:
+                return None
+            return portfolio.force_close(position.id, price, reason, exit_cost=cost)
+
     def _monitor_arm(self, arm, verbose: bool = True) -> None:
         portfolio = arm.portfolio
-        for position_id in list(portfolio.positions):
-            position = portfolio.positions.get(position_id)
+        with self._books:
+            position_ids = list(portfolio.positions)
+        for position_id in position_ids:
+            with self._books:
+                position = portfolio.positions.get(position_id)
             if position is None:
                 continue
 
@@ -1172,8 +1346,9 @@ class AlphaLoop:
             )
             # NaN/inf passeraient tous les seuils de sortie sans jamais les
             # déclencher (une comparaison avec NaN est toujours False en
-            # Python) : traité comme "prix indisponible", pas comme un prix.
-            if price is None or not math.isfinite(price):
+            # Python). <= 0 non plus n'est pas un prix. On ne reprend pas
+            # `_last_prices` : c'est l'affichage, pas un prix exécutable.
+            if not quote_is_usable(price):
                 if verbose:
                     print(
                         f"[Monitor]{arm.label} {position.symbol} : prix indisponible, "
@@ -1205,9 +1380,27 @@ class AlphaLoop:
                     f"{position.remaining_fraction * 100:.0f}%"
                 )
 
-            # `liquidity_usd` ne sert qu'au contrôle d'ajout de l'entrée
-            # progressive (`scaled_be`) ; ignorée par tous les autres bras.
-            for row in portfolio.update(position_id, price, drop, liquidity_usd=liquidity):
+            # Devis HORS verrou. L'application (sortie, capital, journal)
+            # reprend le verrou et revérifie que la position est encore la
+            # même : un devis calculé pour une autre taille ne sort pas.
+            remaining, size, final_cost, scale_check, scale_add = self._prepare_exit(
+                portfolio, position, price, liquidity, drop
+            )
+            with self._books:
+                live = portfolio.positions.get(position_id)
+                if (
+                    live is None
+                    or live.remaining_fraction != remaining
+                    or live.size_usd != size
+                ):
+                    continue
+                rows = portfolio.update(
+                    position_id, price, drop, liquidity_usd=liquidity,
+                    prepared_final_cost=final_cost,
+                    prepared_scale_check=scale_check,
+                    prepared_scale_add=scale_add,
+                )
+            for row in rows:
                 self.funnel.record_exit(
                     arm.name, position, price, row["exit_reason"],
                     row["pnl_pct"], drop,
@@ -1221,7 +1414,11 @@ class AlphaLoop:
                 if row["is_final_exit"]:
                     self._measure_hold(arm, position, row)
                     self._after_trade_closed(arm)
-        portfolio.flush()
+                gap = sample_gap_line(self.history.snapshots(position.token_address))
+                if gap:
+                    print(f"  ⏱️{arm.label} {position.symbol} | {gap}")
+        with self._books:
+            portfolio.flush()
 
     def _announce_milestones(self, arm, position, price: float) -> None:
         """Annonce les paliers de gain LATENT franchis par une position ouverte.
@@ -1311,11 +1508,12 @@ class AlphaLoop:
             print(f"[PairResolver] ⚠️ {type(exc).__name__}")
             return 0
         updated = 0
-        for arm in self.arms:
-            for pid, position in list(arm.portfolio.positions.items()):
-                new_pair = changes.get(position.token_address)
-                if new_pair and arm.portfolio.set_pair_address(pid, new_pair):
-                    updated += 1
+        with self._books:
+            for arm in self.arms:
+                for pid, position in list(arm.portfolio.positions.items()):
+                    new_pair = changes.get(position.token_address)
+                    if new_pair and arm.portfolio.set_pair_address(pid, new_pair):
+                        updated += 1
         for token, pair in changes.items():
             symbol = next((p.symbol for p in positions if p.token_address == token), token[:6])
             print(f"[PairResolver] {symbol} → paire {pair[:8]}… (liquidité lue au monitoring)")
@@ -1772,9 +1970,10 @@ class AlphaLoop:
             entry_context["social_score_source"] = SOCIAL_SCORE_SOURCE
         except Exception as exc:
             print(f"[Journal] ⚠️ contexte social — {type(exc).__name__}")
-        position = arm.portfolio.open(
-            candidate, arm.params.data, size, entry_context=entry_context
-        )
+        with self._books:
+            position = arm.portfolio.open(
+                candidate, arm.params.data, size, entry_context=entry_context
+            )
         # `position.size_usd` = taille réellement engagée (== `size` pour
         # tous les bras sauf entrée progressive, où c'est la fraction initiale).
         self.funnel.record(*trace, "entree", True, "", {"size_usd": position.size_usd})
