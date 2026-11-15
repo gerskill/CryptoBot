@@ -106,6 +106,21 @@ class TestMaterialisation(ArmsTestCase):
             document = json.load(fh)
         self.assertEqual(document["learning"], {})
 
+    def test_un_bras_recree_repart_du_plafond_15_pas_de_50(self):
+        # Les overrides ne servent qu'à la création. Sans 15 ici, effacer
+        # quality.json ou consensus.json reposerait 50, et la recherche ne
+        # pourrait plus le ramener : aucun point de la grille n'est dans [15, 15].
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, "config", "strategies.json"), encoding="utf-8") as fh:
+            arms = {entry["name"]: entry for entry in json.load(fh)["arms"]}
+        for nom in ("quality", "consensus"):
+            path = materialise_arm_params(nom, BASE, arms[nom]["overrides"])
+            with open(path, encoding="utf-8") as fh:
+                document = json.load(fh)
+            self.assertEqual(document["mode"], "PAPER")
+            self.assertEqual(document["exit_rules"]["take_profit_1"], 15)
+            self.assertFalse(document.get("live_mode_authorized_by_owner", False))
+
     def test_ne_regenere_jamais_un_fichier_existant(self):
         # Sinon chaque redémarrage effacerait ce que le bras a appris et les
         # overrides du manifeste deviendraient un plafond invisible.
@@ -553,6 +568,12 @@ class TestManifesteLivre(unittest.TestCase):
         self.assertEqual(
             arms["sniper"]["bounds"]["exit_rules.take_profit_1"], [20, 120]
         )
+        self.assertEqual(arms["quality"]["overrides"]["exit_rules.take_profit_1"], 15)
+        self.assertEqual(arms["consensus"]["overrides"]["exit_rules.take_profit_1"], 15)
+        self.assertEqual(arms["scalp"]["overrides"]["exit_rules.take_profit_1"], 25)
+        self.assertEqual(arms["sniper"]["overrides"]["exit_rules.take_profit_1"], 40)
+        self.assertEqual(arms["runner"]["overrides"]["exit_rules.take_profit_1"], 150)
+        self.assertEqual(arms["narrative"]["overrides"]["exit_rules.take_profit_1"], 80)
         for nom in ("baseline", "runner", "narrative", "sniper_young"):
             self.assertNotIn(
                 "exit_rules.take_profit_1", arms[nom].get("bounds") or {}
