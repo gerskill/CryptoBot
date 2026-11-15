@@ -31,7 +31,7 @@ from src.apis.birdeye import BirdeyeAPI
 from src.apis.dexscreener import DexScreenerAPI
 from src.core.pair_resolver import PairResolver
 from src.apis.gmgn import GmgnAPI
-from src.apis.helius import HeliusAPI
+from src.apis.helius import HeliusAPI, use_watch_priority
 from src.apis.rugcheck import RugCheckAPI
 from src.apis.twitter import TwitterAPI
 from src.agents import (
@@ -176,7 +176,10 @@ class AlphaLoop:
         # priority fee, qui a besoin elle aussi d'un client Helius — la
         # troisième instance aurait aggravé le même défaut au lieu de le
         # corriger.
-        self.helius = HeliusAPI(settings.HELIUS_API_KEY)
+        self.helius = HeliusAPI(
+            settings.HELIUS_API_KEY,
+            max_per_second=settings.HELIUS_MAX_PER_SECOND,
+        )
 
         # OBSERVATEUR ON-CHAIN (2026-10-10, observation seulement) : holders,
         # lancement, bundles, wallets frais, flux d'acheteurs. Fil d'arrière-
@@ -1283,8 +1286,10 @@ class AlphaLoop:
             return
         started = time.monotonic()
         try:
-            self._monitor_positions(verbose=False)
-            self._publish_state()
+            # Les appels Helius de ce fil passent devant ceux du scan.
+            with use_watch_priority():
+                self._monitor_positions(verbose=False)
+                self._publish_state()
         finally:
             self._watch_metrics["last_tick_sec"] = round(time.monotonic() - started, 3)
 

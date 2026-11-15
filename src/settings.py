@@ -82,6 +82,20 @@ _load_dotenv()
 
 # --- Clés API (None = module désactivé, pipeline continue en mode dégradé) ---
 HELIUS_API_KEY = os.getenv("HELIUS_API_KEY") or None
+# Débit Helius, en requêtes par seconde. 2 est sous le palier gratuit
+# (souvent 10/s) : les rafales à 10/s recevaient des 429. Pas un secret.
+def _env_positive_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        value = int(str(raw).strip())
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+HELIUS_MAX_PER_SECOND = _env_positive_int("HELIUS_MAX_PER_SECOND", 2)
 BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY") or None
 TWITTER_BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN") or None
 # Jupiter : prix par lot (50 mints/appel) et impact de prix réel. Le client
