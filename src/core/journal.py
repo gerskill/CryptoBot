@@ -57,6 +57,9 @@ class TradeJournal:
         exit_cost_pct: Optional[float] = None,
         exit_cost_partial: Optional[bool] = None,
         exit_cost_estimated: bool = False,
+        exit_cost_round_trip_pct: Optional[float] = None,
+        entry_cost_version: str = "",
+        entry_cost_pct: Optional[float] = None,
     ) -> dict[str, Any]:
         row = {
             "id": f"{position.id}-{len(position.exit_reasons)}",
@@ -116,6 +119,17 @@ class TradeJournal:
             # exclure ces lignes, sinon l'estimation se confirme
             # elle-même. `PartialCostEstimator` les filtre déjà.
             "exit_cost_estimated": exit_cost_estimated,
+            # Aller-retour brut quand la vente n'en déduit que la moitié
+            # (buy-leg-v1). Les estimations de ventes partielles lisent CE
+            # champ, pas la moitié. Absent = l'ancien modèle, tout sur la vente.
+            "exit_cost_round_trip_pct": (
+                round(exit_cost_round_trip_pct, 3)
+                if exit_cost_round_trip_pct is not None else None
+            ),
+            "entry_cost_version": entry_cost_version or None,
+            "entry_cost_pct": (
+                round(entry_cost_pct, 3) if entry_cost_pct is not None else None
+            ),
             "cost_basis": "stake",
         }
         # JOURNAL ENRICHI (observationnel) : contexte figé à l'entrée. Ne

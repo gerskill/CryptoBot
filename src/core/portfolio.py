@@ -22,6 +22,7 @@ from datetime import datetime
 from typing import Any, Callable, Optional
 
 from src.core.correlation import classify as classify_sector
+from src.core.exit_fees import ENTRY_COST_VERSION, exit_leg_pct, half_round_trip_pct
 from src.core.journal import TradeJournal
 from src.core.models import Candidate
 from src.core.stats import longest_drawdown
@@ -102,8 +103,10 @@ def _parse_iso(value: Any) -> Optional[float]:
 
 SLIPPAGE_NOTE = (
     "P&L papier sans slippage ni frais QUAND `exit_fee_measurer` est absent "
-    "(tests, ou clients Jupiter/Helius désactivés). Avec lui, la sortie "
-    "finale déduit le coût réel mesuré — voir src/core/exit_fees.py."
+    "(tests, ou clients Jupiter/Helius désactivés). Avec lui, l'achat et la "
+    "vente paient chacun la moitié du même aller-retour mesuré — voir "
+    "src/core/exit_fees.py. Les positions ouvertes avant buy-leg-v1 gardent "
+    "l'ancien décompte, tout sur la sortie."
 )
 
 
@@ -174,8 +177,15 @@ class PaperPortfolio:
         # journalisées, et le trade disparaît sans laisser de trace.
         self.positions = self._load_positions()
         engaged = sum(p.size_usd * p.remaining_fraction for p in self.positions.values())
+        # Frais d'entrée déjà pris sur la part encore ouverte. Les jambes
+        # vendues l'ont dans le journal ; on ne le retire pas une seconde fois.
+        open_entry_fees = sum(
+            p.size_usd * p.remaining_fraction * p.entry_cost_pct / 100.0
+            for p in self.positions.values()
+            if p.entry_cost_version
+        )
 
-        self.capital = capital + realized - engaged
+        self.capital = capital + realized - engaged - open_entry_fees
         self.peak_capital = max(capital, self.capital + engaged)
 
         if realized or self.positions:
@@ -418,9 +428,59 @@ class PaperPortfolio:
         )
         self.positions[position.id] = position
         self.capital -= size_usd
+        position = self._apply_entry_cost(position, size_usd)
         self.save_positions()
         if self.notifier:
             self.notifier.send_entry(position)
+        return position
+
+    def _measure_entry_leg(self, token: str, notional: float) -> Any:
+        if self.mode != "PAPER" or self.exit_fee_measurer is None or notional <= 0:
+            return None
+        try:
+            return self.exit_fee_measurer(token, notional)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _apply_entry_cost(self, position: Position, notional: float) -> Position:
+        """Moitié du devis d'aller-retour, prise à l'achat. Rien si pas de devis.
+
+        La version est posée dès que le mesureur existe, même si le devis
+        a échoué : le trade est d'après le changement, et la sortie ne sera
+        coupée en deux que si l'achat a vraiment été facturé.
+        """
+        if self.mode != "PAPER" or self.exit_fee_measurer is None:
+            return position
+        half = half_round_trip_pct(self._measure_entry_leg(position.token_address, notional))
+        charged = half is not None
+        pct = half or 0.0
+        if charged and pct:
+            self.capital -= notional * pct / 100.0
+        position = replace(
+            position,
+            entry_cost_version=ENTRY_COST_VERSION,
+            entry_cost_pct=pct,
+            entry_impact_charged=charged,
+        )
+        self.positions[position.id] = position
+        return position
+
+    def _blend_entry_cost(self, before: Position, position: Position, add_usd: float) -> Position:
+        """L'ajout paie sa propre moitié, puis le taux est la moyenne pondérée."""
+        half = half_round_trip_pct(self._measure_entry_leg(position.token_address, add_usd))
+        add_pct = half or 0.0
+        if half is not None and add_pct:
+            self.capital -= add_usd * add_pct / 100.0
+        total = position.size_usd
+        if total <= 0:
+            return position
+        blended = (before.size_usd * before.entry_cost_pct + add_usd * add_pct) / total
+        position = replace(
+            position,
+            entry_cost_pct=round(blended, 6),
+            entry_impact_charged=True,
+        )
+        self.positions[position.id] = position
         return position
 
     def quote_final_cost(self, position: Position, price: float) -> Optional[Any]:
@@ -480,6 +540,7 @@ class PaperPortfolio:
             # TP2). Les jambes partielles restent au prix nu, comme avant.
             exit_cost = None
             cost_pct = 0.0
+            round_trip_pct = None
             cost_estimated = False
             if not action.is_final and self.partial_cost_estimator is not None:
                 # JAMBE PARTIELLE (TP1, TP2) : pas de devis — l'ADR 009 tient,
@@ -519,10 +580,20 @@ class PaperPortfolio:
                         # réelle. Invariant « la boucle ne meurt jamais ».
                         exit_cost = None
                 if exit_cost is not None:
-                    cost_pct = exit_cost.total_cost_pct
+                    cost_pct, round_trip_pct = exit_leg_pct(
+                        exit_cost, position.entry_impact_charged
+                    )
+                else:
+                    round_trip_pct = None
 
             cost_entry = cost_vs_entry(cost_pct, price, position.entry_price)
+            # `pnl_pct` sert au capital : le frais d'entrée a déjà quitté le
+            # cash à l'achat. `journal_pnl` le remet dans la ligne, une fois,
+            # pour que le P&L du journal égale le cash.
             pnl_pct = position.pnl_pct(price) - cost_entry
+            journal_pnl = pnl_pct - (
+                position.entry_cost_pct if position.entry_cost_version else 0.0
+            )
             position = apply_exit(position, action, price, cost_pct=cost_entry)
             self.positions[position_id] = position
 
@@ -540,17 +611,20 @@ class PaperPortfolio:
                     self.journal.record_exit(
                         position=position,
                         exit_price=price,
-                        pnl_pct=pnl_pct,
+                        pnl_pct=journal_pnl,
                         fraction=fraction,
                         reason=action.reason,
                         is_final=not position.is_open,
                         exit_cost_pct=(
-                            exit_cost.total_cost_pct
-                            if exit_cost
-                            else (cost_pct if cost_estimated else None)
+                            cost_pct if exit_cost is not None or cost_estimated else None
                         ),
                         exit_cost_partial=exit_cost.partial if exit_cost else None,
                         exit_cost_estimated=cost_estimated,
+                        exit_cost_round_trip_pct=round_trip_pct,
+                        entry_cost_version=position.entry_cost_version,
+                        entry_cost_pct=(
+                            position.entry_cost_pct if position.entry_cost_version else None
+                        ),
                     )
                 )
             except Exception as exc:  # noqa: BLE001
@@ -715,6 +789,8 @@ class PaperPortfolio:
         position = apply_scale_in(position, effective, add_usd, observed_price=price)
         self.positions[position_id] = position
         self.capital -= add_usd
+        if before.entry_cost_version == ENTRY_COST_VERSION and before.entry_impact_charged:
+            position = self._blend_entry_cost(before, position, add_usd)
         self.save_positions()
         self._scale_in_attempt_at.pop(position_id, None)
         self._scale_in_last_skip.pop(position_id, None)
@@ -763,13 +839,19 @@ class PaperPortfolio:
         fraction = position.remaining_fraction
 
         cost_pct = 0.0
+        round_trip_pct = None
         if exit_cost is PREPARED_UNSET:
             exit_cost = self.quote_final_cost(position, price)
         if exit_cost is not None:
-            cost_pct = exit_cost.total_cost_pct
+            cost_pct, round_trip_pct = exit_leg_pct(
+                exit_cost, position.entry_impact_charged
+            )
 
         cost_entry = cost_vs_entry(cost_pct, price, position.entry_price)
         pnl_pct = position.pnl_pct(price) - cost_entry
+        journal_pnl = pnl_pct - (
+            position.entry_cost_pct if position.entry_cost_version else 0.0
+        )
         position = apply_exit(
             position, ExitAction(fraction, reason, is_final=True), price, cost_pct=cost_entry
         )
@@ -779,12 +861,17 @@ class PaperPortfolio:
         row = self.journal.record_exit(
             position=position,
             exit_price=price,
-            pnl_pct=pnl_pct,
+            pnl_pct=journal_pnl,
             fraction=fraction,
             reason=reason,
             is_final=True,
-            exit_cost_pct=exit_cost.total_cost_pct if exit_cost else None,
+            exit_cost_pct=cost_pct if exit_cost is not None else None,
             exit_cost_partial=exit_cost.partial if exit_cost else None,
+            exit_cost_round_trip_pct=round_trip_pct,
+            entry_cost_version=position.entry_cost_version,
+            entry_cost_pct=(
+                position.entry_cost_pct if position.entry_cost_version else None
+            ),
         )
         self._finalize(position, price)
         return row

@@ -204,8 +204,9 @@ class TestSortiesInchangees(unittest.TestCase):
         position = portfolio.open(candidate(), PARAMS, 100.0)
         cost = portfolio.quote_final_cost(position, 0.6)
         rows = portfolio.update(position.id, 0.6, prepared_final_cost=cost)
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(rows[0]["exit_reason"].split()[0] if False else rows[0]["exit_cost_pct"], 4.0)
+        # Achat + devis préparé. La clôture ne rappelle pas le mesureur.
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(rows[0]["exit_cost_pct"], 2.0)
 
     def test_prix_absent_ne_ferme_pas(self):
         portfolio = self._portfolio()

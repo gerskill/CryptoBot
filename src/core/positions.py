@@ -55,6 +55,11 @@ class Position:
     social_score: Optional[int] = None
     age_hours_at_entry: float = 0.0
     params_version: str = ""
+    # Coût d'entrée PAPER. "" = position ouverte avant le partage : la sortie
+    # finale porte encore l'aller-retour complet, et on ne la recalcule pas.
+    entry_cost_version: str = ""
+    entry_cost_pct: float = 0.0
+    entry_impact_charged: bool = False
 
     # Règles figées à l'entrée : un changement de params ne doit pas modifier
     # rétroactivement les règles d'une position déjà ouverte.

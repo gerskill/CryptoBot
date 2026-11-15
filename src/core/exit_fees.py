@@ -19,13 +19,11 @@ DEUX COMPOSANTES, DEUX SOURCES :
                     n'est connu qu'à la construction de la transaction, hors
                     périmètre : `/swap/v2/build` reste absent d'ALLOWED_PATHS).
 
-POURQUOI LE ROUND-TRIP COMPLET, PAS LA SEULE JAMBE DE VENTE. L'entrée n'est
-JAMAIS facturée ailleurs dans le dépôt — `round_trip_cost_pct` n'y sert qu'à
-FILTRER, jamais à déduire un coût réalisé. Facturer ici l'aller-retour complet
-(achat + vente) au moment de la sortie est le choix qui évite de sous-compter
-le coût total du trade sur toute sa durée de vie ; le répartir entre l'entrée
-et la sortie demanderait de toucher aussi le chemin d'entrée, hors périmètre
-de cette demande.
+PARTAGE DEPUIS buy-leg-v1. Le devis reste un aller-retour. Une position
+marquée `entry_cost_version` en paie la moitié à l'achat et l'autre moitié
+à la vente (`half_round_trip_pct`, la même fonction des deux côtés). Une
+position sans cette marque — tout l'historique déjà écrit — garde la vente
+finale sur l'aller-retour complet. On ne recalcule pas ces lignes.
 
 DONNÉE ABSENTE NE REJETTE NI NE BLOQUE JAMAIS — même invariant que le reste
 du pipeline. Si une seule des deux composantes est mesurable, elle est quand
@@ -151,13 +149,11 @@ def measure_exit_cost(
 # analyse ne confonde jamais les deux.
 #
 # POURQUOI LA MOITIÉ. `round_trip_cost_pct` mesure un aller-retour : l'impact
-# d'achat PLUS l'impact de vente. La jambe finale porte volontairement le
-# round-trip complet, puisque l'entrée n'est facturée nulle part ailleurs
-# (voir l'en-tête de ce module). Facturer un round-trip complet à chaque jambe
-# partielle facturerait donc l'achat deux ou trois fois. Une vente partielle ne
-# paie que sa jambe de vente : à défaut d'un devis unidirectionnel — `/swap`
-# reste hors de ALLOWED_PATHS — la moitié est le partage le moins faux, et il
-# est déclaré comme estimation, pas comme mesure.
+# d'achat PLUS l'impact de vente. Une vente partielle ne paie que sa jambe de
+# vente. Depuis buy-leg-v1 la moitié d'achat est prise à l'ouverture, donc la
+# médiane doit rester celle de l'aller-retour COMPLET (`exit_cost_round_trip_pct`
+# quand il est là, sinon l'ancien `exit_cost_pct`). Facturer cet aller-retour
+# en entier sur une vente partielle compterait l'achat deux fois.
 #
 # POURQUOI 10 ÉCHANTILLONS. Même plancher que `MIN_SEGMENT_SAMPLE` dans
 # `learning.py`. Sous ce seuil, la médiane d'un coût de sortie est du bruit :
@@ -166,6 +162,40 @@ def measure_exit_cost(
 
 MIN_SAMPLE_FOR_PARTIAL_ESTIMATE = 10
 SELL_LEG_SHARE = 0.5
+# Marque les trades ouverts après le partage du coût. Les lignes d'avant
+# n'ont pas ce champ : leurs statistiques restent comparables à part.
+ENTRY_COST_VERSION = "buy-leg-v1"
+
+
+def half_round_trip_pct(cost: Any) -> Optional[float]:
+    """Moitié d'un aller-retour déjà mesuré. `None` si rien n'a été mesuré.
+
+    C'est la part d'un côté (achat ou vente). L'autre côté paie l'autre
+    moitié, d'une mesure faite à son moment. On ne divise pas un coût
+    inventé : sans devis, on ne facture pas.
+    """
+    if cost is None:
+        return None
+    total = getattr(cost, "total_cost_pct", None)
+    if total is None:
+        return None
+    return round(float(total) * SELL_LEG_SHARE, 3)
+
+
+def exit_leg_pct(cost: Any, entry_impact_charged: bool) -> tuple[float, Optional[float]]:
+    """Ce que la jambe finale déduit, et l'aller-retour brut s'il est partagé.
+
+    Si l'achat a déjà payé sa moitié, la vente ne paie que la sienne.
+    Sinon (position ancienne, ou achat non mesuré) la vente paie l'aller-
+    retour complet, comme avant.
+    """
+    if cost is None or getattr(cost, "total_cost_pct", None) is None:
+        return 0.0, None
+    full = float(cost.total_cost_pct)
+    if entry_impact_charged:
+        half = half_round_trip_pct(cost)
+        return (half if half is not None else 0.0), full
+    return full, None
 
 
 def _median(values: list[float]) -> float:
@@ -229,12 +259,18 @@ class PartialCostEstimator:
             # Un journal illisible ne doit pas empêcher une clôture : on
             # retombe sur le prix nu, jamais sur un coût deviné.
             return None
-        mesures = [
-            row.get("exit_cost_pct")
-            for row in rows
-            if row.get("exit_cost_pct") is not None
-            and not row.get("exit_cost_estimated")
-        ]
+        mesures = []
+        for row in rows:
+            if row.get("exit_cost_estimated"):
+                continue
+            # L'aller-retour complet, pas la moitié déduite. Sans ça, les
+            # sorties d'après buy-leg-v1 feraient estimer les ventes
+            # partielles sur une moitié déjà coupée.
+            brut = row.get("exit_cost_round_trip_pct")
+            if brut is None:
+                brut = row.get("exit_cost_pct")
+            if brut is not None:
+                mesures.append(brut)
         self._cache = estimated_partial_cost_pct(mesures, self.min_sample)
         self._signature = signature
         return self._cache
