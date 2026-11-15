@@ -15,6 +15,7 @@ import math
 import signal
 import threading
 import time
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -134,6 +135,14 @@ GAIN_MILESTONES = (50.0, 100.0, 150.0)
 INACTIVITY_CHECK_EVERY = 50
 
 _running = True
+
+
+def _books_lock(loop):
+    """Verrou des livres, ou rien si l'objet est un double de test incomplet."""
+    lock = getattr(loop, "_books", None)
+    if lock is None:
+        return nullcontext()
+    return lock
 
 
 def _handle_sigint(*_: object) -> None:
@@ -367,7 +376,9 @@ class AlphaLoop:
         self.telegram.send(f"🤖 <b>Alpha Loop démarré</b> — mode {self.mode}")
         # La surveillance des positions tourne pendant le scan, pas seulement
         # dans le temps qui reste après. Un seul fil, arrêté avec la boucle.
-        self._position_watch.start()
+        watch = getattr(self, "_position_watch", None)
+        if watch is not None:
+            watch.start()
 
         while _running:
             started = time.monotonic()
@@ -379,12 +390,15 @@ class AlphaLoop:
 
             elapsed = time.monotonic() - started
             self._last_cycle_duration_sec = round(elapsed, 1)
-            self._watch_metrics["last_scan_sec"] = round(elapsed, 1)
+            metrics = getattr(self, "_watch_metrics", None)
+            if metrics is not None:
+                metrics["last_scan_sec"] = round(elapsed, 1)
             if elapsed > interval:
                 print(f"[Loop] ⏱️ Cycle {elapsed:.0f}s > {interval}s — enchaînement direct")
             self._sleep_monitoring(max(0.0, interval - elapsed))
 
-        self._position_watch.stop()
+        if watch is not None:
+            watch.stop()
         self.cache.save()
         stats = self.portfolio.stats()
         print(
@@ -401,7 +415,8 @@ class AlphaLoop:
         memecoin. Coût : 1 requête par position et par tick, sur un quota de
         300/min — négligeable.
         """
-        if self._position_watch.alive:
+        watch = getattr(self, "_position_watch", None)
+        if watch is not None and watch.alive:
             # Le fil surveille déjà, y compris pendant le scan. Un second
             # passage ici doublerait les sorties et les lignes de journal.
             deadline = time.monotonic() + duration
@@ -447,9 +462,10 @@ class AlphaLoop:
         # Le fil de surveillance couvre ce passage en continu, y compris
         # pendant le scan qui suit. S'il est tombé, on le relance ; s'il ne
         # repart pas, on garde l'ancien passage synchrone avant le scan.
-        if not self._position_watch.alive:
-            self._position_watch.start()
-        if not self._position_watch.alive:
+        watch = getattr(self, "_position_watch", None)
+        if watch is not None and not watch.alive:
+            watch.start()
+        if watch is None or not watch.alive:
             self._monitor_positions()
 
         self.market.reset_cycle()
@@ -678,7 +694,7 @@ class AlphaLoop:
             # du témoin affichait « 1 position » alors que deux stratégies en
             # détenaient une chacune : le panneau mentait sur l'exposition
             # réelle, qui est justement ce qu'un tableau de bord doit montrer.
-            with self._books:
+            with _books_lock(self):
                 positions = []
                 for arm in self.arms:
                     for position in list(arm.portfolio.positions.values()):
@@ -732,7 +748,11 @@ class AlphaLoop:
                     "shadow_by_family": self.shadow.missed_rate_by_family(min_sample=1),
                     "entry_threshold": self.params.get("scan.alpha_score_entry_threshold", 75),
                     "live_allowed": self.learning.live_mode_allowed(),
-                    "position_watch": watch_snapshot(self._position_watch, self._watch_metrics),
+                    "position_watch": (
+                        watch_snapshot(self._position_watch, self._watch_metrics)
+                        if getattr(self, "_position_watch", None) is not None
+                        else None
+                    ),
                     # Additif : les clés ci-dessus restent celles du bras
                     # témoin, le dashboard existant ne bouge pas. Pas de
                     # listes de candidats par bras ici — `state.json` est
@@ -938,10 +958,10 @@ class AlphaLoop:
         self.telegram.send("🛑 <b>/STOP reçu</b> — fermeture de toutes les positions.")
         self.market.reset()
         for arm in self.arms:
-            with self._books:
+            with _books_lock(self):
                 position_ids = list(arm.portfolio.positions)
             for position_id in position_ids:
-                with self._books:
+                with _books_lock(self):
                     position = arm.portfolio.positions.get(position_id)
                 if position is None:
                     continue
@@ -965,7 +985,7 @@ class AlphaLoop:
         self.paused = True
 
     def _open_positions(self) -> list:
-        with self._books:
+        with _books_lock(self):
             return [
                 p for arm in self.arms
                 for p in list(arm.portfolio.positions.values())
@@ -1052,10 +1072,12 @@ class AlphaLoop:
         # `ok` / `missing` comptent les PAIRES, pas les positions : deux bras
         # sur le même token ne font qu'une lecture. L'âge ne bouge que
         # lorsqu'au moins un prix frais est arrivé.
-        self._watch_metrics["quotes_ok"] = ok
-        self._watch_metrics["quotes_missing"] = missing
-        if ok:
-            self._watch_metrics["last_quote_at"] = time.time()
+        metrics = getattr(self, "_watch_metrics", None)
+        if metrics is not None:
+            metrics["quotes_ok"] = ok
+            metrics["quotes_missing"] = missing
+            if ok:
+                metrics["last_quote_at"] = time.time()
 
         # UN enregistrement par token par tick, pas un par position.
         for token_address, price, liquidity in self.market.by_token():
@@ -1175,10 +1197,10 @@ class AlphaLoop:
             if not (self.pipeline.gmgn and self.pipeline.gmgn.enabled):
                 return
             trades = self.pipeline.gmgn.fetch_smart_money_trades()
-            with self._books:
+            with _books_lock(self):
                 position_ids = list(arm.portfolio.positions)
             for position_id in position_ids:
-                with self._books:
+                with _books_lock(self):
                     position = arm.portfolio.positions.get(position_id)
                 if position is None:
                     continue
@@ -1301,7 +1323,7 @@ class AlphaLoop:
             and portfolio.scale_in_checker is not None
             and scale_in_due(position, price)
         ):
-            with self._books:
+            with _books_lock(self):
                 capital = portfolio.capital
                 last = portfolio._scale_in_attempt_at.get(position.id)
             if last is None or time.time() - last >= SCALE_IN_RETRY_SECONDS:
@@ -1325,7 +1347,7 @@ class AlphaLoop:
         cost = PREPARED_UNSET
         if portfolio.exit_fee_measurer is not None and quote_is_usable(price):
             cost = portfolio.quote_final_cost(position, price)
-        with self._books:
+        with _books_lock(self):
             live = portfolio.positions.get(position.id)
             if live is None or live.remaining_fraction != position.remaining_fraction:
                 return None
@@ -1333,10 +1355,10 @@ class AlphaLoop:
 
     def _monitor_arm(self, arm, verbose: bool = True) -> None:
         portfolio = arm.portfolio
-        with self._books:
+        with _books_lock(self):
             position_ids = list(portfolio.positions)
         for position_id in position_ids:
-            with self._books:
+            with _books_lock(self):
                 position = portfolio.positions.get(position_id)
             if position is None:
                 continue
@@ -1386,7 +1408,7 @@ class AlphaLoop:
             remaining, size, final_cost, scale_check, scale_add = self._prepare_exit(
                 portfolio, position, price, liquidity, drop
             )
-            with self._books:
+            with _books_lock(self):
                 live = portfolio.positions.get(position_id)
                 if (
                     live is None
@@ -1417,7 +1439,7 @@ class AlphaLoop:
                 gap = sample_gap_line(self.history.snapshots(position.token_address))
                 if gap:
                     print(f"  ⏱️{arm.label} {position.symbol} | {gap}")
-        with self._books:
+        with _books_lock(self):
             portfolio.flush()
 
     def _announce_milestones(self, arm, position, price: float) -> None:
@@ -1508,7 +1530,7 @@ class AlphaLoop:
             print(f"[PairResolver] ⚠️ {type(exc).__name__}")
             return 0
         updated = 0
-        with self._books:
+        with _books_lock(self):
             for arm in self.arms:
                 for pid, position in list(arm.portfolio.positions.items()):
                     new_pair = changes.get(position.token_address)
@@ -1970,7 +1992,7 @@ class AlphaLoop:
             entry_context["social_score_source"] = SOCIAL_SCORE_SOURCE
         except Exception as exc:
             print(f"[Journal] ⚠️ contexte social — {type(exc).__name__}")
-        with self._books:
+        with _books_lock(self):
             position = arm.portfolio.open(
                 candidate, arm.params.data, size, entry_context=entry_context
             )
