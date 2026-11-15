@@ -183,6 +183,30 @@ class TestPriorite(unittest.TestCase):
         self.assertEqual(seen, ["normal", "watch"])
 
 
+class TestBackoffFile(unittest.TestCase):
+    def test_un_appelant_deja_en_file_attend_aussi_le_429(self):
+        limiter = PriorityLimiter(1, 0.1)
+        self.assertTrue(limiter.acquire(priority="normal"))
+        got = {}
+
+        def run():
+            got["ok"] = limiter.acquire(priority="normal", timeout=2)
+            got["at"] = time.monotonic()
+
+        thread = threading.Thread(target=run)
+        thread.start()
+        deadline = time.time() + 1
+        while limiter.waiting("normal") < 1:
+            if time.time() > deadline:
+                self.fail("l'appelant ne s'est pas mis en file")
+            time.sleep(0.01)
+        marked = time.monotonic()
+        limiter.note_backoff(0.6)
+        thread.join(2)
+        self.assertTrue(got.get("ok"))
+        self.assertGreaterEqual(got["at"] - marked, 0.5)
+
+
 class TestBudget(unittest.TestCase):
     def test_plafond_par_defaut(self):
         self.assertEqual(DEFAULT_MAX_PER_SECOND, 2)

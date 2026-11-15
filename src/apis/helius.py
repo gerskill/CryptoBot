@@ -133,6 +133,17 @@ class PriorityLimiter:
                 while True:
                     now = self._clock()
                     self._evict(now)
+                    # Un 429 noté pendant l'attente concerne aussi ceux qui
+                    # étaient déjà en file : un créneau libre ne suffit pas.
+                    backoff_left = self._backoff_until - now
+                    if backoff_left > 0:
+                        if deadline is not None and now >= deadline:
+                            return False
+                        wait = backoff_left
+                        if deadline is not None:
+                            wait = min(wait, max(0.0, deadline - now))
+                        self._cv.wait(timeout=max(min(wait, MAX_BACKOFF_SECONDS), 0.01))
+                        continue
                     watch_ahead = self._waiters["watch"] > (1 if priority == "watch" else 0)
                     if len(self._calls) < self.max_calls and not (
                         priority != "watch" and watch_ahead
