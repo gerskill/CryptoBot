@@ -151,6 +151,65 @@ class TestRoleTest(ArmsTestCase):
         self.assertEqual(sources, [arms["runner"].journal.path],
                          "le journal d'un bras de test n'entre pas dans le rejeu des autres")
 
+class TestQualityConsensusTp1(unittest.TestCase):
+    """quality et consensus vendent 50 % à +15 %, puis le reste au prix d'entrée.
+
+    Même séquence que tp1_15 (`update_water_marks` puis `evaluate_exits`).
+    Les autres réglages de sortie de ces bras ne bougent pas.
+    """
+
+    def _rules(self, name):
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "config", "arms", f"{name}.json",
+        )
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)["exit_rules"]
+
+    def test_reglages_et_sortie(self):
+        attendu = {
+            "quality": {
+                "stop_loss_pct": -17.6,
+                "trailing_stop_activation": 150.0,
+                "trailing_stop_distance_pct": 80,
+                "max_hold_time_minutes": 420.0,
+                "stop_loss_slippage_buffer_pct": 2.6,
+                "take_profit_2": 250.0,
+            },
+            "consensus": {
+                "stop_loss_pct": -21.0,
+                "trailing_stop_activation": 150.0,
+                "trailing_stop_distance_pct": 80,
+                "max_hold_time_minutes": 480,
+                "stop_loss_slippage_buffer_pct": 6.0,
+                "take_profit_2": 250.0,
+            },
+        }
+        for name, figes in attendu.items():
+            rules = self._rules(name)
+            self.assertEqual(rules["take_profit_1"], 15.0, name)
+            self.assertTrue(rules["breakeven_stop_exact"], name)
+            self.assertEqual(rules["partial_sell_tp1_pct"], 0.5, name)
+            for key, value in figes.items():
+                self.assertEqual(rules[key], value, f"{name}.{key}")
+            pos = _position(tp1=rules["take_profit_1"], exact=True)
+            pos = replace(
+                pos,
+                stop_loss_pct=rules["stop_loss_pct"],
+                stop_loss_slippage_buffer_pct=rules["stop_loss_slippage_buffer_pct"],
+                trailing_stop_activation=rules["trailing_stop_activation"],
+                trailing_stop_distance_pct=rules["trailing_stop_distance_pct"],
+            )
+            pos, actions = _tick(pos, 1.16)  # +16 % : TP1
+            self.assertEqual(len(actions), 1, name)
+            self.assertTrue(actions[0].reason.startswith("TAKE_PROFIT_1"), name)
+            self.assertAlmostEqual(actions[0].fraction, 0.5)
+            self.assertEqual(pos.effective_stop_loss_pct, 0.0, name)
+            pos, actions = _tick(pos, 0.995)
+            self.assertTrue(actions[0].reason.startswith("BREAKEVEN_STOP"), name)
+            self.assertFalse(pos.is_open)
+
+
 class TestExpositionFlotte(unittest.TestCase):
     def test_bras_test_hors_exposition_sectorielle(self):
         from types import SimpleNamespace

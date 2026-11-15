@@ -63,7 +63,8 @@
   },
   "exit_rules": {
     "stop_loss_pct": -21.0,
-    "take_profit_1": 40.0,
+    "take_profit_1": 15.0,
+    "breakeven_stop_exact": true,
     "take_profit_2": 250.0,
     "take_profit_3": 400,
     "breakeven_trigger": 100,
