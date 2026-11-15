@@ -192,7 +192,7 @@ def get_trades(limit: int = 100, arm: Optional[str] = None) -> dict[str, Any]:
     ne recollait pas avec le capital affiché (écart mesuré : ~47 $).
 
     1. `load_manifest()` liste TOUS les bras du fichier, désactivés compris.
-       `narrative` (4 trades réels sur disque) se glissait dans `arm=all`
+       Un bras éteint (4 trades réels sur disque) se glissait dans `arm=all`
        alors qu'il est invisible partout ailleurs dans le dashboard — la
        courbe et le tableau ne portaient pas le même périmètre que le panneau
        STRATÉGIES.

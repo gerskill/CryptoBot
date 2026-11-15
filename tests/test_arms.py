@@ -106,6 +106,21 @@ class TestMaterialisation(ArmsTestCase):
             document = json.load(fh)
         self.assertEqual(document["learning"], {})
 
+    def test_un_bras_recree_repart_du_plafond_15_pas_de_50(self):
+        # Les overrides ne servent qu'à la création. Sans 15 ici, effacer
+        # quality.json ou consensus.json reposerait 50, et la recherche ne
+        # pourrait plus le ramener : aucun point de la grille n'est dans [15, 15].
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, "config", "strategies.json"), encoding="utf-8") as fh:
+            arms = {entry["name"]: entry for entry in json.load(fh)["arms"]}
+        for nom in ("quality", "consensus"):
+            path = materialise_arm_params(nom, BASE, arms[nom]["overrides"])
+            with open(path, encoding="utf-8") as fh:
+                document = json.load(fh)
+            self.assertEqual(document["mode"], "PAPER")
+            self.assertEqual(document["exit_rules"]["take_profit_1"], 15)
+            self.assertFalse(document.get("live_mode_authorized_by_owner", False))
+
     def test_ne_regenere_jamais_un_fichier_existant(self):
         # Sinon chaque redémarrage effacerait ce que le bras a appris et les
         # overrides du manifeste deviendraient un plafond invisible.
@@ -268,7 +283,7 @@ class TestShadowParBras(ArmsTestCase):
     pouvait donc rien rendre pour eux.
 
     Un bras rejette sur SES seuils : le shadow du témoin ne dit rien de ce que
-    `quality` ou `narrative` ont écarté.
+    `quality` a écarté.
     """
 
     def _loop(self, arms, evaluations, dex):
@@ -346,7 +361,7 @@ class TestRelachementDepuisLeCycle(ArmsTestCase):
     `_after_trade_closed`. Un bras qui n'ouvre jamais de position n'en ferme
     jamais, donc `run` n'est jamais appelé, donc le relâchement sur inactivité
     serait inatteignable EXACTEMENT pour les bras qu'il doit débloquer.
-    `narrative` était à 0 entrée sur 927 cycles.
+    Mesuré : 0 entrée sur 927 cycles.
 
     Même famille que les poules-et-œufs corrigées dans `economics` et dans la
     porte des 15 trades, un cran plus haut : cette fois ce n'est pas un seuil
@@ -525,6 +540,11 @@ class TestAucunBrasGele(ArmsTestCase):
 class TestManifesteLivre(unittest.TestCase):
     """Le manifeste réellement livré doit être cohérent."""
 
+    def _document(self, *parts):
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, *parts), encoding="utf-8") as fh:
+            return json.load(fh)
+
     def test_le_manifeste_du_depot_est_valide(self):
         arms = arm_module.load_manifest()
         actifs = [a for a in arms if a.get("enabled", True)]
@@ -533,6 +553,35 @@ class TestManifesteLivre(unittest.TestCase):
         consensus = [a for a in actifs if a.get("role") == "consensus"]
         for entry in consensus:
             self.assertGreaterEqual(entry.get("min_confluence", 0), 2)
+
+    def test_quality_et_consensus_plafonnent_take_profit_1_a_15(self):
+        # Plafond, pas plancher : la borne globale est déjà (30, 300). [15, 15]
+        # empêche le rejeu de reposer 40, 50, 75, 100 ou 150.
+        arms = {a["name"]: a for a in arm_module.load_manifest()}
+        for nom in ("quality", "consensus"):
+            self.assertEqual(
+                arms[nom]["bounds"]["exit_rules.take_profit_1"], [15, 15]
+            )
+            self.assertEqual(arms[nom]["overrides"]["exit_rules.take_profit_1"], 15)
+        # Le gel ne concerne que ces deux bras.
+        for nom, entree in arms.items():
+            if nom in ("quality", "consensus"):
+                continue
+            self.assertNotEqual(
+                (entree.get("bounds") or {}).get("exit_rules.take_profit_1"),
+                [15, 15],
+                nom,
+            )
+
+    def test_quality_et_consensus_sont_a_15_en_paper(self):
+        # Valeurs apprises : on ne fige que quality et consensus, et on ne
+        # vérifie pas les autres bras (leur take profit évolue en paper).
+        for nom in ("quality", "consensus"):
+            document = self._document("config", "arms", f"{nom}.json")
+            self.assertEqual(document["mode"], "PAPER")
+            self.assertFalse(document.get("live_mode_authorized_by_owner", False))
+            self.assertEqual(document["exit_rules"]["take_profit_1"], 15.0)
+        self.assertEqual(self._document("config", "params.json")["mode"], "PAPER")
 
 
 if __name__ == "__main__":

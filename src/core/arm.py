@@ -374,7 +374,7 @@ def attach_portfolios(
             # d'une jambe partielle se lit dans le journal DU BRAS, sur ses
             # propres mesures. Les fenêtres de liquidité des sept bras sont
             # volontairement disjointes — la médiane de `sniper` (4 K de
-            # liquidité) n'a rien à voir avec celle de `narrative` (40 K).
+            # liquidité) n'a rien à voir avec celle de `quality` (20 K).
             partial_cost_estimator=(
                 PartialCostEstimator(arm.journal) if arm.journal is not None else None
             ),
@@ -414,7 +414,8 @@ def bootstrap_arms(
     base_params = base_params or ParamsStore(settings.PARAMS_PATH)
     base_document = base_params.data
 
-    entries = [e for e in load_manifest(manifest_path) if e.get("enabled", True)]
+    all_entries = load_manifest(manifest_path)
+    entries = [e for e in all_entries if e.get("enabled", True)]
     if not entries:
         raise ManifestError("aucune stratégie active dans le manifeste")
 
@@ -429,6 +430,32 @@ def bootstrap_arms(
         raise ManifestError(
             f"capital_pct somme à {total:.4f} au lieu de 1.0 — du capital inventé "
             f"rendrait toute comparaison entre bras fausse"
+        )
+
+    # LE PIÈGE EST DANS LES BRAS DÉSACTIVÉS. La somme ci-dessus ne porte que
+    # sur les bras ACTIFS, et c'est le bon choix : un bras désactivé ne prend
+    # pas de capital. Mais rien ne signalait que la somme sur TOUT le manifeste
+    # dérivait, si bien que la réactivation d'un bras — un simple
+    # `enabled: true`, sans rapport apparent avec l'allocation — faisait
+    # échouer le démarrage sur un `ManifestError` déroutant.
+    #
+    # Constaté le 2026-08-30 : le total du fichier dépassait 1,0 parce qu'un
+    # bras éteint gardait une part, pendant que `sniper_young` (0,10525),
+    # ajouté le 2026-08-09, n'avait pas été rééquilibré. Le manifeste
+    # démarrait quand même. On avertit au démarrage plutôt que d'échouer
+    # plus tard : la configuration actuelle est valide, c'est la SUIVANTE
+    # qui casserait. Ce bras éteint a depuis été retiré du fichier.
+    dormants = [e for e in all_entries if not e.get("enabled", True)]
+    total_manifeste = sum(float(e.get("capital_pct", 0)) for e in all_entries)
+    if dormants and abs(total_manifeste - 1.0) > 1e-6:
+        noms = ", ".join(
+            f"{e['name']} ({float(e.get('capital_pct', 0)):.5g})" for e in dormants
+        )
+        print(
+            f"⚠️  manifeste : capital_pct somme à {total_manifeste:.4f} sur les "
+            f"{len(all_entries)} bras, à 1.0000 sur les {len(entries)} actifs. "
+            f"Réactiver {noms} ferait échouer le démarrage — rééquilibrer les "
+            f"parts AVANT, pas au moment de l'incident."
         )
 
     arms = []

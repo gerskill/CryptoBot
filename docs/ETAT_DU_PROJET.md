@@ -4,8 +4,7 @@
 > travail sans contexte préalable. Chaque chiffre cité a été **mesuré**, pas
 > estimé ; les sources sont indiquées.
 >
-> Dernière mise à jour : 2026-08-07 (voir §13 pour les changements depuis le
-> 2026-08-02)
+> Dernière mise à jour : **2026-09-02** (chiffres live §1.1 ; historique août encore en §2 / §13)
 
 ---
 
@@ -23,9 +22,41 @@ absent de `params.json` (donc `False`), plus 20 trades / WR > 40 % / PF > 1,5.
 
 ---
 
-## 2. Résultats réels
 
-37 positions clôturées.
+---
+
+## 1.1 Chiffres live — 2026-09-02
+
+Source : `data/state.json` sur le Mac du propriétaire, lu à **20:26 Europe/Zurich**.
+Mode `PAPER`. `live_allowed` = `False` (« verrou propriétaire — passage en réel non autorisé »).
+
+| mesure | valeur |
+|---|---|
+| bras configurés | 7 |
+| positions ouvertes | 0 |
+| exposition | 0 $ |
+| trades clôturés | **1489** |
+| wins | 270 |
+| win rate | **18,1 %** |
+| profit factor | **0,39** |
+| P&L total | **−10 609,55 $** |
+| equity | **38 390,45 $** |
+| pire drawdown bras | 26,9 % |
+
+**Lecture :** l’échantillon d’août (§2, 37 trades) était trop petit pour conclure
+sur le win rate ; à ~1,5 k trades le PF reste **≪ 1** et le P&L agrégé est
+nettement négatif. L’edge n’est toujours pas démontré. LIVE doit rester verrouillé.
+
+**Ops au même instant (mesuré) :**
+- Un seul process `python -m src.main` (PID 70765) — le doublon orphelin a été stoppé.
+- Snapshot `backups/20260902-173745` présent mais **incomplet (~20 K)** : à refaire
+  avec `./scripts/backup.sh` et vérifier la taille (attendu : dizaines/centaines de Mo).
+- Les backups complets les plus récents utiles datent encore ~début août.
+
+
+## 2. Résultats réels (historique 2026-08-07)
+
+37 positions clôturées — **échantillon d’août, remplacé opérationnellement par §1.1**.
 
 | mesure | valeur | intervalle de confiance à 95 % |
 |---|---|---|
@@ -154,7 +185,6 @@ strictement rien.
 | scalp | 30m-**4h** | 5 K | −25 % | +25 % | 1h |
 | runner | 1-**12h** | **10 K** | −35 % | +150 % | 6h |
 | quality | 4-**48h** | **20 K** | −25 % | +50 % | 4h |
-| narrative | 6h-∞ | **40 K** | −30 % | +80 % | 24h |
 | consensus | 1m30-24h | 4 K | −25 % | +50 % | 3h |
 
 Effet mesuré sur l'entonnoir (candidats retenus / présentés) :
@@ -325,7 +355,6 @@ Contredit la version précédente de cette section. Mesuré par
 | scalp | 5 | 40,0 % | −1,80 | 0,63 | +20,2 % | −27,5 % |
 | runner | 5 | 40,0 % | **+6,72** | 2,26 | +71,6 % | −35,2 % |
 | quality | 2 | 50,0 % | +4,51 | 2,02 | +59,1 % | −19,7 % |
-| narrative | 0 | — | — | — | — | — |
 | consensus | 6 | 50,0 % | +2,20 | 1,63 | +45,3 % | −17,6 % |
 
 **Aucune de ces lignes ne conclut, sauf peut-être `sniper`.** À 2, 5 et 6
@@ -348,7 +377,6 @@ mesurer, pas un résultat.
     scalp      4/50          2/4           —
    runner      2/50          0/2           —
   quality      0/50            —           —
-narrative      2/50          0/2           —
 consensus     24/50        10/24         0/6
 ```
 
@@ -587,7 +615,7 @@ Ils sont indépendants et ne se remplacent pas :
 
 Le troisième existe parce que les deux premiers sont inatteignables pour un
 bras qui n'entre jamais : pas de trades, et pas assez de rejets jugés par
-famille. `narrative` était dans ce cas — 0 entrée sur 927 cycles.
+famille. Un bras l'était — 0 entrée sur 927 cycles.
 
 **Précision a posteriori, 2026-08-03 : `frozen` n'a jamais couvert les trois.**
 Il ne gate que `_relax_from_inactivity` — `_adjust_filters` et
@@ -610,7 +638,6 @@ scalp            6      20     26   OUI  (était NON)
 runner           6      20     26   OUI  (était NON)
 consensus        6      20     26   OUI  (était NON)
 quality          2       8     10   NON — sa fenêtre exclut les autres
-narrative        0       0      0   NON
 ```
 
 Le filtre de fenêtre n'est pas une précaution de style : un token de `sniper`
@@ -669,7 +696,7 @@ seuils, c'est toute sa raison d'être.
 | baisser le plancher de liquidité | 13,6 % [9–19] des rejets `liquidity` franchissent +100 %, dont un à +3578 %. **Ne rien changer avant un devis Jupiter** sur ces carnets : c'est là que le slippage est le pire, et le shadow ne le mesure pas |
 | réduire le nombre de bras | **écartée.** Chaque bras se débloque sur SES 15 trades, pas sur un total : `baseline` (39) et `sniper` (26) apprennent déjà, et la cadence est de 8 à 32 trades/jour/bras. Le temps n'était pas la contrainte |
 | `quality` : `max_age_hours` hors borne | config 48 h, borne globale (2, 24). Tout relâchement est refusé par `_relax_set` — **décision de propriétaire** : élargir la borne dans `bounds` du manifeste, ou ramener la config sous 24 h |
-| `narrative` et `consensus` bloqués au seuil alpha | et non sur un filtre. `_relax_from_inactivity` va descendre 70 → 67,5 et 65 → 62,5, plancher à 55. À surveiller : c'est le relâchement le plus coûteux de la table |
+| `consensus` bloqué au seuil alpha | et non sur un filtre. `_relax_from_inactivity` descend 65 → 62,5, plancher à 55. À surveiller : c'est le relâchement le plus coûteux de la table |
 | Birdeye Lite 39 $/mois | seul abonnement qui débloque quoi que ce soit |
 | suivi de wallets étape 2 | registre en place, 7 wallets, avances de +0,4 à +3,6 min — **trop faibles pour du copy-trading** si ça se confirme |
 | découpage de `main.py` | proposé, refusé pour l'instant : **1084 lignes** (+202 depuis le refus), règles encore mouvantes |
@@ -725,13 +752,75 @@ D'après `config/strategies.json` :
 | `scalp` | voter | actif | touché par l'incident de tampon du 08-06/08-07, recalé |
 | `runner` | voter | actif | touché par l'incident de tampon du 08-06/08-07, recalé |
 | `quality` | voter | actif | touché par l'incident de tampon du 08-06/08-07, recalé |
-| `narrative` | voter | **désactivé** (`enabled: false`) depuis le 08-03 | `disabled_reason` dans le manifeste : IC95 `[-11,54 .. -7,56]` vs témoin, seul verdict statistiquement concluant sur les sept bras. Fichiers de paramètres et journal conservés, non supprimés. `capital_pct` redistribué sur les six bras restants. Voir ADR 011 |
 | `consensus` | consensus (min_confluence = 2) | actif | touché par l'incident de tampon du 08-06/08-07, recalé ; pas encore assez de trades pour pondérer ses votants (`MIN_TRADES_FOR_WEIGHTS`) |
 
 ### 13.3 Prochaines étapes
 
 - **Surveiller le tampon de glissement** : `_recalibrate_slippage_buffer` est un cliquet à sens unique (ne diminue jamais), documenté comme cause directe des deux incidents de stop loss positif des 08-06 et 08-07. Le plancher à −6,0 % limite les dégâts mais ne corrige pas la tendance du tampon à grimper en continu.
-- **`§11 Décisions ouvertes` contient une ligne obsolète** : « narrative et consensus bloqués au seuil alpha » date d'avant la désactivation de `narrative` (08-03) — à corriger ou retirer lors de la prochaine passe sur ce document.
+- **`§11 Décisions ouvertes` : la ligne « bloqués au seuil alpha » ne cite plus le bras retiré du manifeste.** `consensus` reste le cas ouvert — relâchement du seuil alpha, le plus coûteux de la table.
 - **Revalider les verdicts `verdict_vs_reference`** avec l'échantillon élargi depuis le 08-02, main­tenant que `baseline` apprend et que les frais réels de sortie (ADR 009) corrigent le P&L des jambes finales.
 - **Continuer le suivi de l'entonnoir et du shadow** pour les six bras restants — leur shadow log est plus jeune que celui du témoin (§10, point 7).
 - Sujets déjà ouverts et toujours d'actualité : Birdeye Lite (39 $/mois), suivi de wallets étape 2, découpage de `main.py` — voir §11 pour le détail.
+
+---
+
+## 14. Mise à jour du 2026-08-30 — reprise après interruption
+
+Le document s'était arrêté au 2026-08-07. Quatorze commits ont suivi, puis
+**treize jours sans activité** (dernier commit le 2026-08-17 à 17h04). Cette
+section rattrape l'écart et corrige ce que §13 affirmait encore.
+
+### 14.1 Ce qui a changé depuis le 2026-08-07
+
+| date | correctif |
+|---|---|
+| 08-09 | **Audit infra** (`d541cd9`) : verrou d'instance TOCTOU → `flock` atomique ; 429 Jupiter qui désactivait silencieusement la garde anti-slippage ; liquidité 0 confondue avec « non mesurée » chez Birdeye ; `load_manifest()` sans `try/except` ; `_is_buy()` comptant un trade inconnu comme achat ; prix `NaN` traversant tous les seuils de sortie ; token `/api/params` en query string |
+| 08-09 | **Plafond du ratchet remonté de −6,0 à −15,0** (`684fa6e`) — cause racine du symptôme traité le 08-07, calé sur le creux moyen mesuré des sorties stop (−15,28 %) |
+| 08-09 | **8ᵉ bras `sniper_young`** (`0630346`) : fork de `sniper` avec une seule variable changée (`min_age_hours` 1,025 h → 0,5125 h). Capital prélevé sur `sniper` seul. Référence de comparaison : `sniper`, pas le témoin |
+| 08-09 | Dépendances épinglées en `==`, `.gitignore` étendu, `backup.sh` purge au-delà de 15 snapshots |
+| 08-15 | **Le tampon de glissement peut enfin desserrer** (`a05af55`) : `_relax_slippage_buffer()`, miroir exact du resserrage, mutuellement exclusif avec lui. C'est la réponse structurelle au cliquet à sens unique que §13.3 annonçait comme non résolu |
+| 08-17 | Écriture du journal résiliente (`3e6fb6f`) : un `record_exit()` en échec laissait une position gelée à `remaining_fraction == 0`, invisible aux sorties mais servie au dashboard. Repéré sur 2 positions bloquées 6 jours |
+| 08-17 | Repli Jupiter sur le prix (`40a44a5`) : 7 positions bloquées à « prix indisponible » depuis l'ouverture, stop-loss jamais évalué, **une à −99 % sans que rien ne le sache** |
+| 08-17 | **Filtre LP verrouillée** (`72c9795`), seuil `filters.min_lp_locked_pct` (50 %) — `lp_locked_pct` était collecté depuis le début et comparé à rien |
+| 08-17 | **Garde de concentration sectorielle + watchdog anti-slow-rug** (`043949e`), nouvelle porte `correlation` dans l'entonnoir. Seuils sectoriels calibrés sur 1339 positions ; **ceux du watchdog ne le sont sur rien**, à revoir avant tout passage en LIVE |
+| 08-17 | **Échelle de sortie à N barreaux + breakeven par niveau** (`051a202`) : `breakeven_trigger` existait dans les sept documents de bras et n'était lu nulle part. `runner` reconfiguré sur ses 196 positions (−5,96 pts/trade au rejeu contre −12,39) |
+| 08-30 | Cette passe : reprise du shadow, taxonomie des nouvelles gardes, avertissement `capital_pct`, script de diagnostic (§14.3) |
+
+### 14.2 Ce que §10 et §13 disaient encore, et qui est faux
+
+- **§13.3 « surveiller le tampon de glissement, cliquet à sens unique »** — traité
+  le 08-15 (`a05af55`). Le mécanisme a un miroir en desserrage ; reste à vérifier
+  sur données réelles qu'il se déclenche.
+- **§10 point 8 « `ShadowTracker._tracked` n'est pas persisté »** — corrigé le
+  08-30 (§14.3). Les suivis en cours survivent à un redémarrage ; ceux périmés
+  pendant une coupure sont **écartés, pas jugés**.
+- **§13.2 : le tableau des bras liste sept lignes.** Il y en a huit depuis le
+  08-09 — `sniper_young` manque. Sept sont actifs ; le huitième du manifeste
+  d'alors était éteint et a depuis été retiré du fichier.
+- **`AGENTS.md` annonçait 361 tests.** Il y en a 791 (corrigé le 08-30).
+
+### 14.3 Trois défauts trouvés à la reprise du 2026-08-30
+
+Même famille que §6 ter : du code câblé, testé, et jamais atteint.
+
+| défaut | conséquence | correctif |
+|---|---|---|
+| **Le filtre LP tombait dans la famille « autre »** | `reason_family()` n'a pas de branche pour « LP verrouillée 12 % < 50 % » : le motif ne contient pas « liquidité ». Les rejets de la garde livrée le 08-17 étaient donc rangés dans la famille qu'aucun paramètre ne dessert, **invisibles à `missed_rate_by_family`** — c'est-à-dire impossibles à qualifier. Même défaut que l'âge et le volume au 2026-08-02 | familles `lp_lock` et `sector`. **Visible ne veut pas dire relâchable** : ni l'une ni l'autre n'a d'entrée dans `RELAXATIONS`, ce sont des vecteurs de rug pull et d'exposition corrélée, pas des seuils mal calés |
+| **`ShadowTracker._tracked` en mémoire seule** | un redémarrage perdait tout rejet pas encore arrivé à ses 4 h. Sur une boucle relancée souvent, `SHADOW_MIN_SAMPLE` restait hors d'atteinte, donc `_relax_from_shadow` — le seul contrepoids au resserrage — ne rendait jamais rien | fichier de reprise par bras (`shadow_log_tracking.json`), écriture atomique. Un **nouveau pic** s'écrit immédiatement, un simple mouvement de prix attend au plus 60 s : perdre un pic fabriquerait le verdict inverse de la mesure. Un fichier illisible coûte les suivis, jamais le démarrage |
+| **`capital_pct` : 1,05 sur le manifeste, 1,0000 sur les actifs** | `bootstrap_arms` ne somme que les bras actifs — le bon choix — mais rien ne signalait la dérive. `sniper_young` (0,10525) a été ajouté le 08-09 sans rééquilibrage, et le dépôt ne démarrait que parce qu'un bras éteint (0,05) restait dans le fichier. Un simple `enabled: true` aurait fait échouer le démarrage sur un `ManifestError` déroutant | avertissement au démarrage nommant le bras dormant et le total. Le refus sur les bras actifs reste fatal, inchangé. Ce bras éteint a depuis été retiré : le manifeste commité somme à 1,0 |
+
+### 14.4 Ce qui reste non vérifié
+
+Ces trois points demandent la machine où tourne la boucle — ils ne se lisent
+pas dans le dépôt. `python3 -m scripts.diagnostic_reprise` les traite en une
+commande, **en lecture seule** : une relance reprend le verrou et écrit dans
+`data/`, donc efface la date de l'arrêt.
+
+1. **La boucle tourne-t-elle, et depuis quand est-elle arrêtée ?** `flock` est
+   libéré par le noyau à la mort du process : un arrêt ne laisse aucun verrou
+   résiduel et ne s'annonce nulle part.
+2. **Ce que `data/` a accumulé.** Seul `funnel_log.jsonl` a une rotation (8 Mo).
+   Les journaux de trades, shadow et agents sont append-only sans borne.
+3. **Ce que valent les gardes du 08-17.** Trois gardes livrées la veille d'une
+   interruption de treize jours, jamais observées sur une longue série — et
+   celles du watchdog anti-slow-rug ne sont calibrées sur rien.

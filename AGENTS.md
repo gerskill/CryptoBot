@@ -8,7 +8,7 @@ d'auto-amélioration. **Mode PAPER : aucune transaction réelle n'est émise.**
 ```bash
 python -m src.main                              # la boucle
 uvicorn api.server:app --reload --port 8000     # l'API du dashboard
-python -m unittest discover -s tests            # les 361 tests
+python -m unittest discover -s tests            # les 791 tests
 ```
 
 ## Règles non négociables
@@ -18,6 +18,8 @@ python -m unittest discover -s tests            # les 361 tests
   `LearningEngine.live_mode_allowed()` : 20 trades papier, WR > 40%, PF > 1.5.
 - **Aucune clé en dur.** Tout passe par `.env`, jamais commité, perms 600.
   Un hook pre-commit bloque les commits contenant `.env` ou une clé en clair.
+  git ne clone pas les hooks : l'installer une fois par clone avec
+  `./scripts/install_hooks.sh` (`--check` pour vérifier).
 - **Sauvegarder avant toute opération risquée** : `./scripts/backup.sh`.
   `data/` contient le journal de trades — c'est la mémoire du bot, et il
   n'est pas versionné.

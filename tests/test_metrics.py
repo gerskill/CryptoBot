@@ -110,14 +110,14 @@ class TestArmTradeMetrics(MetricsTestCase):
         (`enabled: False`) est invisible, cohérent avec le reste du dashboard."""
         self._manifest([
             {"name": "baseline", "capital_pct": 0.7},
-            {"name": "narrative", "capital_pct": 0.3, "enabled": False},
+            {"name": "retire", "capital_pct": 0.3, "enabled": False},
         ])
-        narrative_path = settings.arm_paths("narrative")["trades"]
-        self._ecrire_jsonl(narrative_path, [self._trade("n1", "2026-01-01T00:00:00", 999.0)])
+        retire_path = settings.arm_paths("retire")["trades"]
+        self._ecrire_jsonl(retire_path, [self._trade("n1", "2026-01-01T00:00:00", 999.0)])
 
         texte = self.metrics.generate_metrics_text()
 
-        self.assertNotIn('arm="narrative"', texte)
+        self.assertNotIn('arm="retire"', texte)
 
     def test_bras_sans_trade_rend_zero_sans_win_rate(self):
         """Zéro trade doit apparaître comme 0, jamais comme une absence de

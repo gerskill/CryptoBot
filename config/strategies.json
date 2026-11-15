@@ -215,7 +215,7 @@
         "filters.max_age_hours": 24.0,
         "scan.alpha_score_entry_threshold": 70,
         "exit_rules.stop_loss_pct": -25,
-        "exit_rules.take_profit_1": 50,
+        "exit_rules.take_profit_1": 15,
         "exit_rules.take_profit_2": 150,
         "exit_rules.take_profit_3": 400,
         "exit_rules.trailing_stop_activation": 100,
@@ -242,6 +242,12 @@
         "filters.require_social": true,
         "filters.max_dev_tokens_launched": 5,
         "filters.max_twitter_renames": 0
+      },
+      "bounds": {
+        "exit_rules.take_profit_1": [
+          15,
+          15
+        ]
       }
     },
     {
@@ -480,7 +486,7 @@
         "filters.max_age_hours": 24.0,
         "scan.alpha_score_entry_threshold": 65,
         "exit_rules.stop_loss_pct": -25,
-        "exit_rules.take_profit_1": 50,
+        "exit_rules.take_profit_1": 15,
         "exit_rules.take_profit_2": 150,
         "exit_rules.take_profit_3": 400,
         "exit_rules.trailing_stop_activation": 100,
@@ -492,6 +498,12 @@
         "filters.reject_wash_trading": true,
         "filters.reject_creator_sold": true,
         "filters.min_swaps": 50
+      },
+      "bounds": {
+        "exit_rules.take_profit_1": [
+          15,
+          15
+        ]
       }
     },
     {

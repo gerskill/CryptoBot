@@ -16,9 +16,14 @@ class TestConsensusAf(unittest.TestCase):
         self.assertEqual(a["filters"]["max_price_change_5m"], 10.0)
         self.assertEqual(a["entry_rules"]["max_exit_cost_pct_entry"], 3.0)
         self.assertTrue(a["entry_rules"]["consensus_gate"])
-        for sec in ("filters", "entry_rules", "exit_rules", "scan", "risk_rules"):
-            for k, v in c[sec].items():
-                self.assertEqual(a[sec][k], v, f"{sec}.{k}")
+        # Copie complète des CLÉS de consensus. Les valeurs ont divergé depuis
+        # la copie du 2026-11-02 : consensus apprend, consensus_af est figé
+        # (learning false). On ne fige donc pas les valeurs apprises ici.
+        # Les sorties ne sont pas comparées : consensus est passé ensuite au
+        # TP1 +15 % avec breakeven exact, consensus_af a gardé ses sorties.
+        for sec in ("filters", "entry_rules", "scan", "risk_rules"):
+            for k in c[sec]:
+                self.assertIn(k, a[sec], f"{sec}.{k}")
         self.assertNotIn("consensus_gate", c["entry_rules"])
         self.assertNotIn("max_price_change_5m", c["filters"])
         self.assertEqual(a["mode"], "PAPER")
@@ -30,6 +35,9 @@ class TestConsensusAf(unittest.TestCase):
                          ("test", 0.0, False, "none"))
         self.assertEqual(e["min_confluence"], c["min_confluence"])
         for k, v in c["overrides"].items():
+            # Le gel du TP1 à 15 (PR #6) ne vise que consensus, pas sa copie.
+            if k == "exit_rules.take_profit_1":
+                continue
             self.assertEqual(e["overrides"][k], v)
 
     def test_ne_vote_pas_et_passe_apres_les_votants(self):

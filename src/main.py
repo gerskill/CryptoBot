@@ -215,13 +215,6 @@ class AlphaLoop:
         # `risk_rules.dev_dump_panic_exit` à `false` le remet en simple
         # observateur : il mesure et alerte, sans fermer.
         self.dev_watchdog = DevWatchdog(helius=self.helius)
-        # Santé par CAPACITÉ, pas par API : ce qui compte n'est pas « Birdeye
-        # est mort » mais « peut-on encore obtenir des bougies ». Publié dans
-        # state.json pour que la dégradation soit visible au lieu d'être subie.
-        self.capabilities = build_registry(
-            birdeye=self.birdeye, gmgn=self.gmgn, jupiter=self.jupiter, dex=self.dex,
-            helius=self.helius,
-        )
         self.budgets = load_budgets(
             settings.BUDGET_PATH,
             {k: v for k, v in (self.params.get("api_budgets", {}) or {}).items()
@@ -237,20 +230,36 @@ class AlphaLoop:
         # de consommation mesuré, plutôt que sur une constante réglée une fois
         # à la main. Voir `src/core/quota_agent.py`.
         self.quota_agent = QuotaAgent(self.params)
+        # Attributs et non instances anonymes : le registre de capacités a
+        # besoin des MÊMES objets que le pipeline pour juger leur état. Deux
+        # instances distinctes se seraient désynchronisées dès le premier
+        # auto-arrêt (Twitter 402, RugCheck en panne).
+        self.rugcheck = RugCheckAPI()
+        self.twitter = TwitterAPI(
+            settings.TWITTER_BEARER_TOKEN,
+            max_lookups_per_cycle=self.params.get("scan.social_max_lookups_per_cycle", 2),
+            budget=self.budgets.get("twitter"),
+        )
         self.pipeline = ScanPipeline(
             params=self.params,
             cache=self.cache,
             dex=self.dex,
             helius=self.helius,
-            rugcheck=RugCheckAPI(),
+            rugcheck=self.rugcheck,
             birdeye=self.birdeye,
-            twitter=TwitterAPI(
-                settings.TWITTER_BEARER_TOKEN,
-                max_lookups_per_cycle=self.params.get("scan.social_max_lookups_per_cycle", 2),
-                budget=self.budgets.get("twitter"),
-            ),
+            twitter=self.twitter,
             gmgn=self.gmgn,
             history=self.history,
+        )
+
+        # Santé par CAPACITÉ, pas par API : ce qui compte n'est pas « Birdeye
+        # est mort » mais « peut-on encore obtenir des bougies ». Publié dans
+        # state.json pour que la dégradation soit visible au lieu d'être subie.
+        # Construit APRÈS le pipeline : `self.twitter` dépend de `self.budgets`,
+        # lui-même construit plus haut.
+        self.capabilities = build_registry(
+            birdeye=self.birdeye, gmgn=self.gmgn, jupiter=self.jupiter, dex=self.dex,
+            helius=self.helius, rugcheck=self.rugcheck, twitter=self.twitter,
         )
 
         self.journal = TradeJournal(settings.TRADES_LOG_PATH)
@@ -523,7 +532,7 @@ class AlphaLoop:
         n'est appelé qu'à la fermeture d'une position. Un bras qui n'ouvre
         jamais rien n'en ferme jamais, donc `run` n'est jamais appelé, donc le
         relâchement sur inactivité serait inatteignable **exactement pour les
-        bras qu'il doit débloquer**. `narrative` : 0 entrée sur 927 cycles.
+        bras qu'il doit débloquer**. Mesuré : 0 entrée sur 927 cycles.
 
         C'est la même poule-et-œuf que celles corrigées dans `economics` et
         dans la porte des 15 trades, un cran plus haut : cette fois ce n'est
@@ -910,7 +919,7 @@ class AlphaLoop:
         le témoin était alimenté : les six autres logs restaient vides, donc
         `_relax_from_shadow` — le seul contrepoids au resserrage — ne rendait
         jamais rien pour eux. Un bras rejette sur SES seuils ; le shadow du
-        témoin ne dit rien de ce que `quality` ou `narrative` ont écarté.
+        témoin ne dit rien de ce que `quality` a écarté.
 
         LE PRIX EST RAFRAÎCHI UNE FOIS, sur l'UNION des adresses en attente.
         Les bras jugent le même lot, donc leurs listes se recouvrent largement.

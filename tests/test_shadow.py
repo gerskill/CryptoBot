@@ -270,7 +270,7 @@ class TestRelachementSurInactivite(unittest.TestCase):
     LE TROU QUE ÇA BOUCHE. `_relax_from_shadow` exige des rejets suivis 4 h,
     jugés, et `SHADOW_MIN_SAMPLE` par famille. Les autres ajustements exigent
     15 trades. Un bras qui n'entre JAMAIS n'a ni les uns ni les autres :
-    mesuré au 2026-08-02, `narrative` était à 0 entrée sur 927 cycles.
+    mesuré au 2026-08-02, 0 entrée sur 927 cycles.
 
     Ici la preuve n'est pas « ses rejets auraient gagné » mais « il ne joue
     pas ». Les deux méritent un relâchement, pour des raisons différentes.
@@ -327,7 +327,8 @@ class TestRelachementSurInactivite(unittest.TestCase):
     def test_le_seuil_alpha_est_relachable(self):
         """Un bras dont les candidats passent les filtres et meurent au seuil
         alpha ne sera JAMAIS débloqué en desserrant un filtre. C'était le cas
-        de `narrative` (869 cycles) et `consensus` (383) au 2026-08-02."""
+        d'un bras depuis retiré du manifeste (869 cycles) et de `consensus`
+        (383) au 2026-08-02."""
         self.params.set("scan.alpha_score_entry_threshold", 70, log=False)
         engine = self._engine(INACTIVITY_CYCLES, "alpha N< N")
         self.assertTrue(engine._relax_from_inactivity())

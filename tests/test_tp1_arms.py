@@ -155,7 +155,8 @@ class TestQualityConsensusTp1(unittest.TestCase):
     """quality et consensus vendent 50 % à +15 %, puis le reste au prix d'entrée.
 
     Même séquence que tp1_15 (`update_water_marks` puis `evaluate_exits`).
-    Les autres réglages de sortie de ces bras ne bougent pas.
+    Les autres réglages de sortie de ces bras ne bougent pas, sauf
+    `max_hold_time_minutes` que l'apprentissage allonge (time stop).
     """
 
     def _rules(self, name):
@@ -172,7 +173,6 @@ class TestQualityConsensusTp1(unittest.TestCase):
                 "stop_loss_pct": -17.6,
                 "trailing_stop_activation": 150.0,
                 "trailing_stop_distance_pct": 80,
-                "max_hold_time_minutes": 420.0,
                 "stop_loss_slippage_buffer_pct": 2.6,
                 "take_profit_2": 250.0,
             },
@@ -180,7 +180,6 @@ class TestQualityConsensusTp1(unittest.TestCase):
                 "stop_loss_pct": -21.0,
                 "trailing_stop_activation": 150.0,
                 "trailing_stop_distance_pct": 80,
-                "max_hold_time_minutes": 480,
                 "stop_loss_slippage_buffer_pct": 6.0,
                 "take_profit_2": 250.0,
             },

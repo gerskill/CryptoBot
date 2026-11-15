@@ -102,7 +102,7 @@ class TestSorties(unittest.TestCase):
     def test_le_bras_nentre_pas_dans_la_decision_denvoyer(self):
         """La valeur d'un +184 % ne dépend pas de quelle stratégie l'a produit.
         C'était le défaut de fond de la politique par bras."""
-        for bras in ("baseline", "sniper", "runner", "narrative", "quality"):
+        for bras in ("baseline", "sniper", "runner", "retire", "quality"):
             agent = TelegramReporterAgent(inner=FakeTelegram())
             self.assertTrue(agent.report_exit(bras, FakePosition(), 184.2, "TP", 5.0))
 
@@ -235,12 +235,12 @@ class TestRapport(unittest.TestCase):
         self.assertIn("runner", self.tg.sent[0])
 
     def test_un_bras_sans_trade_na_pas_de_ligne(self):
-        arms = [_arm("sniper", [1.0]), _arm("narrative", [])]
+        arms = [_arm("sniper", [1.0]), _arm("retire", [])]
         self.agent.report_periodic(arms, force=True)
-        self.assertNotIn("narrative", self.tg.sent[0])
+        self.assertNotIn("retire", self.tg.sent[0])
 
     def test_aucun_trade_du_tout_le_dit_sans_diviser_par_zero(self):
-        self.agent.report_periodic([_arm("narrative", [])], force=True)
+        self.agent.report_periodic([_arm("retire", [])], force=True)
         self.assertIn("Aucun trade", self.tg.sent[0])
 
     def test_le_rapport_ne_part_pas_avant_sa_cadence(self):
