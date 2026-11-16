@@ -7,6 +7,7 @@ const TABS: { id: View; label: string }[] = [
   { id: 'weekly', label: 'Weekly' },
   { id: 'config', label: 'Config' },
   { id: 'backtester', label: 'Backtester' },
+  { id: 'liquid', label: 'Liquid' },
 ]
 
 export function NavBar() {

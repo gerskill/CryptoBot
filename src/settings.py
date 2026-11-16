@@ -133,3 +133,14 @@ def key_status() -> dict[str, bool]:
         "telegram": TELEGRAM_BOT_TOKEN is not None and TELEGRAM_CHAT_ID is not None,
         "gmgn": GMGN_ENABLED,
     }
+
+
+# --- Marchés de prédiction (Liquid / Hyperliquid HIP-4), PAPIER uniquement ---
+# Processus séparé (`scripts/run_prediction.py`), même principe que
+# `scripts/gmgn_observe.py` (ADR 014) : il lit une API publique sans clé et
+# n'écrit que dans son propre dossier. La boucle memecoin ne le connaît pas.
+PREDICTION_ARMS_PATH = os.path.join(BASE_DIR, "config", "prediction_arms.json")
+PREDICTION_DATA_DIR = os.path.join(BASE_DIR, "data", "prediction")
+# Données d'EXEMPLE FICTIF, produites par `scripts/prediction_demo.py`.
+# Dossier distinct : un exemple ne doit jamais pouvoir se mélanger au réel.
+PREDICTION_DEMO_DIR = os.path.join(BASE_DIR, "data", "prediction_demo")

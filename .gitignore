@@ -48,3 +48,7 @@ scripts/top30.json
 scripts/candidats_a_verifier.csv
 # Observation GMGN : mesure locale, même nature que data/arms.
 data/gmgn_observe/
+# Paris papier des marchés de prédiction et leur exemple fictif : même nature
+# que data/arms/.
+data/prediction/
+data/prediction_demo/

@@ -13,6 +13,7 @@ Lancement : uvicorn api.server:app --reload --port 8000
 import asyncio
 import json
 import os
+import re
 import secrets
 import time
 from datetime import datetime, timezone
@@ -26,6 +27,8 @@ from src import settings
 from src.core.arm import load_manifest
 from src.core.journal import TradeJournal
 from src.monitoring.metrics import generate_metrics_text
+from src.prediction.paper import BetStore
+from src.prediction.runner import summary as prediction_summary
 
 
 # Jeton facultatif. Absent = pas d'authentification, et l'API le DIT au
@@ -337,6 +340,88 @@ def get_params(
     params = _read_json(settings.arm_paths(_resolve_arm(arm))["params"]) or {}
     history = (params.get("learning") or {}).get("parameter_adjustment_history", [])
     return {"params": params, "history": list(reversed(history))[:50]}
+
+
+# ---------------------------------------------------------------------------
+# Marchés de prédiction Liquid (PAPIER) — lecture seule de data/prediction/
+# ---------------------------------------------------------------------------
+# Le processus `scripts/run_prediction.py` est seul propriétaire de ces
+# fichiers. `demo=1` lit un AUTRE dossier, rempli par
+# `scripts/prediction_demo.py` : chaque réponse porte alors
+# `exemple_fictif: true`, et l'interface l'affiche sous un bandeau.
+
+PREDICTION_STALE_SECONDS = 300
+_COIN_PATTERN = re.compile(r"^#?(\d{1,12})$")
+
+
+def _prediction_dir(demo: bool) -> str:
+    return settings.PREDICTION_DEMO_DIR if demo else settings.PREDICTION_DATA_DIR
+
+
+def _prediction_config() -> dict[str, Any]:
+    config = _read_json(settings.PREDICTION_ARMS_PATH)
+    if not config or not isinstance(config.get("arms"), list):
+        raise HTTPException(status_code=503, detail="config/prediction_arms.json illisible")
+    return config
+
+
+@app.get("/api/prediction/summary")
+def get_prediction_summary(demo: bool = False) -> dict[str, Any]:
+    """Une ligne par bras de prédiction. Aucun total tous bras confondus :
+    chaque chiffre reste attribué à son bras."""
+    config = _prediction_config()
+    directory = _prediction_dir(demo)
+    state = _read_json(os.path.join(directory, "state.json")) or {}
+    age = time.time() - float(state.get("updated_at", 0)) if state else None
+    return {
+        "exemple_fictif": demo,
+        "mode": "PAPER",
+        "runner_online": bool(state) and not demo and age is not None and age < PREDICTION_STALE_SECONDS,
+        "updated_at_iso": state.get("updated_at_iso"),
+        "marches_par_domaine": state.get("marches_par_domaine", {}),
+        "config": {key: config.get(key) for key in (
+            "capital_fictif_usd", "mise_pct", "exposition_max_pct_par_domaine",
+            "frais_pct", "frais_reglement_pct", "min_paris_verdict")},
+        "arms": prediction_summary(config, directory),
+    }
+
+
+@app.get("/api/prediction/bets")
+def get_prediction_bets(arm: str = "all", demo: bool = False) -> dict[str, Any]:
+    """Paris ouverts et réglés, chaque ligne avec son `arm`."""
+    config = _prediction_config()
+    known = [entry["name"] for entry in config["arms"]]
+    if arm != "all" and arm not in known:
+        raise HTTPException(status_code=404, detail=f"bras inconnu : {arm}")
+    bets = []
+    for name in (known if arm == "all" else [arm]):
+        store = BetStore(_prediction_dir(demo), name)
+        for row in store.settled() + store.open_bets():
+            row["arm"] = name
+            row["exemple_fictif"] = demo
+            bets.append(row)
+    bets.sort(key=lambda r: r.get("entry_time") or "")
+    return {"exemple_fictif": demo, "arm": arm, "total": len(bets), "bets": bets}
+
+
+@app.get("/api/prediction/prices")
+def get_prediction_prices(coin: str, demo: bool = False) -> dict[str, Any]:
+    """Série de prix d'une pièce `#N`, pour tracer un pari sur son graphique."""
+    match = _COIN_PATTERN.match(coin)
+    if not match:
+        # Le nom sert à construire un chemin : seuls des chiffres passent.
+        raise HTTPException(status_code=400, detail="pièce invalide")
+    path = os.path.join(_prediction_dir(demo), "prices", f"{match.group(1)}.jsonl")
+    points = [{"t": row.get("t"), "mid": row.get("mid")} for row in _read_jsonl(path)
+              if row.get("t") and row.get("mid") is not None]
+    return {"exemple_fictif": demo, "coin": f"#{match.group(1)}", "points": points}
+
+
+@app.get("/api/prediction/coherence")
+def get_prediction_coherence(limit: int = 100, demo: bool = False) -> dict[str, Any]:
+    rows = _read_jsonl(os.path.join(_prediction_dir(demo), "coherence.jsonl"))
+    return {"exemple_fictif": demo, "arm": "pm_coherence", "total": len(rows),
+            "rows": rows[-max(1, min(limit, 500)):]}
 
 
 @app.get("/api/metrics")

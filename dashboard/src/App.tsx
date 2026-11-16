@@ -9,6 +9,7 @@ import { LivePrices } from './components/live/LivePrices'
 import { WeeklyReport } from './components/weekly/WeeklyReport'
 import { ConfigEditor } from './components/config/ConfigEditor'
 import { Backtester } from './components/backtester/Backtester'
+import { LiquidDashboard } from './components/liquid/LiquidDashboard'
 
 /** Bandeau d'alerte quand le bot ne tourne pas — un dashboard figé doit le dire. */
 function OfflineBanner() {
@@ -56,6 +57,7 @@ export default function App() {
       {view === 'weekly' && <WeeklyReport />}
       {view === 'config' && <ConfigEditor />}
       {view === 'backtester' && <Backtester />}
+      {view === 'liquid' && <LiquidDashboard />}
     </Shell>
   )
 }

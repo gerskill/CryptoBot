@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { BotState, Trade } from './types'
 
-export type View = 'dashboard' | 'live' | 'weekly' | 'config' | 'backtester'
+export type View = 'dashboard' | 'live' | 'weekly' | 'config' | 'backtester' | 'liquid'
 
 /**
  * État du dashboard. Le WebSocket pousse l'état du bot ; les trades et les
