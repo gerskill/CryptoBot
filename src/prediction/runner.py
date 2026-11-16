@@ -28,6 +28,7 @@ CERTAIN_HIGH, CERTAIN_LOW = 0.97, 0.03
 # Relevé le 2026-11-16 : des marchés affichés à 50 % ont un carnet à 1 % / 99 %.
 # Sans ce garde-fou, le témoin y achetait un « favori » à 0,99.
 ECART_MAX_CARNET = 0.05
+PRIX_NON_COTE = 0.006
 
 
 def _iso(moment: datetime) -> str:
@@ -303,11 +304,18 @@ class PredictionRunner:
         """Incohérences de prix relevées sur les prix milieux. Rien n'est parié."""
         found = []
         fee = self.config["frais_pct"]
-        live = [m for m in markets if not m.is_fallback]
+        # Un marché échu reste listé quelques heures avec un prix figé : l'écarter.
+        live = [m for m in markets if not m.is_fallback
+                and (m.expiry is None or m.expiry > moment)]
 
         def yes(market: Market) -> Optional[float]:
+            # Un marché sans cotation s'affiche à 50 % pile (relevé du
+            # 2026-11-16 : carnet à 1 % / 99 %). Ce n'est pas un prix : sans
+            # ce filtre, presque toutes les « incohérences » étaient ce 50 %.
             price = mids.get(market.sides[0].coin)
-            return price if price is not None and 0 < price < 1 else None
+            if price is None or not 0 < price < 1 or abs(price - 0.5) < PRIX_NON_COTE:
+                return None
+            return price
 
         # 1. Issues exclusives d'une même question : la somme devrait faire 100 %.
         by_question: dict[str, list[Market]] = {}
@@ -316,6 +324,11 @@ class PredictionRunner:
                 by_question.setdefault(market.question, []).append(market)
         for question, group in by_question.items():
             prices = [yes(m) for m in group]
+            # Seul un match a des issues qui couvrent tout (A, nul, B). Un
+            # tournoi ne liste que quelques équipes, le reste est dans le
+            # repli ; l'ordre des tranches de prix n'est pas documenté.
+            if group[0].domain != "sport_match":
+                continue
             if len(group) < 2 or any(p is None for p in prices):
                 continue
             total = sum(prices)

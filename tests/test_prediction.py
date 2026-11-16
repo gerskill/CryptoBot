@@ -382,6 +382,18 @@ class TestIncoherences(PredictionTestCase):
         self.assertEqual([r["type"] for r in rows], ["echelle_non_monotone"])
         self.assertEqual((rows[0]["seuil_bas"], rows[0]["seuil_haut"]), (1500, 2000))
 
+    def test_un_marche_non_cote_affiche_a_50_pile_ne_cree_pas_d_incoherence(self):
+        # Relevé réel : seuil haut « à 49,96 % » faute de cotation, seuil bas à 12 %.
+        self.assertEqual(self._lignes({"#198210": 0.1245, "#198230": 0.49958}), [])
+
+    def test_un_tournoi_dont_les_equipes_listees_somment_sous_100_n_est_pas_signale(self):
+        # Les autres équipes sont dans le marché de repli.
+        self.assertEqual(self._lignes({f"#{o}0": 0.06 for o in range(1473, 1479)}), [])
+
+    def test_un_marche_echu_ne_sert_plus_a_relever_une_incoherence(self):
+        self.clock[0] = datetime(2027, 6, 1, tzinfo=timezone.utc)
+        self.assertEqual(self._lignes({"#198210": 0.30, "#198230": 0.45}), [])
+
     def test_un_prix_a_50_sans_cotation_reelle_des_deux_cotes_ne_compte_pas_comme_ecart_de_venue(self):
         # 19821 (skew) et 8573 (out) ont le même seuil mais pas la même échéance.
         self.assertEqual(self._lignes({"#198210": 0.30, "#85730": 0.60}), [])
