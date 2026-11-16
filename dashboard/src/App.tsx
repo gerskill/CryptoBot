@@ -9,6 +9,7 @@ import { LivePrices } from './components/live/LivePrices'
 import { WeeklyReport } from './components/weekly/WeeklyReport'
 import { ConfigEditor } from './components/config/ConfigEditor'
 import { Backtester } from './components/backtester/Backtester'
+import { LiquidDashboard } from './components/liquid/LiquidDashboard'
 
 /** Bandeau d'alerte quand le bot ne tourne pas — un dashboard figé doit le dire. */
 function OfflineBanner() {
@@ -48,14 +49,16 @@ function DashboardView() {
 export default function App() {
   useLiveState()
   const view = useStore((s) => s.view)
+  const space = useStore((s) => s.space)
 
   return (
     <Shell>
-      {view === 'dashboard' && <DashboardView />}
-      {view === 'live' && <LivePrices />}
-      {view === 'weekly' && <WeeklyReport />}
-      {view === 'config' && <ConfigEditor />}
-      {view === 'backtester' && <Backtester />}
+      {space === 'liquid' && <LiquidDashboard />}
+      {space === 'memecoins' && view === 'dashboard' && <DashboardView />}
+      {space === 'memecoins' && view === 'live' && <LivePrices />}
+      {space === 'memecoins' && view === 'weekly' && <WeeklyReport />}
+      {space === 'memecoins' && view === 'config' && <ConfigEditor />}
+      {space === 'memecoins' && view === 'backtester' && <Backtester />}
     </Shell>
   )
 }

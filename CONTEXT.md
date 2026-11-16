@@ -88,6 +88,20 @@ disque. Ne se produit que sur un verdict `verdict_vs_reference` **concluant
 et défavorable** (IC95 entièrement négatif contre le témoin) — jamais sur une
 sous-performance simple ou un P&L négatif brut. Voir ADR 011.
 
+### Pari de prédiction (bras `pm_`)
+Pari PAPIER sur un marché de prédiction Liquid (Hyperliquid HIP-4), simulé par
+un processus séparé (`scripts/run_prediction.py`). Entrée au prix moyen du
+carnet vendeur, frais déduits, tenu jusqu'au règlement : une ligne par pari.
+Un pari **indéterminé** (issue non établie avec certitude) sort de tous les
+chiffres. Ce n'est ni un candidat ni une position de la boucle memecoin, et
+ses bras ne votent pas pour `consensus`. Voir ADR 015.
+
+Chaque marché a un **domaine** (`crypto_seuil`, `actions_seuil`,
+`matieres_seuil`, `barriere`, `tranche_prix`, `sport_match`, `sport_tournoi`,
+`evenement`, `autre`) et chaque bras `pm_` une **famille** (transverse, prix,
+sport, questions, pourcentages). Un bras de rôle `regle` n'estime rien : il
+achète le favori ou l'outsider dans une fourchette de prix. Voir ADR 016.
+
 ---
 
 ## Invariants

@@ -36,7 +36,8 @@
   --color-toxic: #2ee56b;   /* gain */
   --color-blood: #ff4a6e;   /* perte */
   --color-warn: #ffab2e;    /* attention */
-  --color-gem: #7c6cff;     /* accent unique : la machine qui apprend */
+  --color-gem: #7c6cff;     /* accent de l'espace memecoins : la machine qui apprend */
+  --color-tide: #35c8e8;    /* accent de l'espace Liquid : jamais mélangé au premier */
 
   --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
   --font-sans: "Inter", system-ui, -apple-system, sans-serif;

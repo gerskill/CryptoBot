@@ -51,3 +51,15 @@ export const relativeTime = (isoTimestamp: string): string => {
   if (hours < 24) return `il y a ${hours.toFixed(hours < 10 ? 1 : 0)}h`
   return `il y a ${Math.round(hours / 24)} j`
 }
+
+/** Horodatage UTC à la seconde, identique à celui du journal. */
+export const utc = (iso: string | null | undefined): string => {
+  if (!iso) return '—'
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return `${date.toISOString().slice(0, 19).replace('T', ' ')} UTC`
+}
+
+/** Un prix de pari est une probabilité : 0,8200 se lit « 82,00 % ». */
+export const prob = (value: number | null | undefined): string =>
+  value == null ? '—' : `${(value * 100).toFixed(2)} %`

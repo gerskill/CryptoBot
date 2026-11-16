@@ -13,12 +13,13 @@ Lancement : uvicorn api.server:app --reload --port 8000
 import asyncio
 import json
 import os
+import re
 import secrets
 import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
@@ -26,6 +27,9 @@ from src import settings
 from src.core.arm import load_manifest
 from src.core.journal import TradeJournal
 from src.monitoring.metrics import generate_metrics_text
+from src.prediction import overlay as prediction_overlay
+from src.prediction.paper import BetStore, append_jsonl as _append_jsonl
+from src.prediction.runner import summary as prediction_summary
 
 
 # Jeton facultatif. Absent = pas d'authentification, et l'API le DIT au
@@ -92,7 +96,7 @@ app = FastAPI(title="Alpha Loop Meme API", version="3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_methods=["GET"],
+    allow_methods=["GET"],  # volontaire : la route POST n'est ouverte qu'à la même origine
     allow_headers=["*"],
 )
 
@@ -337,6 +341,166 @@ def get_params(
     params = _read_json(settings.arm_paths(_resolve_arm(arm))["params"]) or {}
     history = (params.get("learning") or {}).get("parameter_adjustment_history", [])
     return {"params": params, "history": list(reversed(history))[:50]}
+
+
+# ---------------------------------------------------------------------------
+# Marchés de prédiction Liquid (PAPIER) — lecture seule de data/prediction/
+# ---------------------------------------------------------------------------
+# Le processus `scripts/run_prediction.py` est seul propriétaire de ces
+# fichiers. `demo=1` lit un AUTRE dossier, rempli par
+# `scripts/prediction_demo.py` : chaque réponse porte alors
+# `exemple_fictif: true`, et l'interface l'affiche sous un bandeau.
+
+PREDICTION_STALE_SECONDS = 300
+_COIN_PATTERN = re.compile(r"^#?(\d{1,12})$")
+
+
+def _prediction_dir(demo: bool) -> str:
+    return settings.PREDICTION_DEMO_DIR if demo else settings.PREDICTION_DATA_DIR
+
+
+def _prediction_config() -> dict[str, Any]:
+    config = _read_json(settings.PREDICTION_ARMS_PATH)
+    if not config or not isinstance(config.get("arms"), list):
+        raise HTTPException(status_code=503, detail="config/prediction_arms.json illisible")
+    return config
+
+
+@app.get("/api/prediction/summary")
+def get_prediction_summary(demo: bool = False) -> dict[str, Any]:
+    """Une ligne par bras de prédiction. Aucun total tous bras confondus :
+    chaque chiffre reste attribué à son bras."""
+    config = _prediction_config()
+    directory = _prediction_dir(demo)
+    state = _read_json(os.path.join(directory, "state.json")) or {}
+    age = time.time() - float(state.get("updated_at", 0)) if state else None
+    return {
+        "exemple_fictif": demo,
+        "mode": "PAPER",
+        "runner_online": bool(state) and not demo and age is not None and age < PREDICTION_STALE_SECONDS,
+        "updated_at_iso": state.get("updated_at_iso"),
+        "marches_par_domaine": state.get("marches_par_domaine", {}),
+        "config": {key: config.get(key) for key in (
+            "capital_fictif_usd", "mise_pct", "exposition_max_pct_par_domaine",
+            "frais_pct", "frais_reglement_pct", "min_paris_verdict")},
+        "arms": prediction_summary(config, directory),
+    }
+
+
+@app.get("/api/prediction/bets")
+def get_prediction_bets(arm: str = "all", demo: bool = False) -> dict[str, Any]:
+    """Paris ouverts et réglés, chaque ligne avec son `arm`."""
+    config = _prediction_config()
+    # Configuration effective : un fork créé depuis le site a aussi ses paris.
+    effective = config if demo else prediction_overlay.effective_config(config, settings.PREDICTION_DATA_DIR)
+    known = [entry["name"] for entry in effective["arms"]]
+    if arm != "all" and arm not in known:
+        raise HTTPException(status_code=404, detail=f"bras inconnu : {arm}")
+    bets = []
+    for name in (known if arm == "all" else [arm]):
+        store = BetStore(_prediction_dir(demo), name)
+        for row in store.settled() + store.open_bets():
+            row["arm"] = name
+            row["exemple_fictif"] = demo
+            bets.append(row)
+    bets.sort(key=lambda r: r.get("entry_time") or "")
+    return {"exemple_fictif": demo, "arm": arm, "total": len(bets), "bets": bets}
+
+
+@app.get("/api/prediction/prices")
+def get_prediction_prices(coin: str, demo: bool = False) -> dict[str, Any]:
+    """Série de prix d'une pièce `#N`, pour tracer un pari sur son graphique."""
+    match = _COIN_PATTERN.match(coin)
+    if not match:
+        # Le nom sert à construire un chemin : seuls des chiffres passent.
+        raise HTTPException(status_code=400, detail="pièce invalide")
+    path = os.path.join(_prediction_dir(demo), "prices", f"{match.group(1)}.jsonl")
+    points = [{"t": row.get("t"), "mid": row.get("mid")} for row in _read_jsonl(path)
+              if row.get("t") and row.get("mid") is not None]
+    return {"exemple_fictif": demo, "coin": f"#{match.group(1)}", "points": points}
+
+
+@app.get("/api/prediction/coherence")
+def get_prediction_coherence(limit: int = 100, demo: bool = False) -> dict[str, Any]:
+    rows = _read_jsonl(os.path.join(_prediction_dir(demo), "coherence.jsonl"))
+    return {"exemple_fictif": demo, "arm": "pm_coherence", "total": len(rows),
+            "rows": rows[-max(1, min(limit, 500)):]}
+
+
+@app.get("/api/prediction/requests")
+def get_prediction_requests() -> dict[str, Any]:
+    """Demandes de modification déposées depuis le site, avec leur sort."""
+    rows = prediction_overlay.request_status(settings.PREDICTION_DATA_DIR)
+    return {"total": len(rows), "requests": rows,
+            "bornes": prediction_overlay.BOUNDS, "max_forks": prediction_overlay.MAX_FORKS}
+
+
+@app.post("/api/prediction/requests")
+def post_prediction_request(
+    payload: dict[str, Any] = Body(...),
+    authorization: Optional[str] = Header(default=None),
+    x_cryptobbot: Optional[str] = Header(default=None),
+    content_type: Optional[str] = Header(default=None),
+) -> dict[str, Any]:
+    """Dépose UNE demande (activer/désactiver un bras, créer un fork).
+
+    SEULE route d'écriture de cette API (ADR 017). Elle n'écrit que dans sa
+    boîte de demandes : c'est la simulation, propriétaire de ses fichiers,
+    qui valide et applique au cycle suivant. Bras PAPIER de prédiction
+    uniquement ; rien ici ne touche la boucle memecoin.
+
+    L'en-tête `X-CryptobBot` et le type JSON obligent un navigateur à
+    demander la permission (preflight) : une page web tierce ne peut pas
+    poster ici, le CORS n'autorisant que GET.
+    """
+    _require_token(None, authorization)
+    if x_cryptobbot != "1" or not (content_type or "").lower().startswith("application/json"):
+        raise HTTPException(status_code=400, detail="en-tête X-CryptobBot ou type JSON manquant")
+    action = payload.get("action")
+    if action == "toggle":
+        request = {"action": "toggle", "arm": str(payload.get("arm") or ""),
+                   "enabled": bool(payload.get("enabled"))}
+    elif action == "fork":
+        request = {"action": "fork", "parent": str(payload.get("parent") or ""),
+                   "name": str(payload.get("name") or ""), "variable": payload.get("variable"),
+                   "value": payload.get("value")}
+        # Contrôle immédiat pour répondre tout de suite ; la simulation
+        # revalide de toute façon avant d'appliquer.
+        config = prediction_overlay.effective_config(_prediction_config(), settings.PREDICTION_DATA_DIR)
+        _, reason = prediction_overlay.build_fork(config["arms"], request, datetime.now(timezone.utc))
+        if reason:
+            raise HTTPException(status_code=422, detail=reason)
+    else:
+        raise HTTPException(status_code=422, detail="action inconnue")
+    pending = [r for r in prediction_overlay.request_status(settings.PREDICTION_DATA_DIR, 500)
+               if r["statut"] == "en attente"]
+    if len(pending) >= 20:
+        raise HTTPException(status_code=429, detail="trop de demandes en attente : la simulation tourne-t-elle ?")
+    request["id"] = f"{int(time.time() * 1000)}-{secrets.token_hex(3)}"
+    request["t"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    _append_jsonl(prediction_overlay.requests_path(settings.PREDICTION_DATA_DIR), request)
+    return {"ok": True, "id": request["id"], "statut": "en attente",
+            "note": "appliquée au prochain cycle de la simulation"}
+
+
+@app.get("/api/prediction/markets")
+def get_prediction_markets(demo: bool = False) -> dict[str, Any]:
+    """Tous les marchés de prédiction vus au dernier cycle, rangés par famille
+    et par domaine. C'est un relevé de prix, pas un résultat de bras."""
+    data = _read_json(os.path.join(_prediction_dir(demo), "catalogue.json")) or {}
+    markets = data.get("markets") if isinstance(data.get("markets"), list) else []
+    return {"exemple_fictif": demo, "updated_at_iso": data.get("updated_at_iso"),
+            "total": len(markets), "markets": markets}
+
+
+@app.get("/api/liquid/perps")
+def get_liquid_perps() -> dict[str, Any]:
+    """Marchés à terme (perpétuels) de Liquid relevés au dernier cycle.
+    Affichage seul : aucun bras ne les trade."""
+    data = _read_json(os.path.join(settings.PREDICTION_DATA_DIR, "perps.json")) or {}
+    markets = data.get("markets") if isinstance(data.get("markets"), list) else []
+    return {"updated_at_iso": data.get("updated_at_iso"), "total": len(markets),
+            "markets": markets}
 
 
 @app.get("/api/metrics")
