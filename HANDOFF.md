@@ -34,19 +34,24 @@ bras rangés par famille, et les suivre dans l'espace « Liquid » du site
 - Source de cotes pour `pm_sport_reference`.
 - Bras papier sur perpétuels : pas décidé, aujourd'hui affichage seul.
 
-## État sur le Mac mini (2026-11-16, 15:20 UTC)
-- PR n° 10 NON fusionnée : `main` et le site du port 8000 n'ont pas l'espace Liquid.
-- Copie à part `~/Projects/CryptobBot-liquid` (worktree de la branche) : la
-  simulation y tourne (`scripts/run_prediction.py`, journal dans
-  `data/prediction/runner.log`) et un aperçu du site est servi sur
-  http://127.0.0.1:8001. Les deux s'arrêtent au redémarrage du Mac.
-- Premier cycle réel : 55 paris papier ouverts, aucun réglé.
-- Le journal d'incohérences contient encore des artefacts de marchés non cotés
-  affichés vers 49 % : à filtrer par lecture du carnet avant d'en tirer un bras.
+## État sur le Mac mini (2026-11-16, 15:52 UTC)
+- PR n° 10 fusionnée par Killian ; dépôt principal à jour (`8d6eaa2`).
+- Port 8000 (`scripts/run_ui.py`) : espaces Memecoins et Liquid servis ensemble.
+  Ancien site gardé dans `dashboard/dist.avant-liquid-20261116`.
+- `scripts/run_prediction.py` tourne depuis le dépôt principal, données dans
+  `data/prediction/`. Lancé à la main : ne redémarre pas seul avec le Mac.
+- Sauvegarde avant bascule : `backups/20261116-164918`.
+- Relevé à 15:49 UTC : 65 paris papier ouverts, 15 réglés (tous en seuils
+  crypto, 4 au plus par bras), 4 indéterminés. Aucun chiffre à annoncer.
+- Vault Obsidian : notes générées dans `CryptoBot/Liquid/`, analyse dans
+  `CryptoBot/Liquid — analyse 2026-11-16.md`.
+
+## Constats à trancher
+- Plafond de 5 paris ouverts par domaine : le sport est plein (333 refus
+  « exposition_max » au dernier cycle).
+- Killian trouve l'écran Liquid peu clair : définir ce qui s'affiche en premier.
+- Faux signaux restants dans le journal d'incohérences (marchés non cotés vers 49 %).
 
 ## Prochaine action
-Killian fusionne la PR n° 10. Ensuite : `git pull` dans `~/Projects/CryptobBot`,
-`cd dashboard && npm ci && npm run build`, déplacer
-`CryptobBot-liquid/data/prediction` vers `CryptobBot/data/prediction`,
-relancer `scripts/run_ui.py` et `scripts/run_prediction.py` depuis le dépôt
-principal. Aucun chiffre à annoncer avant 30 paris réglés par bras, ni sans le juge.
+Refonte de l'écran d'accueil Liquid selon la réponse de Killian. Aucun chiffre
+à annoncer avant 30 paris réglés par bras, ni sans le juge.
