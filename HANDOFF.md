@@ -32,6 +32,19 @@ bras rangés par famille, et les suivre dans l'espace « Liquid » du site
 - Source de cotes pour `pm_sport_reference`.
 - Bras papier sur perpétuels : pas décidé, aujourd'hui affichage seul.
 
+## État sur le Mac mini (2026-11-16, 15:20 UTC)
+- PR n° 10 NON fusionnée : `main` et le site du port 8000 n'ont pas l'espace Liquid.
+- Copie à part `~/Projects/CryptobBot-liquid` (worktree de la branche) : la
+  simulation y tourne (`scripts/run_prediction.py`, journal dans
+  `data/prediction/runner.log`) et un aperçu du site est servi sur
+  http://127.0.0.1:8001. Les deux s'arrêtent au redémarrage du Mac.
+- Premier cycle réel : 55 paris papier ouverts, aucun réglé.
+- Le journal d'incohérences contient encore des artefacts de marchés non cotés
+  affichés vers 49 % : à filtrer par lecture du carnet avant d'en tirer un bras.
+
 ## Prochaine action
-Laisser tourner `scripts/run_prediction.py` jusqu'à 30 paris réglés par bras.
-Aucun chiffre à annoncer avant, ni sans le juge.
+Killian fusionne la PR n° 10. Ensuite : `git pull` dans `~/Projects/CryptobBot`,
+`cd dashboard && npm ci && npm run build`, déplacer
+`CryptobBot-liquid/data/prediction` vers `CryptobBot/data/prediction`,
+relancer `scripts/run_ui.py` et `scripts/run_prediction.py` depuis le dépôt
+principal. Aucun chiffre à annoncer avant 30 paris réglés par bras, ni sans le juge.
