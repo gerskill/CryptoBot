@@ -18,16 +18,30 @@ d'exploitable », ne pas lancer la boucle : le format a changé.
 
 ## Les bras (`config/prediction_arms.json`)
 
-| bras | rôle | ce qu'il fait |
-|---|---|---|
-| `pm_temoin` | témoin | achète le favori, tous domaines, sans estimation |
-| `pm_coherence` | observateur | journalise les incohérences, ne parie pas |
-| `pm_vol_edge` | parieur | seuil crypto, distribution empirique des variations |
-| `pm_vol_normal` | parieur | fork : loi log-normale au lieu de l'empirique |
-| `pm_cloture_actions` | parieur | fork : actions et indices au lieu de crypto |
-| `pm_barriere` | parieur | marchés « touche », principe de réflexion |
-| `pm_sport_reference` | désactivé | attend une source de cotes externe |
-| `pm_consensus` | consensus | entre si deux bras parieurs sont d'accord |
+| famille | bras | rôle | ce qu'il fait |
+|---|---|---|---|
+| transverse | `pm_temoin` | témoin | achète le favori (50–95 %), tous domaines, sans estimation |
+| transverse | `pm_coherence` | observateur | journalise les incohérences, ne parie pas |
+| transverse | `pm_consensus` | consensus | entre si deux bras estimateurs sont d'accord |
+| prix | `pm_vol_edge` | estimateur | seuil crypto, distribution empirique des variations |
+| prix | `pm_vol_normal` | estimateur | fork : loi log-normale au lieu de l'empirique |
+| prix | `pm_cloture_actions` | estimateur | fork : actions et indices au lieu de crypto |
+| prix | `pm_matieres` | estimateur | fork : or, argent, pétrole au lieu de crypto |
+| prix | `pm_barriere` | estimateur | marchés « touche », principe de réflexion |
+| sport | `pm_sport_favori` | règle fixe | match : achète le côté coté 60–90 % avant le coup d'envoi |
+| sport | `pm_sport_outsider` | règle fixe | fork : achète le côté coté 10–40 % |
+| sport | `pm_sport_reference` | désactivé | attend une source de cotes externe |
+| questions | `pm_question_favori` | règle fixe | taux, introduction en bourse : côté coté 60–95 %, échéance < 30 j |
+| pourcentages | `pm_quasi_certain` | règle fixe | fork du témoin : tranche 90–97 % |
+| pourcentages | `pm_pile_ou_face` | règle fixe | fork du témoin : tranche 50–60 % |
+
+Architecture et raisons : `docs/adr/016-…`. Les vainqueurs de tournoi et les
+tranches de prix sont relevés mais jamais pariés.
+
+Fichiers écrits dans `data/prediction/` à chaque cycle : `state.json`,
+`catalogue.json` (tous les marchés et leurs prix), `perps.json` (marchés à
+terme, affichage seul), `coherence.jsonl`, et toutes les 15 minutes
+`snapshots/AAAA-MM-JJ.jsonl` (prix de tous les marchés).
 
 Capital fictif 1 000 $ par bras, mise 2 %, plafond 10 % par domaine, un seul
 pari par marché et par bras.

@@ -1,19 +1,33 @@
 {
-  "version": "1.0",
-  "_note": "Bras PAPIER des marchés de prédiction Liquid (Hyperliquid HIP-4). Aucun capital réel. Lu par scripts/run_prediction.py, jamais par la boucle memecoin.",
+  "version": "2.0",
+  "_note": "Bras PAPIER des marchés de prédiction Liquid (Hyperliquid HIP-4). Aucun capital réel. Lu par scripts/run_prediction.py, jamais par la boucle memecoin. Architecture : docs/adr/016.",
   "capital_fictif_usd": 1000,
   "mise_pct": 0.02,
-  "exposition_max_pct_par_domaine": 0.10,
+  "exposition_max_pct_par_domaine": 0.1,
   "frais_pct": 0.009,
   "frais_reglement_pct": 0.009,
   "_note_frais": "0,90 % à l'achat : annoncé par Liquid le 2026-11-16. 0,90 % au règlement : NON confirmé, compté par prudence. Mettre 0 seulement après vérification dans la documentation Liquid.",
   "min_paris_verdict": 30,
+  "instantane_minutes": 15,
+  "perps_dex": [
+    "",
+    "xyz"
+  ],
+  "_note_tournois": "Les marchés « vainqueur du tournoi » (sport_tournoi) et les tranches de prix (tranche_prix) sont relevés et surveillés par pm_coherence mais jamais pariés : règlement en 2027 pour les premiers, ordre des tranches non documenté pour les secondes.",
   "arms": [
     {
       "name": "pm_temoin",
       "role": "temoin",
+      "famille": "transverse",
       "enabled": true,
-      "domaines": ["crypto_seuil", "actions_seuil", "barriere", "sport_evenement"],
+      "domaines": [
+        "crypto_seuil",
+        "actions_seuil",
+        "matieres_seuil",
+        "barriere",
+        "sport_match",
+        "evenement"
+      ],
       "prix_min": 0.5,
       "prix_max": 0.95,
       "min_minutes": 3,
@@ -23,15 +37,42 @@
     {
       "name": "pm_coherence",
       "role": "observateur",
+      "famille": "transverse",
       "enabled": true,
-      "domaines": ["crypto_seuil", "actions_seuil", "barriere", "sport_evenement"],
-      "description": "Ne parie pas. Journalise les incohérences : issues exclusives dont les prix vendeurs somment sous 100 % frais compris, échelles de seuils non monotones."
+      "domaines": [
+        "crypto_seuil",
+        "actions_seuil",
+        "matieres_seuil",
+        "barriere",
+        "sport_match",
+        "evenement",
+        "sport_tournoi",
+        "tranche_prix"
+      ],
+      "description": "Ne parie pas. Journalise trois incohérences : issues exclusives dont la somme s'écarte de 100 %, échelles de seuils non monotones, même marché coté à deux prix sur deux déployeurs."
+    },
+    {
+      "name": "pm_consensus",
+      "role": "consensus",
+      "famille": "transverse",
+      "enabled": true,
+      "domaines": [
+        "crypto_seuil",
+        "actions_seuil",
+        "matieres_seuil",
+        "barriere"
+      ],
+      "min_confluence": 2,
+      "description": "N'entre que si au moins deux bras parieurs acceptent le même côté du même marché dans le même cycle. Son propre vote ne compte pas."
     },
     {
       "name": "pm_vol_edge",
       "role": "parieur",
+      "famille": "prix",
       "enabled": true,
-      "domaines": ["crypto_seuil"],
+      "domaines": [
+        "crypto_seuil"
+      ],
       "estimateur": "empirique",
       "intervalle": "1m",
       "bougies": 4320,
@@ -43,8 +84,13 @@
     {
       "name": "pm_vol_normal",
       "role": "parieur",
+      "famille": "prix",
       "enabled": true,
-      "domaines": ["crypto_seuil"],
+      "parent": "pm_vol_edge",
+      "variable": "estimateur",
+      "domaines": [
+        "crypto_seuil"
+      ],
       "estimateur": "lognormal",
       "intervalle": "1m",
       "bougies": 4320,
@@ -56,8 +102,13 @@
     {
       "name": "pm_cloture_actions",
       "role": "parieur",
+      "famille": "prix",
       "enabled": true,
-      "domaines": ["actions_seuil"],
+      "parent": "pm_vol_edge",
+      "variable": "domaines",
+      "domaines": [
+        "actions_seuil"
+      ],
       "estimateur": "empirique",
       "intervalle": "1m",
       "bougies": 4320,
@@ -67,10 +118,31 @@
       "description": "Fork de pm_vol_edge, une seule variable changée : la classe d'actif (actions et indices). Ne parie pas si les bougies du sous-jacent sont introuvables."
     },
     {
+      "name": "pm_matieres",
+      "role": "parieur",
+      "famille": "prix",
+      "enabled": true,
+      "parent": "pm_vol_edge",
+      "variable": "domaines",
+      "domaines": [
+        "matieres_seuil"
+      ],
+      "estimateur": "empirique",
+      "intervalle": "1m",
+      "bougies": 4320,
+      "edge_min": 0.05,
+      "min_minutes": 3,
+      "max_jours": 1,
+      "description": "Fork de pm_vol_edge, une seule variable changée : la classe d'actif (or, argent, pétrole)."
+    },
+    {
       "name": "pm_barriere",
       "role": "parieur",
+      "famille": "prix",
       "enabled": true,
-      "domaines": ["barriere"],
+      "domaines": [
+        "barriere"
+      ],
       "estimateur": "touche",
       "intervalle": "1h",
       "bougies": 720,
@@ -80,20 +152,106 @@
       "description": "Marchés « touche X ». Probabilité de toucher ≈ 2 × probabilité de finir au-delà. Parie des deux côtés selon l'espérance nette."
     },
     {
+      "name": "pm_sport_favori",
+      "role": "regle",
+      "famille": "sport",
+      "enabled": true,
+      "domaines": [
+        "sport_match"
+      ],
+      "cote": "favori",
+      "prix_min": 0.6,
+      "prix_max": 0.9,
+      "min_minutes": 10,
+      "max_jours": 7,
+      "description": "Matchs. Achète le côté coté entre 60 % et 90 %, avant le coup d'envoi. Hypothèse à tester : les favoris sont légèrement sous-cotés (biais favori-outsider). Aucune estimation maison."
+    },
+    {
+      "name": "pm_sport_outsider",
+      "role": "regle",
+      "famille": "sport",
+      "enabled": true,
+      "parent": "pm_sport_favori",
+      "variable": "cote",
+      "domaines": [
+        "sport_match"
+      ],
+      "cote": "outsider",
+      "prix_min": 0.1,
+      "prix_max": 0.4,
+      "min_minutes": 10,
+      "max_jours": 7,
+      "description": "Fork de pm_sport_favori, une seule variable changée : le côté acheté (celui coté entre 10 % et 40 %). Si le biais existe, ce bras doit perdre plus que le favori."
+    },
+    {
       "name": "pm_sport_reference",
       "role": "parieur",
+      "famille": "sport",
       "enabled": false,
-      "domaines": ["sport_evenement"],
+      "domaines": [
+        "sport_match"
+      ],
       "estimateur": "cotes_externes",
       "description": "Désactivé : aucune source de cotes de référence n'est branchée. Aucune estimation maison sur le sport."
     },
     {
-      "name": "pm_consensus",
-      "role": "consensus",
+      "name": "pm_question_favori",
+      "role": "regle",
+      "famille": "questions",
       "enabled": true,
-      "domaines": ["crypto_seuil", "actions_seuil", "barriere"],
-      "min_confluence": 2,
-      "description": "N'entre que si au moins deux bras parieurs acceptent le même côté du même marché dans le même cycle. Son propre vote ne compte pas."
+      "domaines": [
+        "evenement"
+      ],
+      "cote": "favori",
+      "prix_min": 0.6,
+      "prix_max": 0.95,
+      "min_minutes": 60,
+      "max_jours": 30,
+      "description": "Questions d'actualité (décision de taux, introduction en bourse). Achète le côté coté entre 60 % et 95 % quand l'échéance est à moins de 30 jours. Aucune estimation maison."
+    },
+    {
+      "name": "pm_quasi_certain",
+      "role": "regle",
+      "famille": "pourcentages",
+      "enabled": true,
+      "parent": "pm_temoin",
+      "variable": "prix_min/prix_max",
+      "domaines": [
+        "crypto_seuil",
+        "actions_seuil",
+        "matieres_seuil",
+        "barriere",
+        "sport_match",
+        "evenement"
+      ],
+      "cote": "favori",
+      "prix_min": 0.9,
+      "prix_max": 0.97,
+      "min_minutes": 3,
+      "max_jours": 7,
+      "description": "Fork de pm_temoin, une seule variable changée : la tranche de prix (90 % à 97 %). Teste si le « presque sûr » rapporte encore quelque chose une fois les frais payés."
+    },
+    {
+      "name": "pm_pile_ou_face",
+      "role": "regle",
+      "famille": "pourcentages",
+      "enabled": true,
+      "parent": "pm_temoin",
+      "variable": "prix_min/prix_max",
+      "domaines": [
+        "crypto_seuil",
+        "actions_seuil",
+        "matieres_seuil",
+        "barriere",
+        "sport_match",
+        "evenement"
+      ],
+      "cote": "favori",
+      "prix_min": 0.5,
+      "prix_max": 0.6,
+      "min_minutes": 3,
+      "max_jours": 7,
+      "description": "Fork de pm_temoin, une seule variable changée : la tranche de prix (50 % à 60 %). Mesure ce que coûtent les frais quand le marché ne sait pas."
     }
   ]
 }

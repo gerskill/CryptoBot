@@ -1,7 +1,10 @@
 import { create } from 'zustand'
 import type { BotState, Trade } from './types'
 
-export type View = 'dashboard' | 'live' | 'weekly' | 'config' | 'backtester' | 'liquid'
+export type View = 'dashboard' | 'live' | 'weekly' | 'config' | 'backtester'
+/** Les deux espaces du site : le bot memecoins et Liquid. Chacun a ses onglets. */
+export type Space = 'memecoins' | 'liquid'
+export type LiquidView = 'apercu' | 'predictions' | 'marches' | 'paris' | 'incoherences'
 
 /**
  * État du dashboard. Le WebSocket pousse l'état du bot ; les trades et les
@@ -19,12 +22,19 @@ type Store = {
   shadow: { total: number; missed: number; missed_rate: number }
   connected: boolean
   view: View
+  space: Space
+  liquidView: LiquidView
+  /** Exemple fictif affiché à la place des données réelles (espace Liquid). */
+  liquidDemo: boolean
   setState: (state: BotState) => void
   setTrades: (trades: Trade[]) => void
   setEquitySeries: (series: number[]) => void
   setShadow: (shadow: Store['shadow']) => void
   setConnected: (connected: boolean) => void
   setView: (view: View) => void
+  setSpace: (space: Space) => void
+  setLiquidView: (liquidView: LiquidView) => void
+  setLiquidDemo: (liquidDemo: boolean) => void
 }
 
 export const useStore = create<Store>((set) => ({
@@ -34,10 +44,16 @@ export const useStore = create<Store>((set) => ({
   shadow: { total: 0, missed: 0, missed_rate: 0 },
   connected: false,
   view: 'dashboard',
+  space: 'memecoins',
+  liquidView: 'apercu',
+  liquidDemo: false,
   setState: (state) => set({ state }),
   setTrades: (trades) => set({ trades }),
   setEquitySeries: (equitySeries) => set({ equitySeries }),
   setShadow: (shadow) => set({ shadow }),
   setConnected: (connected) => set({ connected }),
   setView: (view) => set({ view }),
+  setSpace: (space) => set({ space }),
+  setLiquidView: (liquidView) => set({ liquidView }),
+  setLiquidDemo: (liquidDemo) => set({ liquidDemo }),
 }))

@@ -110,6 +110,9 @@ class BetStore:
         return {b["outcome"] for b in self.open_bets() + self.settled() if "outcome" in b}
 
 
+TRANCHES_PRIX = ((0.0, 0.2), (0.2, 0.4), (0.4, 0.6), (0.6, 0.8), (0.8, 1.01))
+
+
 def compute_stats(settled: list[dict[str, Any]], capital: float, min_bets: int) -> dict[str, Any]:
     """Chiffres d'un bras, sur les paris RÉGLÉS seulement.
 
@@ -137,8 +140,29 @@ def compute_stats(settled: list[dict[str, Any]], capital: float, min_bets: int) 
             return None
         return sum((p - (1.0 if won else 0.0)) ** 2 for p, won in pairs) / len(pairs)
 
+    # Calibration : dans chaque tranche de prix payé, quelle part a gagné ?
+    # Un marché bien réglé gagne à peu près aussi souvent que son prix.
+    calibration = []
+    for low, high in TRANCHES_PRIX:
+        band = [b for b in decided if low <= float(b.get("entry_price") or 0) < high]
+        calibration.append({
+            "tranche": f"{round(low * 100)}–{round(min(high, 1) * 100)} %",
+            "paris": len(band),
+            "prix_moyen": (sum(float(b["entry_price"]) for b in band) / len(band)) if band else None,
+            "part_gagnee": (sum(1 for b in band if b.get("won")) / len(band)) if band else None,
+            "pnl_net": round(sum(float(b["pnl_net"]) for b in band), 4),
+        })
+    par_domaine: dict[str, dict[str, Any]] = {}
+    for b in decided:
+        row = par_domaine.setdefault(b.get("domain") or "inconnu", {"paris": 0, "gagnes": 0, "pnl_net": 0.0})
+        row["paris"] += 1
+        row["gagnes"] += 1 if b.get("won") else 0
+        row["pnl_net"] = round(row["pnl_net"] + float(b["pnl_net"]), 4)
+
     count = len(decided)
     return {
+        "calibration": calibration,
+        "par_domaine": par_domaine,
         "paris_regles": count,
         "paris_indetermines": sum(1 for b in settled if b.get("status") == "indetermine"),
         "gagnes": sum(1 for b in decided if b.get("won")),

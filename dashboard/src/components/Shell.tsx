@@ -3,7 +3,8 @@ import { motion } from 'framer-motion'
 import { useStore } from '../lib/store'
 import { usd, pct, pnlColor } from '../lib/format'
 import { usePulse } from '../lib/useLiveState'
-import { NavBar } from './NavBar'
+import { NavBar, SpaceSwitch } from './NavBar'
+import { LiquidHero } from './liquid/LiquidHero'
 
 /** Compte à rebours jusqu'au prochain scan. */
 function ScanClock() {
@@ -82,6 +83,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const cycle = useStore((s) => s.state.cycle)
   const agg = useStore((s) => s.state.aggregate)
   const positions = useStore((s) => s.state.positions)
+  const space = useStore((s) => s.space)
 
   // LE CHIFFRE HÉROÏQUE EST CELUI DE LA FLOTTE, PAS DU SEUL TÉMOIN.
   // `stats` décrit uniquement le bras `baseline` : il affichait 822 $ pendant
@@ -108,6 +110,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-full">
       <header className="sticky top-0 z-20 border-b border-edge/60 bg-void/80 backdrop-blur-xl">
+        <div className="mx-auto max-w-[1800px] px-5 pt-3">
+          <SpaceSwitch />
+        </div>
+        {space === 'liquid' ? <LiquidHero /> : (
         <div className="mx-auto flex max-w-[1800px] flex-wrap items-end justify-between gap-4 px-5 py-3">
           <div className="flex items-end gap-6">
             <div>
@@ -172,6 +178,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </span>
           </div>
         </div>
+        )}
       </header>
 
       <NavBar />

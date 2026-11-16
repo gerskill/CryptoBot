@@ -424,6 +424,26 @@ def get_prediction_coherence(limit: int = 100, demo: bool = False) -> dict[str, 
             "rows": rows[-max(1, min(limit, 500)):]}
 
 
+@app.get("/api/prediction/markets")
+def get_prediction_markets(demo: bool = False) -> dict[str, Any]:
+    """Tous les marchés de prédiction vus au dernier cycle, rangés par famille
+    et par domaine. C'est un relevé de prix, pas un résultat de bras."""
+    data = _read_json(os.path.join(_prediction_dir(demo), "catalogue.json")) or {}
+    markets = data.get("markets") if isinstance(data.get("markets"), list) else []
+    return {"exemple_fictif": demo, "updated_at_iso": data.get("updated_at_iso"),
+            "total": len(markets), "markets": markets}
+
+
+@app.get("/api/liquid/perps")
+def get_liquid_perps() -> dict[str, Any]:
+    """Marchés à terme (perpétuels) de Liquid relevés au dernier cycle.
+    Affichage seul : aucun bras ne les trade."""
+    data = _read_json(os.path.join(settings.PREDICTION_DATA_DIR, "perps.json")) or {}
+    markets = data.get("markets") if isinstance(data.get("markets"), list) else []
+    return {"updated_at_iso": data.get("updated_at_iso"), "total": len(markets),
+            "markets": markets}
+
+
 @app.get("/api/metrics")
 def get_metrics() -> PlainTextResponse:
     """Métriques de supervision au format texte Prometheus.

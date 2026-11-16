@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src import settings  # noqa: E402
 from src.prediction import estimators  # noqa: E402
-from src.prediction.markets import parse_expiry, parse_outcome_meta  # noqa: E402
+from src.prediction.markets import parse_expiry, parse_outcome_meta, settled_outcomes  # noqa: E402
 from src.prediction.paper import BetStore, compute_stats, net_pnl, simulate_entry  # noqa: E402
 from src.prediction.runner import PredictionRunner  # noqa: E402
 
@@ -41,7 +41,7 @@ def make_config(arms):
 
 
 TEMOIN = {"name": "pm_temoin", "role": "temoin", "enabled": True,
-          "domaines": ["crypto_seuil", "sport_evenement"], "prix_min": 0.5, "prix_max": 0.95,
+          "domaines": ["crypto_seuil", "sport_match", "evenement"], "prix_min": 0.5, "prix_max": 0.95,
           "min_minutes": 3, "max_jours": 7}
 VOL = {"name": "pm_vol_edge", "role": "parieur", "enabled": True, "domaines": ["crypto_seuil"],
        "estimateur": "empirique", "intervalle": "1m", "bougies": 300, "edge_min": 0.05,
@@ -110,11 +110,82 @@ class TestLectureDesMarches(unittest.TestCase):
         by_id = {m.outcome: m for m in parse_outcome_meta(meta)}
         self.assertFalse(by_id[1].is_fallback)
         self.assertTrue(by_id[2].is_fallback)
-        self.assertEqual(by_id[1].domain, "sport_evenement")
+        self.assertEqual(by_id[2].domain, "autre")
 
     def test_une_reponse_vide_ou_mal_formee_donne_zero_marche_sans_planter(self):
         self.assertEqual(parse_outcome_meta(None), [])
         self.assertEqual(parse_outcome_meta({"outcomes": [{"name": "sans identifiant"}]}), [])
+
+
+FIXTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "fixtures", "outcome_meta_2026-11-16.json")
+
+
+def vraie_reponse():
+    with open(FIXTURE, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+class TestFormesReellesDeLApi(unittest.TestCase):
+    """Verrouille la lecture sur un extrait de la réponse réelle du 2026-11-16.
+
+    La première version ne lisait que l'écriture `class:priceBinary` : sur
+    l'API réelle elle voyait 4 marchés sur 309.
+    """
+
+    def setUp(self):
+        self.by_id = {m.outcome: m for m in parse_outcome_meta(vraie_reponse())}
+
+    def test_un_seuil_ecrit_en_modele_binaryPrice_est_lu_avec_son_seuil_et_son_echeance(self):
+        market = self.by_id[34367]
+        self.assertEqual((market.domain, market.underlying, market.target), ("crypto_seuil", "BTC", 66000))
+        self.assertEqual(market.expiry, datetime(2026, 11, 20, 8, 0, tzinfo=timezone.utc))
+        self.assertEqual(market.venue, "skew")
+
+    def test_une_piece_xyz_n_est_jamais_rangee_en_crypto(self):
+        self.assertEqual(self.by_id[36884].domain, "actions_seuil")
+        self.assertEqual(self.by_id[36884].underlying, "xyz:NVDA")
+        self.assertEqual(self.by_id[36884].symbol, "NVDA")
+        self.assertEqual(self.by_id[23733].domain, "matieres_seuil")
+
+    def test_un_marche_touche_est_une_barriere(self):
+        self.assertEqual((self.by_id[22093].domain, self.by_id[22093].target), ("barriere", 100))
+
+    def test_les_issues_d_un_match_portent_le_match_le_coup_d_envoi_et_la_meme_question(self):
+        ireland, nul = self.by_id[35431], self.by_id[35432]
+        self.assertEqual(ireland.domain, "sport_match")
+        self.assertEqual(ireland.title, "Ireland vs Kosovo — UEFA Nations League — Ireland")
+        self.assertEqual(nul.label, "Nul")
+        self.assertEqual(ireland.question, nul.question)
+        self.assertEqual(ireland.start, datetime(2026, 11, 17, 19, 45, tzinfo=timezone.utc))
+
+    def test_deux_questions_de_meme_modele_ne_sont_pas_confondues(self):
+        self.assertNotEqual(self.by_id[35431].question, self.by_id[1473].question)
+
+    def test_un_match_a_deux_cotes_nomme_ses_cotes_par_les_equipes(self):
+        self.assertEqual([s.name for s in self.by_id[35446].sides], ["DEN", "PHX"])
+        self.assertEqual(self.by_id[35446].domain, "sport_match")
+
+    def test_tournoi_taux_et_introduction_en_bourse_ont_chacun_leur_domaine(self):
+        self.assertEqual(self.by_id[1473].domain, "sport_tournoi")
+        self.assertEqual(self.by_id[19989].domain, "evenement")
+        self.assertEqual(self.by_id[19989].label, "baisse")
+        self.assertEqual((self.by_id[19821].domain, self.by_id[19821].target), ("evenement", 1500))
+
+    def test_tous_les_replis_sont_marques_meme_sans_passer_par_la_question(self):
+        for outcome in (35430, 1472, 19987, 37240):
+            self.assertTrue(self.by_id[outcome].is_fallback, outcome)
+
+    def test_aucun_marche_reel_de_l_extrait_ne_reste_sans_domaine(self):
+        sans = [m.outcome for m in self.by_id.values() if m.domain == "autre" and not m.is_fallback]
+        self.assertEqual(sans, [])
+
+    def test_un_modele_inconnu_est_range_en_autre_et_pas_devine(self):
+        meta = {"outcomes": [{"outcome": 9, "name": "template:meteoDemain", "description": "ville:Lausanne"}]}
+        self.assertEqual(parse_outcome_meta(meta)[0].domain, "autre")
+
+    def test_sans_reglement_officiel_aucune_issue_n_est_declaree(self):
+        self.assertEqual(settled_outcomes(vraie_reponse()), {})
 
 
 class TestEntreeAuCarnet(unittest.TestCase):
@@ -227,6 +298,95 @@ class TestCycle(PredictionTestCase):
         self.assertEqual(len(BetStore(self.tmp, "pm_temoin").open_bets()), 1)
 
 
+class TestBrasParCategorie(PredictionTestCase):
+    SPORT = {"name": "pm_sport_favori", "role": "regle", "enabled": True, "domaines": ["sport_match"],
+             "cote": "favori", "prix_min": 0.6, "prix_max": 0.9, "min_minutes": 10, "max_jours": 7}
+
+    def test_un_marche_affiche_a_50_avec_un_carnet_vide_au_milieu_n_est_pas_achete(self):
+        # Relevé réel : milieu 0,50, carnet 0,0101 / 0,9899.
+        api = FakeApi(make_meta(), {"#1040": 0.5, "#1041": 0.5},
+                      books={"#1040": {"bids": [(0.0101, 200)], "asks": [(0.9899, 200)]}})
+        result = self.runner(api, [TEMOIN]).cycle()
+        self.assertEqual(BetStore(self.tmp, "pm_temoin").open_bets(), [])
+        self.assertEqual(result["raisons"].get("pm_temoin:carnet_trop_large"), 1)
+
+    def test_le_bras_sport_ne_parie_que_sur_le_sport_et_avant_le_coup_d_envoi(self):
+        mids = {"#354310": 0.70, "#354311": 0.30, "#343670": 0.70, "#343671": 0.30}
+        books = {"#354310": {"bids": [(0.69, 500)], "asks": [(0.71, 500)]},
+                 "#343670": {"bids": [(0.69, 500)], "asks": [(0.71, 500)]}}
+        self.runner(FakeApi(vraie_reponse(), mids, books=books), [self.SPORT]).cycle()
+        bets = BetStore(self.tmp, "pm_sport_favori").open_bets()
+        self.assertEqual([b["domain"] for b in bets], ["sport_match"])
+        self.assertEqual(bets[0]["famille"], "sport")
+        # Après le coup d'envoi (17 nov. 19:45 UTC) : plus d'entrée.
+        self.tmp = tempfile.mkdtemp()
+        self.clock[0] = datetime(2026, 11, 17, 20, 0, tzinfo=timezone.utc)
+        self.runner(FakeApi(vraie_reponse(), mids, books=books), [self.SPORT]).cycle()
+        self.assertEqual(BetStore(self.tmp, "pm_sport_favori").open_bets(), [])
+
+    def test_le_fork_outsider_achete_le_cote_le_moins_cher(self):
+        arm = dict(self.SPORT, name="pm_sport_outsider", cote="outsider", prix_min=0.1, prix_max=0.4)
+        api = FakeApi(vraie_reponse(), {"#354460": 0.78, "#354461": 0.22},
+                      books={"#354461": {"bids": [(0.21, 500)], "asks": [(0.23, 500)]}})
+        self.runner(api, [arm]).cycle()
+        bet = BetStore(self.tmp, "pm_sport_outsider").open_bets()[0]
+        self.assertEqual((bet["coin"], bet["side_name"]), ("#354461", "PHX"))
+
+    def test_une_action_xyz_prend_son_prix_dans_les_bougies_faute_de_prix_milieu(self):
+        self.clock[0] = datetime(2026, 11, 16, 20, 0, tzinfo=timezone.utc)
+        arm = dict(VOL, name="pm_cloture_actions", domaines=["actions_seuil"])
+        api = FakeApi(vraie_reponse(), {"#368840": 0.5, "#368841": 0.5},
+                      candles=flat_candles(157.5, 300, end=self.clock[0]))
+        result = self.runner(api, [arm]).cycle()
+        self.assertNotIn("pm_cloture_actions:prix_sous_jacent_absent", result["raisons"])
+
+    def test_le_catalogue_enregistre_tous_les_marches_sauf_les_replis(self):
+        self.runner(FakeApi(vraie_reponse(), {"#343670": 0.4}), []).cycle()
+        with open(os.path.join(self.tmp, "catalogue.json"), encoding="utf-8") as fh:
+            rows = json.load(fh)["markets"]
+        self.assertEqual(len(rows), 27)
+        self.assertEqual({r["famille"] for r in rows}, {"prix", "sport", "questions"})
+        btc = next(r for r in rows if r["outcome"] == 34367)
+        self.assertEqual(btc["sides"][0]["mid"], 0.4)
+
+    def test_l_instantane_des_prix_n_est_ecrit_qu_une_fois_par_intervalle(self):
+        runner = self.runner(FakeApi(vraie_reponse(), {"#343670": 0.4}), [])
+        self.assertTrue(runner.cycle()["instantane_ecrit"])
+        self.clock[0] = NOW + timedelta(minutes=1)
+        self.assertFalse(runner.cycle()["instantane_ecrit"])
+        self.clock[0] = NOW + timedelta(minutes=16)
+        self.assertTrue(runner.cycle()["instantane_ecrit"])
+
+
+class TestIncoherences(PredictionTestCase):
+    OBS = {"name": "pm_coherence", "role": "observateur", "enabled": True, "domaines": []}
+
+    def _lignes(self, mids):
+        self.runner(FakeApi(vraie_reponse(), mids), [self.OBS]).cycle()
+        path = os.path.join(self.tmp, "coherence.jsonl")
+        if not os.path.exists(path):
+            return []
+        with open(path, encoding="utf-8") as fh:
+            return [json.loads(line) for line in fh]
+
+    def test_un_match_dont_les_trois_issues_somment_a_100_n_est_pas_signale(self):
+        self.assertEqual(self._lignes({"#354310": 0.455, "#354320": 0.302, "#354330": 0.243}), [])
+
+    def test_un_match_dont_les_issues_somment_sous_100_est_signale_avec_son_libelle(self):
+        rows = self._lignes({"#354310": 0.40, "#354320": 0.25, "#354330": 0.20})
+        self.assertEqual([r["type"] for r in rows], ["somme_sous_100"])
+        self.assertEqual(rows[0]["libelle"], "Ireland vs Kosovo — UEFA Nations League")
+
+    def test_un_seuil_plus_haut_cote_plus_cher_qu_un_seuil_plus_bas_est_signale(self):
+        rows = self._lignes({"#198210": 0.30, "#198230": 0.45})
+        self.assertEqual([r["type"] for r in rows], ["echelle_non_monotone"])
+        self.assertEqual((rows[0]["seuil_bas"], rows[0]["seuil_haut"]), (1500, 2000))
+
+    def test_un_prix_a_50_sans_cotation_reelle_des_deux_cotes_ne_compte_pas_comme_ecart_de_venue(self):
+        # 19821 (skew) et 8573 (out) ont le même seuil mais pas la même échéance.
+        self.assertEqual(self._lignes({"#198210": 0.30, "#85730": 0.60}), [])
+
+
 class TestReglement(PredictionTestCase):
     def _pari_ouvert(self, candles=None):
         api = FakeApi(make_meta(), {"#1040": 0.80, "#1041": 0.20, "BTC": 64100},
@@ -286,6 +446,15 @@ class TestStatistiques(unittest.TestCase):
         stats = compute_stats(bets, 1000, 30)
         self.assertEqual(stats["drawdown_max_pct"], 4.0)
         self.assertAlmostEqual(stats["profit_factor"], 35 / 40)
+
+    def test_la_calibration_range_chaque_pari_dans_la_tranche_de_son_prix_paye(self):
+        bets = [dict(self._bet(4, True, 1), entry_price=0.85, domain="sport_match"),
+                dict(self._bet(-20, False, 2), entry_price=0.82, domain="sport_match"),
+                dict(self._bet(9, True, 3), entry_price=0.55, domain="crypto_seuil")]
+        stats = compute_stats(bets, 1000, 30)
+        haut = next(r for r in stats["calibration"] if r["tranche"] == "80–100 %")
+        self.assertEqual((haut["paris"], haut["part_gagnee"]), (2, 0.5))
+        self.assertEqual(stats["par_domaine"]["sport_match"], {"paris": 2, "gagnes": 1, "pnl_net": -16.0})
 
     def test_aucun_pari_ne_donne_pas_un_win_rate_de_zero(self):
         stats = compute_stats([], 1000, 30)
@@ -347,6 +516,11 @@ class TestApiPrediction(unittest.TestCase):
         with self.assertRaises(HTTPException) as ctx:
             self.server.get_prediction_prices(coin="../../state")
         self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_le_catalogue_absent_donne_une_liste_vide_pas_une_erreur(self):
+        body = self.server.get_prediction_markets()
+        self.assertEqual((body["total"], body["markets"], body["updated_at_iso"]), (0, [], None))
+        self.assertEqual(self.server.get_liquid_perps()["total"], 0)
 
     def test_le_resume_donne_une_ligne_par_bras_et_dit_que_le_processus_est_arrete(self):
         body = self.server.get_prediction_summary()

@@ -80,3 +80,40 @@ export function useBetPrices(coin: string | null, demo: boolean): PriceState {
   if (state.coin !== coin) return { coin, points: [], error: null }
   return state
 }
+
+export type Polled<T> = { data: T | null; error: string | null }
+
+/** Lecture périodique d'une route en lecture seule. `url` null = ne rien lire. */
+export function usePolled<T>(url: string | null, everyMs = 30_000): Polled<T> {
+  const [state, setState] = useState<{ url: string | null; data: T | null; error: string | null }>(
+    { url: null, data: null, error: null })
+
+  useEffect(() => {
+    if (!url) return
+    const controller = new AbortController()
+    const load = () => {
+      fetch(url, { signal: controller.signal })
+        .then((r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`)
+          return r.json()
+        })
+        .then((data: T) => setState({ url, data, error: null }))
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) return
+          setState((prev) => ({
+            url, data: prev.url === url ? prev.data : null,
+            error: error instanceof Error ? error.message : String(error),
+          }))
+        })
+    }
+    load()
+    const id = setInterval(load, everyMs)
+    return () => {
+      controller.abort()
+      clearInterval(id)
+    }
+  }, [url, everyMs])
+
+  if (state.url !== url) return { data: null, error: null }
+  return { data: state.data, error: state.error }
+}

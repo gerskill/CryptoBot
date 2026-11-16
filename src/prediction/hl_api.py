@@ -4,9 +4,10 @@ Les marchés de prédiction de Liquid sont des marchés HIP-4 d'Hyperliquid. Leu
 lecture ne demande aucune clé. Ce module ne contient volontairement aucun
 appel à `/exchange` : un pari réel est impossible depuis ce code.
 
-Formes de réponse relevées dans la documentation publique le 2026-11-16, pas
-encore confrontées à l'API depuis le Mac : chaque lecture est donc tolérante
-et renvoie `None` ou une liste vide plutôt que d'inventer une valeur.
+Formes de réponse confrontées à l'API réelle depuis le Mac mini le
+2026-11-16 (`outcomeMeta`, `allMids`, `l2Book`, `candleSnapshot`,
+`metaAndAssetCtxs`). Chaque lecture reste tolérante et renvoie `None` ou une
+liste vide plutôt que d'inventer une valeur.
 """
 
 import time
@@ -104,4 +105,38 @@ class HyperliquidInfo:
                 continue
             out.append({"t": t, "T": _f(row.get("T")) or t, "c": close})
         out.sort(key=lambda r: r["t"])
+        return out
+
+    def perp_markets(self, dex: str = "") -> list[dict[str, Any]]:
+        """Marchés à terme d'une bourse (`""` = principale, `xyz` = actions,
+        indices, matières premières). Une ligne sans prix est écartée."""
+        body: dict[str, Any] = {"type": "metaAndAssetCtxs"}
+        if dex:
+            body["dex"] = dex
+        data = self._post(body)
+        if not (isinstance(data, list) and len(data) == 2 and isinstance(data[0], dict)
+                and isinstance(data[1], list)):
+            return []
+        out = []
+        for asset, ctx in zip(data[0].get("universe") or [], data[1]):
+            if not isinstance(asset, dict) or not isinstance(ctx, dict) or asset.get("isDelisted"):
+                continue
+            mark, prev = _f(ctx.get("markPx")), _f(ctx.get("prevDayPx"))
+            if mark is None:
+                continue
+            name = str(asset.get("name") or "")
+            out.append({
+                "coin": name,
+                "symbol": name.split(":")[-1],
+                "dex": dex or "principal",
+                "mark": mark,
+                "prev_day": prev,
+                "change_24h_pct": round(100 * (mark / prev - 1), 3) if prev else None,
+                "volume_24h_usd": _f(ctx.get("dayNtlVlm")),
+                "funding_8h_pct": (None if _f(ctx.get("funding")) is None
+                                   else round(100 * 8 * _f(ctx.get("funding")), 5)),
+                "open_interest_usd": (None if _f(ctx.get("openInterest")) is None
+                                      else _f(ctx.get("openInterest")) * mark),
+                "max_leverage": asset.get("maxLeverage"),
+            })
         return out

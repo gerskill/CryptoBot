@@ -49,15 +49,16 @@ function DashboardView() {
 export default function App() {
   useLiveState()
   const view = useStore((s) => s.view)
+  const space = useStore((s) => s.space)
 
   return (
     <Shell>
-      {view === 'dashboard' && <DashboardView />}
-      {view === 'live' && <LivePrices />}
-      {view === 'weekly' && <WeeklyReport />}
-      {view === 'config' && <ConfigEditor />}
-      {view === 'backtester' && <Backtester />}
-      {view === 'liquid' && <LiquidDashboard />}
+      {space === 'liquid' && <LiquidDashboard />}
+      {space === 'memecoins' && view === 'dashboard' && <DashboardView />}
+      {space === 'memecoins' && view === 'live' && <LivePrices />}
+      {space === 'memecoins' && view === 'weekly' && <WeeklyReport />}
+      {space === 'memecoins' && view === 'config' && <ConfigEditor />}
+      {space === 'memecoins' && view === 'backtester' && <Backtester />}
     </Shell>
   )
 }
