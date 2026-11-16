@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src import settings  # noqa: E402
-from src.prediction import estimators  # noqa: E402
+from src.prediction import estimators, overlay  # noqa: E402
 from src.prediction.markets import parse_expiry, parse_outcome_meta, settled_outcomes  # noqa: E402
 from src.prediction.paper import BetStore, compute_stats, net_pnl, simulate_entry  # noqa: E402
 from src.prediction.runner import PredictionRunner  # noqa: E402
@@ -119,6 +119,11 @@ class TestLectureDesMarches(unittest.TestCase):
 
 FIXTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                        "fixtures", "outcome_meta_2026-11-16.json")
+
+
+def _lire(path):
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
 
 
 def vraie_reponse():
@@ -399,6 +404,87 @@ class TestIncoherences(PredictionTestCase):
         self.assertEqual(self._lignes({"#198210": 0.30, "#85730": 0.60}), [])
 
 
+class TestDemandesDepuisLeSite(PredictionTestCase):
+    """Le site demande, la simulation valide et applique. Jamais l'inverse."""
+
+    SPORT = dict(TestBrasParCategorie.SPORT)
+
+    def _demander(self, **request):
+        request.setdefault("id", f"d{len(overlay.request_status(self.tmp, 500))}")
+        overlay.append_jsonl(overlay.requests_path(self.tmp), request)
+
+    def _cycle(self, arms, mids=None, books=None):
+        runner = self.runner(FakeApi(vraie_reponse(), mids or {}, books=books), arms)
+        return runner, runner.cycle()
+
+    def test_un_fork_ne_differe_de_son_parent_que_par_la_variable_demandee(self):
+        self._demander(action="fork", parent="pm_sport_favori", name="pm_sport_favori_70",
+                       variable="fourchette", value={"prix_min": 0.7, "prix_max": 0.9})
+        runner, _ = self._cycle([self.SPORT])
+        fork = next(a for a in runner.config["arms"] if a["name"] == "pm_sport_favori_70")
+        differences = {k for k in set(fork) | set(self.SPORT)
+                       if fork.get(k) != self.SPORT.get(k)} - {"name", "parent", "variable", "description",
+                                                              "cree_depuis_le_site"}
+        self.assertEqual(differences, {"prix_min"})
+        self.assertEqual((fork["parent"], fork["variable"]), ("pm_sport_favori", "prix_min/prix_max"))
+
+    def test_une_valeur_hors_bornes_est_refusee_et_le_refus_est_journalise(self):
+        self._demander(action="fork", parent="pm_vol_edge", name="pm_vol_fou",
+                       variable="edge_min", value=0.9)
+        runner, _ = self._cycle([VOL])
+        self.assertEqual([a["name"] for a in runner.config["arms"]], ["pm_vol_edge"])
+        status = overlay.request_status(self.tmp)[0]
+        self.assertEqual((status["statut"], status["raison"]), ("refusée", "edge_min_hors_bornes"))
+
+    def test_une_variable_qui_n_appartient_pas_au_role_du_parent_est_refusee(self):
+        self._demander(action="fork", parent="pm_sport_favori", name="pm_sport_edge",
+                       variable="edge_min", value=0.1)
+        self._cycle([self.SPORT])
+        self.assertEqual(overlay.request_status(self.tmp)[0]["raison"],
+                         "variable_non_autorisee_pour_ce_role")
+
+    def test_un_nom_qui_sortirait_du_dossier_des_bras_est_refuse(self):
+        self._demander(action="fork", parent="pm_sport_favori", name="pm_../../etc",
+                       variable="cote", value="outsider")
+        self._cycle([self.SPORT])
+        self.assertEqual(overlay.request_status(self.tmp)[0]["raison"], "nom_invalide")
+
+    def test_une_demande_n_est_appliquee_qu_une_fois(self):
+        self._demander(action="fork", parent="pm_sport_favori", name="pm_sport_out",
+                       variable="cote", value="outsider")
+        runner, first = self._cycle([self.SPORT])
+        self.assertEqual(first["demandes_traitees"], 1)
+        self.assertEqual(runner.cycle()["demandes_traitees"], 0)
+        self.assertEqual(len(overlay.read_overlay(self.tmp)["forks"]), 1)
+
+    def test_le_fichier_de_configuration_versionne_n_est_jamais_modifie(self):
+        base = make_config([dict(self.SPORT)])
+        avant = json.dumps(base, sort_keys=True)
+        self._demander(action="toggle", arm="pm_sport_favori", enabled=False)
+        PredictionRunner(FakeApi(vraie_reponse(), {}), base, self.tmp, now=lambda: NOW).cycle()
+        self.assertEqual(json.dumps(base, sort_keys=True), avant)
+
+    def test_un_bras_desactive_ne_parie_plus_mais_ses_paris_ouverts_sont_encore_regles(self):
+        mids = {"#354310": 0.70, "#354311": 0.30}
+        books = {"#354310": {"bids": [(0.69, 500)], "asks": [(0.71, 500)]}}
+        self._cycle([self.SPORT], mids, books)
+        self.assertEqual(len(BetStore(self.tmp, "pm_sport_favori").open_bets()), 1)
+        self._demander(action="toggle", arm="pm_sport_favori", enabled=False)
+        # Le match est réglé : son issue disparaît de la liste, dernier prix à 99 %.
+        meta = vraie_reponse()
+        meta["outcomes"] = [o for o in meta["outcomes"] if o["outcome"] != 35431]
+        self.clock[0] = NOW + timedelta(days=2)
+        store = BetStore(self.tmp, "pm_sport_favori")
+        overlay.append_jsonl(os.path.join(self.tmp, "prices", "354310.jsonl"),
+                             {"t": "2026-11-18T12:00:00+00:00", "mid": 0.99})
+        runner = self.runner(FakeApi(meta, {}, books=books), [self.SPORT])
+        result = runner.cycle()
+        self.assertEqual(result["regles_ce_cycle"], 1)
+        self.assertEqual(store.open_bets(), [])
+        self.assertTrue(store.settled()[0]["won"])
+        self.assertFalse(next(a for a in runner.config["arms"] if a["name"] == "pm_sport_favori")["enabled"])
+
+
 class TestReglement(PredictionTestCase):
     def _pari_ouvert(self, candles=None):
         api = FakeApi(make_meta(), {"#1040": 0.80, "#1041": 0.20, "BTC": 64100},
@@ -528,6 +614,30 @@ class TestApiPrediction(unittest.TestCase):
         with self.assertRaises(HTTPException) as ctx:
             self.server.get_prediction_prices(coin="../../state")
         self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_une_demande_sans_l_en_tete_du_site_est_refusee(self):
+        with self.assertRaises(self.server.HTTPException) as ctx:
+            self.server.post_prediction_request(
+                payload={"action": "toggle", "arm": "pm_temoin", "enabled": False},
+                authorization=None, x_cryptobbot=None, content_type="text/plain")
+        self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_une_demande_valide_est_deposee_en_attente_sans_toucher_a_la_configuration(self):
+        avant = _lire(settings.PREDICTION_ARMS_PATH)
+        body = self.server.post_prediction_request(
+            payload={"action": "toggle", "arm": "pm_temoin", "enabled": False},
+            authorization=None, x_cryptobbot="1", content_type="application/json")
+        self.assertEqual(body["statut"], "en attente")
+        self.assertEqual(self.server.get_prediction_requests()["requests"][0]["statut"], "en attente")
+        self.assertEqual(_lire(settings.PREDICTION_ARMS_PATH), avant)
+
+    def test_un_fork_hors_bornes_est_refuse_des_le_depot(self):
+        with self.assertRaises(self.server.HTTPException) as ctx:
+            self.server.post_prediction_request(
+                payload={"action": "fork", "parent": "pm_vol_edge", "name": "pm_vol_x",
+                         "variable": "edge_min", "value": 5},
+                authorization=None, x_cryptobbot="1", content_type="application/json")
+        self.assertEqual(ctx.exception.status_code, 422)
 
     def test_le_catalogue_absent_donne_une_liste_vide_pas_une_erreur(self):
         body = self.server.get_prediction_markets()

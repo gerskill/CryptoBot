@@ -94,3 +94,14 @@ servent que des fichiers statiques.
 
 30 paris réglés minimum par bras, frais déduits, drawdown max et pires 5 %
 affichés, paris indéterminés comptés à part, verdict du juge.
+
+## Agir depuis le site (ADR 017)
+
+Onglet « Aperçu et bras » de l'espace Liquid :
+- **Activer / désactiver** un bras : bouton sur sa carte.
+- **Créer un fork** : choisir le parent, LA variable changée, sa valeur, un nom.
+
+Le site dépose une demande ; la simulation la valide et l'applique au cycle
+suivant. Le panneau « Demandes déposées » montre : en attente, appliquée ou
+refusée (avec la raison). Si `DASHBOARD_TOKEN` est défini, le saisir dans le
+champ « Jeton du site ».

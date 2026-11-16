@@ -152,7 +152,12 @@ export function LiquidBets({ summary, bets, demo }: {
   const arm = arms.find((a) => a.arm === armName) ?? null
 
   // Plus récents en premier : c'est ce qu'on vient regarder.
-  const armBets = bets.filter((b) => b.arm === armName).slice().reverse()
+  const [statut, setStatut] = useState('tous')
+  const [domaine, setDomaine] = useState('tous')
+  const allArmBets = bets.filter((b) => b.arm === armName).slice().reverse()
+  const armDomains = [...new Set(allArmBets.map((b) => b.domain))]
+  const armBets = allArmBets.filter((b) =>
+    (statut === 'tous' || b.status === statut) && (domaine === 'tous' || b.domain === domaine))
   const bet = armBets.find((b) => b.id === betChoice) ?? armBets[0] ?? null
   const prices = useBetPrices(bet?.coin ?? null, demo)
 
@@ -229,6 +234,22 @@ export function LiquidBets({ summary, bets, demo }: {
 
         <Panel title={`Paris du bras ${armName ?? '—'}`} count={armBets.length}
           hint="Clique une ligne : son entrée et son règlement se posent sur le graphique, à la même date et au même prix.">
+          <div className="mb-2 flex flex-wrap gap-2 px-1 text-[10px] uppercase tracking-wider text-dim">
+            <label className="flex items-center gap-1.5">Statut
+              <select value={statut} onChange={(e) => setStatut(e.target.value)}
+                className="rounded bg-void px-1.5 py-1 font-mono text-[10px] normal-case text-ink ring-1 ring-edge/60">
+                <option value="tous">tous</option><option value="ouvert">ouverts</option>
+                <option value="regle">réglés</option><option value="indetermine">indéterminés</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-1.5">Domaine
+              <select value={armDomains.includes(domaine) ? domaine : 'tous'} onChange={(e) => setDomaine(e.target.value)}
+                className="rounded bg-void px-1.5 py-1 font-mono text-[10px] normal-case text-ink ring-1 ring-edge/60">
+                <option value="tous">tous</option>
+                {armDomains.map((d) => <option key={d} value={d}>{DOMAIN_LABEL[d] ?? d}</option>)}
+              </select>
+            </label>
+          </div>
           <BetTable bets={armBets} selectedId={bet?.id ?? null} onSelect={setBetChoice} />
         </Panel>
       </div>

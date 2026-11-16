@@ -19,7 +19,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
@@ -27,7 +27,8 @@ from src import settings
 from src.core.arm import load_manifest
 from src.core.journal import TradeJournal
 from src.monitoring.metrics import generate_metrics_text
-from src.prediction.paper import BetStore
+from src.prediction import overlay as prediction_overlay
+from src.prediction.paper import BetStore, append_jsonl as _append_jsonl
 from src.prediction.runner import summary as prediction_summary
 
 
@@ -95,7 +96,7 @@ app = FastAPI(title="Alpha Loop Meme API", version="3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_methods=["GET"],
+    allow_methods=["GET"],  # volontaire : la route POST n'est ouverte qu'à la même origine
     allow_headers=["*"],
 )
 
@@ -390,7 +391,9 @@ def get_prediction_summary(demo: bool = False) -> dict[str, Any]:
 def get_prediction_bets(arm: str = "all", demo: bool = False) -> dict[str, Any]:
     """Paris ouverts et réglés, chaque ligne avec son `arm`."""
     config = _prediction_config()
-    known = [entry["name"] for entry in config["arms"]]
+    # Configuration effective : un fork créé depuis le site a aussi ses paris.
+    effective = config if demo else prediction_overlay.effective_config(config, settings.PREDICTION_DATA_DIR)
+    known = [entry["name"] for entry in effective["arms"]]
     if arm != "all" and arm not in known:
         raise HTTPException(status_code=404, detail=f"bras inconnu : {arm}")
     bets = []
@@ -422,6 +425,62 @@ def get_prediction_coherence(limit: int = 100, demo: bool = False) -> dict[str, 
     rows = _read_jsonl(os.path.join(_prediction_dir(demo), "coherence.jsonl"))
     return {"exemple_fictif": demo, "arm": "pm_coherence", "total": len(rows),
             "rows": rows[-max(1, min(limit, 500)):]}
+
+
+@app.get("/api/prediction/requests")
+def get_prediction_requests() -> dict[str, Any]:
+    """Demandes de modification déposées depuis le site, avec leur sort."""
+    rows = prediction_overlay.request_status(settings.PREDICTION_DATA_DIR)
+    return {"total": len(rows), "requests": rows,
+            "bornes": prediction_overlay.BOUNDS, "max_forks": prediction_overlay.MAX_FORKS}
+
+
+@app.post("/api/prediction/requests")
+def post_prediction_request(
+    payload: dict[str, Any] = Body(...),
+    authorization: Optional[str] = Header(default=None),
+    x_cryptobbot: Optional[str] = Header(default=None),
+    content_type: Optional[str] = Header(default=None),
+) -> dict[str, Any]:
+    """Dépose UNE demande (activer/désactiver un bras, créer un fork).
+
+    SEULE route d'écriture de cette API (ADR 017). Elle n'écrit que dans sa
+    boîte de demandes : c'est la simulation, propriétaire de ses fichiers,
+    qui valide et applique au cycle suivant. Bras PAPIER de prédiction
+    uniquement ; rien ici ne touche la boucle memecoin.
+
+    L'en-tête `X-CryptobBot` et le type JSON obligent un navigateur à
+    demander la permission (preflight) : une page web tierce ne peut pas
+    poster ici, le CORS n'autorisant que GET.
+    """
+    _require_token(None, authorization)
+    if x_cryptobbot != "1" or not (content_type or "").lower().startswith("application/json"):
+        raise HTTPException(status_code=400, detail="en-tête X-CryptobBot ou type JSON manquant")
+    action = payload.get("action")
+    if action == "toggle":
+        request = {"action": "toggle", "arm": str(payload.get("arm") or ""),
+                   "enabled": bool(payload.get("enabled"))}
+    elif action == "fork":
+        request = {"action": "fork", "parent": str(payload.get("parent") or ""),
+                   "name": str(payload.get("name") or ""), "variable": payload.get("variable"),
+                   "value": payload.get("value")}
+        # Contrôle immédiat pour répondre tout de suite ; la simulation
+        # revalide de toute façon avant d'appliquer.
+        config = prediction_overlay.effective_config(_prediction_config(), settings.PREDICTION_DATA_DIR)
+        _, reason = prediction_overlay.build_fork(config["arms"], request, datetime.now(timezone.utc))
+        if reason:
+            raise HTTPException(status_code=422, detail=reason)
+    else:
+        raise HTTPException(status_code=422, detail="action inconnue")
+    pending = [r for r in prediction_overlay.request_status(settings.PREDICTION_DATA_DIR, 500)
+               if r["statut"] == "en attente"]
+    if len(pending) >= 20:
+        raise HTTPException(status_code=429, detail="trop de demandes en attente : la simulation tourne-t-elle ?")
+    request["id"] = f"{int(time.time() * 1000)}-{secrets.token_hex(3)}"
+    request["t"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    _append_jsonl(prediction_overlay.requests_path(settings.PREDICTION_DATA_DIR), request)
+    return {"ok": True, "id": request["id"], "statut": "en attente",
+            "note": "appliquée au prochain cycle de la simulation"}
 
 
 @app.get("/api/prediction/markets")

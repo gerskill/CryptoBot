@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 
 from src.prediction import estimators
+from src.prediction import overlay
 from src.prediction.markets import (DOMAINES_SEUIL, Market, parse_outcome_meta,
                                     settled_outcomes)
 from src.prediction.paper import (BetStore, _write_atomic, append_jsonl,
@@ -46,7 +47,8 @@ class PredictionRunner:
     def __init__(self, api: Any, config: dict[str, Any], data_dir: str,
                  now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)):
         self.api = api
-        self.config = config
+        self.base_config = config
+        self.config = overlay.effective_config(config, data_dir)
         self.data_dir = data_dir
         self.now = now
         self._candles: dict[tuple[str, str], list[dict[str, float]]] = {}
@@ -446,10 +448,17 @@ class PredictionRunner:
             return {"ok": False, "raison": "outcomeMeta indisponible"}
         mids = self.api.all_mids()
         markets = parse_outcome_meta(meta)
+        # Demandes venues du site, puis configuration effective de CE cycle.
+        demandes = overlay.apply_requests(self.base_config, self.data_dir, moment)
+        self.config = overlay.effective_config(self.base_config, self.data_dir)
+        roles = ("temoin", "regle", "parieur", "consensus")
         arms = [a for a in self.config["arms"] if a.get("enabled", True)]
-        bettors = [a for a in arms if a.get("role") in ("temoin", "regle", "parieur", "consensus")]
+        bettors = [a for a in arms if a.get("role") in roles]
 
-        settled = self._settle_all(bettors, mids, {m.outcome for m in markets}, moment,
+        # Le règlement porte sur TOUS les bras, même désactivés : désactiver un
+        # bras arrête ses nouveaux paris, pas le dénouement de ceux déjà pris.
+        settled = self._settle_all([a for a in self.config["arms"] if a.get("role") in roles],
+                                   mids, {m.outcome for m in markets}, moment,
                                    settled_outcomes(meta))
 
         # Marchés déjà pariés, lus une fois par cycle puis tenus à jour en mémoire.
@@ -513,6 +522,7 @@ class PredictionRunner:
             "incoherences_ce_cycle": anomalies,
             "instantane_ecrit": snapshot,
             "perps_releves": perps,
+            "demandes_traitees": demandes,
             "raisons": reasons,
         }
         _write_atomic(os.path.join(self.data_dir, "state.json"), state)
@@ -522,7 +532,7 @@ class PredictionRunner:
 def summary(config: dict[str, Any], data_dir: str) -> list[dict[str, Any]]:
     """Une ligne par bras, chiffres attribués à CE bras."""
     rows = []
-    for arm in config["arms"]:
+    for arm in overlay.effective_config(config, data_dir)["arms"]:
         store = BetStore(data_dir, arm["name"])
         rows.append({
             "arm": arm["name"],
@@ -532,6 +542,10 @@ def summary(config: dict[str, Any], data_dir: str) -> list[dict[str, Any]]:
             "famille": arm.get("famille", "transverse"),
             "parent": arm.get("parent"),
             "variable": arm.get("variable"),
+            "cree_depuis_le_site": bool(arm.get("cree_depuis_le_site")),
+            "variables_forkables": list(overlay.VARIABLES.get(arm.get("role"), ())),
+            "reglages": {k: arm[k] for k in ("prix_min", "prix_max", "cote", "edge_min", "estimateur",
+                                             "max_jours", "min_minutes", "intervalle") if k in arm},
             "description": arm.get("description", ""),
             "ouverts": len(store.open_bets()),
             "stats": compute_stats(store.settled(), config["capital_fictif_usd"],

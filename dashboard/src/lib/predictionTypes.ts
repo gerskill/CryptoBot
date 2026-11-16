@@ -36,6 +36,11 @@ export type PredictionArm = {
   /** Bras dont celui-ci est le fork, et LA variable changée. */
   parent: string | null
   variable: string | null
+  /** Créé depuis le site (surcouche locale), pas dans le fichier versionné. */
+  cree_depuis_le_site: boolean
+  /** Variables qu'un fork de ce bras a le droit de changer (`overlay.py::VARIABLES`). */
+  variables_forkables: string[]
+  reglages: Record<string, number | string>
   enabled: boolean
   domaines: string[]
   description: string
@@ -146,4 +151,19 @@ export type CoherenceRow = {
   venue?: string | null
   venue_basse?: string
   venue_haute?: string
+}
+
+/** Demande déposée depuis le site (`overlay.py::request_status`). */
+export type PredictionRequest = {
+  id: string
+  t: string
+  action: 'toggle' | 'fork'
+  arm?: string
+  enabled?: boolean
+  parent?: string
+  name?: string
+  variable?: string
+  value?: unknown
+  statut: 'en attente' | 'appliquée' | 'refusée'
+  raison: string | null
 }

@@ -1,10 +1,15 @@
+import { useState } from 'react'
 import { Panel, Stat, Empty } from '../Panel'
+import { LiquidActions } from './LiquidActions'
+import { sendRequest } from './liquidRequests'
 import type { PredictionArm, PredictionSummary } from '../../lib/predictionTypes'
 import { pnlColor } from '../../lib/format'
 import { DOMAIN_LABEL, FAMILLES, ROLE_LABEL, signed } from './liquidLabels'
 
 /** Une carte par bras : qui il est, de qui il descend, où il en est. */
-function ArmCard({ arm, need }: { arm: PredictionArm; need: number }) {
+function ArmCard({ arm, need, onToggle }: {
+  arm: PredictionArm; need: number; onToggle: ((arm: PredictionArm) => void) | null
+}) {
   const done = arm.stats.paris_regles
   const progress = Math.min(1, done / need)
   const observer = arm.role === 'observateur'
@@ -16,6 +21,9 @@ function ArmCard({ arm, need }: { arm: PredictionArm; need: number }) {
           {arm.enabled ? (ROLE_LABEL[arm.role] ?? arm.role) : 'désactivé'}
         </span>
       </div>
+      {arm.cree_depuis_le_site && (
+        <div className="mt-1 text-[10px] text-warn">créé depuis le site</div>
+      )}
       {arm.parent && (
         <div className="mt-1 font-mono text-[10px] text-dim">
           ↳ fork de {arm.parent} · variable : {arm.variable ?? '—'}
@@ -40,12 +48,29 @@ function ArmCard({ arm, need }: { arm: PredictionArm; need: number }) {
           </div>
         </>
       )}
+      {onToggle && (
+        <button onClick={() => onToggle(arm)}
+          className="mt-2.5 rounded px-2 py-1 font-mono text-[9px] uppercase tracking-wider text-muted ring-1 ring-edge transition-colors hover:text-ink">
+          {arm.enabled ? 'Désactiver' : 'Activer'}
+        </button>
+      )}
     </div>
   )
 }
 
 export function LiquidOverview({ summary }: { summary: PredictionSummary }) {
   const cfg = summary.config
+  const [token, setToken] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
+  const [notice, setNotice] = useState<string | null>(null)
+  // Aucune modification possible sur l'exemple fictif : ce ne sont pas de vrais bras.
+  const editable = !summary.exemple_fictif
+  const toggle = async (arm: PredictionArm) => {
+    const error = await sendRequest({ action: 'toggle', arm: arm.arm, enabled: !arm.enabled }, token)
+    setNotice(error ? `Refusé : ${error}`
+      : `Demande déposée : ${arm.enabled ? 'désactiver' : 'activer'} ${arm.arm}. Prise en compte au prochain cycle ; les paris déjà ouverts seront réglés normalement.`)
+    setReloadKey((k) => k + 1)
+  }
   const domains = Object.entries(summary.marches_par_domaine).sort((a, b) => b[1] - a[1])
   return (
     <div className="grid grid-cols-1 gap-4">
@@ -66,6 +91,10 @@ export function LiquidOverview({ summary }: { summary: PredictionSummary }) {
         </ol>
       </Panel>
 
+      {notice && (
+        <div role="status" className="rounded-md px-3 py-2 text-[11px] text-muted ring-1 ring-tide/40">{notice}</div>
+      )}
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         {FAMILLES.map((famille) => {
           const arms = summary.arms.filter((a) => (a.famille ?? 'transverse') === famille.id)
@@ -73,13 +102,20 @@ export function LiquidOverview({ summary }: { summary: PredictionSummary }) {
             <Panel key={famille.id} title={famille.label} count={arms.length} hint={famille.what}>
               {arms.length === 0 ? <Empty>Aucun bras dans cette famille.</Empty> : (
                 <div className="grid grid-cols-1 gap-2">
-                  {arms.map((arm) => <ArmCard key={arm.arm} arm={arm} need={cfg.min_paris_verdict} />)}
+                  {arms.map((arm) => (
+                    <ArmCard key={arm.arm} arm={arm} need={cfg.min_paris_verdict} onToggle={editable ? toggle : null} />
+                  ))}
                 </div>
               )}
             </Panel>
           )
         })}
       </div>
+
+      {editable && (
+        <LiquidActions arms={summary.arms} token={token} setToken={setToken}
+          reloadKey={reloadKey} onSent={() => setReloadKey((k) => k + 1)} />
+      )}
 
       <Panel title="Marchés ouverts par domaine" hint="Vus au dernier cycle de la simulation.">
         {domains.length === 0 ? <Empty>Aucun cycle enregistré.</Empty> : (

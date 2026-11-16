@@ -8,6 +8,8 @@ bras rangés par famille, et les suivre dans l'espace « Liquid » du site
 ## Décisions confirmées
 - Processus séparé, lecture seule de l'API publique Hyperliquid (ADR 015).
 - Domaines, familles de bras, rôle `regle`, site en deux espaces (ADR 016).
+- Modifications depuis le site par boîte de demandes : activer/désactiver,
+  créer un fork à une variable (ADR 017). Rien vers la boucle memecoin.
 - Quatorze bras dans `config/prediction_arms.json` (un désactivé).
 - « Tout enregistrer » (accord Killian) : catalogue, perpétuels, relevé de
   tous les prix toutes les 15 minutes.
