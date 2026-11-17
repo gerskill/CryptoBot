@@ -21,6 +21,8 @@ from typing import Any, Callable, Optional
 
 import requests
 
+from src.core.rpc_endpoint import ordered_endpoints
+
 REQUEST_TIMEOUT = 15
 MAX_HOLDER_PAGES = 5  # au-delà on renvoie une borne inférieure
 PAGE_LIMIT = 1000
@@ -61,6 +63,16 @@ CACHE_TTL_SECONDS = {
 DEFAULT_MAX_PER_SECOND = 2
 MAX_RPC_ATTEMPTS = 3
 MAX_BACKOFF_SECONDS = 8.0
+
+# COUPE-CIRCUIT QUOTA. Quand le crédit mensuel est épuisé, Helius répond HTTP 429
+# avec le texte « max usage reached ». Ce n'est pas une rafale : réessayer ne
+# rouvre rien. Mesuré le 16 nov. : ~650 réponses 429 par heure. Le coupe-circuit
+# arrête Helius pendant QUOTA_COOLDOWN_SECONDS : une seule sonde par heure.
+QUOTA_MARKER = "max usage reached"
+QUOTA_COOLDOWN_SECONDS = 3600.0
+# Seules ces méthodes ont un équivalent Chainstack, testé le 16 nov. :
+# getTokenLargestAccounts y répond 403, getTokenAccounts et getAsset n'existent pas.
+CHAINSTACK_FALLBACK_METHODS = frozenset({"getTokenSupply", "getRecentPrioritizationFees"})
 
 _HELIUS_PRIORITY: contextvars.ContextVar[str] = contextvars.ContextVar(
     "helius_priority", default="normal"
@@ -253,6 +265,9 @@ class HeliusAPI:
         self._request_id = 0
         self._cache: dict[tuple, tuple[float, Any]] = {}
         self._cache_lock = threading.Lock()
+        self._quota_out_until = 0.0
+        self.quota_trips = 0
+        self.fallback_calls = 0
 
     @property
     def _url(self) -> str:
@@ -278,6 +293,47 @@ class HeliusAPI:
         with self._cache_lock:
             self._cache[key] = (self._clock(), value)
 
+    @property
+    def quota_exhausted(self) -> bool:
+        """Vrai pendant le refroidissement qui suit un « max usage reached »."""
+        return self._clock() < self._quota_out_until
+
+    def _trip_quota(self) -> None:
+        self._quota_out_until = self._clock() + QUOTA_COOLDOWN_SECONDS
+        self.quota_trips += 1
+        print("[Helius] quota épuisé — Helius coupé 1 h, Chainstack pour les méthodes compatibles")
+
+    def _fallback(self, method: str, params: Any) -> Optional[Any]:
+        """Chainstack, pour les seules méthodes qu'il sait servir. None sinon.
+
+        Ne logge jamais l'URL : elle porte le jeton Chainstack.
+        """
+        if method not in CHAINSTACK_FALLBACK_METHODS:
+            return None
+        endpoints = ordered_endpoints(include_helius=False, include_public=False)
+        if not endpoints:
+            return None
+        url, auth, _label = endpoints[0]
+        payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+        try:
+            response = self.session.post(url, json=payload, auth=auth, timeout=REQUEST_TIMEOUT)
+        except requests.exceptions.RequestException as exc:
+            print(f"[Chainstack] {method} erreur réseau : {_safe_error(exc)}")
+            return None
+        if getattr(response, "status_code", 500) != 200:
+            print(f"[Chainstack] {method} HTTP {response.status_code}")
+            return None
+        try:
+            body = response.json()
+        except ValueError:
+            return None
+        if not isinstance(body, dict) or "error" in body:
+            return None
+        self.fallback_calls += 1
+        result = body.get("result")
+        self._store(_cache_key(method, params), result)
+        return result
+
     def _rpc(self, method: str, params: Any) -> Optional[Any]:
         """Appel JSON-RPC. Retourne None en cas d'échec (jamais d'exception).
 
@@ -294,6 +350,8 @@ class HeliusAPI:
             cached = self._cached(key)
             if cached is not _MISS:
                 return cached
+        if self.quota_exhausted:
+            return self._fallback(method, params)
         priority = _HELIUS_PRIORITY.get()
         for attempt in range(1, MAX_RPC_ATTEMPTS + 1):
             if not self.rate_limiter.acquire(timeout=4.0, priority=priority):
@@ -313,6 +371,9 @@ class HeliusAPI:
                 print(f"[Helius] {method} erreur réseau : {_safe_error(exc)}")
                 return None
             status = getattr(response, "status_code", 200)
+            if status == 429 and QUOTA_MARKER in (getattr(response, "text", "") or "").lower():
+                self._trip_quota()
+                return self._fallback(method, params)
             if status == 429:
                 self.rate_limited += 1
                 delay = _retry_delay(getattr(response, "headers", {}), attempt, self._rng)

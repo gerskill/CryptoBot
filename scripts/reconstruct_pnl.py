@@ -71,12 +71,20 @@ class Rpc:
             self.errors += 1
             return [None] * len(calls)
 
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from helius_budget import CreditBudget  # plafond de crédits : scripts/helius_budget.py
+BUDGET = CreditBudget(name=__file__)
+
+
 def helius_txs(api_key: str, wallet: str, before: Optional[str] = None) -> list[dict]:
     """Enhanced SWAP transactions — dollar amounts when available."""
     q = f"api-key={api_key}&limit=100"
     if before:
         q += f"&before={before}"
     url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?{q}"
+    if not BUDGET.charge():
+        return []
     req = urllib.request.Request(url)
     try:
         with urllib.request.urlopen(req, timeout=40) as r:
