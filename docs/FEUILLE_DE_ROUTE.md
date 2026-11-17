@@ -48,9 +48,12 @@ GitHub ni les sessions cloud. Chaque ligne dit **qui** peut la faire et
   `smart_money_buys_30m`. Mesurer A1 avant d'ajouter quoi que ce soit.
 - **MCP utiles** :
   1. *GitHub* — déjà connecté ; sert au rangement des PR (fait aujourd'hui).
-  2. *Desktop Commander* — déjà configuré dans Claude ; permet d'écrire le
-     journal Obsidian du Mac (`~/Documents/Obsidian Vault/CryptoBot/Journal.md`)
-     depuis une session qui n'a pas ce disque.
+  2. *Desktop Commander* — déjà configuré, mais il agit sur la machine où
+     tourne la session : vérifié le 2026-11-17, dans une session cloud il voit
+     le conteneur Linux, pas le Mac. Le journal Obsidian
+     (`~/Documents/Obsidian Vault/CryptoBot/Journal.md`) ne s'écrit donc que
+     depuis une session lancée SUR le Mac, ou en attachant le dossier du Mac
+     à la session cloud (Remote Control).
   3. *Un MCP RPC Solana en lecture seule* (Helius ou Chainstack) — pour
      A3 (verrous LP) et les enquêtes on-chain des agents ; à n'installer
      qu'avec une clé dédiée, distincte de celle du bot (quota Helius déjà
