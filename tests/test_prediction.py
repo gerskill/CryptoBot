@@ -16,9 +16,10 @@ from datetime import datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src import settings  # noqa: E402
-from src.prediction import estimators, overlay  # noqa: E402
+from src.prediction import estimators, learning, overlay  # noqa: E402
 from src.prediction.markets import parse_expiry, parse_outcome_meta, settled_outcomes  # noqa: E402
-from src.prediction.paper import BetStore, compute_stats, net_pnl, simulate_entry  # noqa: E402
+from src.prediction.paper import (BetStore, account, buy_shares, compute_stats, min_shares,  # noqa: E402
+                                  net_pnl, remaining_asks, simulate_entry)
 from src.prediction.runner import PredictionRunner  # noqa: E402
 
 NOW = datetime(2026, 11, 16, 13, 0, tzinfo=timezone.utc)
@@ -424,7 +425,7 @@ class TestDemandesDepuisLeSite(PredictionTestCase):
         fork = next(a for a in runner.config["arms"] if a["name"] == "pm_sport_favori_70")
         differences = {k for k in set(fork) | set(self.SPORT)
                        if fork.get(k) != self.SPORT.get(k)} - {"name", "parent", "variable", "description",
-                                                              "cree_depuis_le_site"}
+                                                              "cree_depuis_le_site", "origine"}
         self.assertEqual(differences, {"prix_min"})
         self.assertEqual((fork["parent"], fork["variable"]), ("pm_sport_favori", "prix_min/prix_max"))
 
@@ -560,6 +561,238 @@ class TestStatistiques(unittest.TestCase):
         self.assertIsNone(stats["profit_factor"])
 
 
+COMPTE_46 = {"capital_fictif_usd": 46.0, "mise_pct": 0.22, "mise_max_pct": 0.25,
+             "exposition_max_pct_par_domaine": 1.0, "ordre_min_usd": 10.0,
+             "regle_taille_min": "min_cote", "parts_entieres": True, "delai_prudence_heures": 24}
+
+
+class TestCompteReel(PredictionTestCase):
+    """Le papier se comporte comme le vrai compte de 46 $ (ADR 018)."""
+
+    def runner(self, api, arms, **extra):
+        config = dict(make_config(arms), **COMPTE_46)
+        config.update(extra)
+        return PredictionRunner(api, config, self.tmp, now=lambda: self.clock[0])
+
+    def _marches(self, n, ask=0.5, size=500):
+        meta = {"outcomes": [dict(make_meta()["outcomes"][0], outcome=100 + i) for i in range(n)],
+                "questions": []}
+        mids, books = {}, {}
+        for i in range(n):
+            mids[f"#{(100 + i) * 10}"], mids[f"#{(100 + i) * 10 + 1}"] = ask, 1 - ask
+            books[f"#{(100 + i) * 10}"] = {"bids": [(ask - 0.01, size)], "asks": [(ask, size)]}
+        return meta, mids, books
+
+    def test_la_taille_minimale_suit_le_cote_le_moins_cher_et_arrondit_au_dessus(self):
+        self.assertEqual(min_shares(0.5, 10), 20)
+        self.assertEqual(min_shares(0.9, 10), 100)   # 100 × 0,10 = 10 $ : coûte 90 $
+        self.assertEqual(min_shares(0.9, 10, "notionnel"), 12)
+        self.assertEqual(min_shares(0.5, 0), 0)
+
+    def test_un_favori_a_090_est_refuse_parce_que_le_minimum_coute_90_dollars(self):
+        meta, mids, books = self._marches(1, ask=0.9)
+        result = self.runner(FakeApi(meta, mids, books), [TEMOIN]).cycle()
+        self.assertEqual(BetStore(self.tmp, "pm_temoin").open_bets(), [])
+        self.assertEqual(result["raisons"]["pm_temoin:sous_taille_minimale"], 1)
+
+    def test_un_pari_a_050_achete_des_parts_entieres_au_moins_le_minimum(self):
+        meta, mids, books = self._marches(1, ask=0.5)
+        self.runner(FakeApi(meta, mids, books), [TEMOIN]).cycle()
+        bet = BetStore(self.tmp, "pm_temoin").open_bets()[0]
+        # 46 × 0,22 = 10,12 $ → 20 parts entières à 0,50 = 10 $ ; minimum 20 parts.
+        self.assertEqual((bet["shares"], bet["stake_usd"], bet["entry_price"]), (20, 10.0, 0.5))
+        self.assertAlmostEqual(bet["fee_entry_usd"], 0.09)
+
+    def test_le_solde_refuse_un_pari_que_le_compte_ne_peut_plus_payer(self):
+        meta, mids, books = self._marches(6, ask=0.5)
+        # Plafond d'exposition relevé : c'est le SOLDE qui doit refuser ici.
+        result = self.runner(FakeApi(meta, mids, books), [TEMOIN],
+                             exposition_max_pct_par_domaine=2.0).cycle()
+        # 4 paris × 10,09 $ = 40,36 $ engagés ; le 5e demande 10,09 $ pour 5,64 $ de solde.
+        self.assertEqual(len(BetStore(self.tmp, "pm_temoin").open_bets()), 4)
+        self.assertEqual(result["raisons"]["pm_temoin:solde_insuffisant"], 2)
+        compte = account(46.0, [], BetStore(self.tmp, "pm_temoin").open_bets())
+        self.assertAlmostEqual(compte["solde"], 46 - 4 * 10.09, places=6)
+
+    def test_deux_bras_ne_peuvent_pas_acheter_les_memes_parts_du_carnet(self):
+        meta, mids, _ = self._marches(1, ask=0.5)
+        books = {"#1000": {"bids": [(0.49, 500)], "asks": [(0.5, 25), (0.52, 500)]}}
+        autre = dict(TEMOIN, name="pm_temoin_bis")
+        self.runner(FakeApi(meta, mids, books), [TEMOIN, autre]).cycle()
+        premier = BetStore(self.tmp, "pm_temoin").open_bets()[0]
+        second = BetStore(self.tmp, "pm_temoin_bis").open_bets()[0]
+        self.assertEqual(premier["entry_price"], 0.5)
+        # Il ne restait que 5 parts à 0,50 : les 15 autres à 0,52.
+        self.assertAlmostEqual(second["entry_price"], (5 * 0.5 + 15 * 0.52) / 20)
+
+    def test_le_temoin_n_achete_pas_un_favori_que_le_carnet_vend_hors_de_sa_fourchette(self):
+        # Cas réel du 2026-11-17 (pm_temoin-382601) : affiché 0,555, vendu 0,24.
+        meta, mids, _ = self._marches(1, ask=0.555)
+        books = {"#1000": {"bids": [(0.15, 500)], "asks": [(0.24, 500)]}}
+        result = self.runner(FakeApi(meta, mids, books), [TEMOIN]).cycle()
+        self.assertEqual(BetStore(self.tmp, "pm_temoin").open_bets(), [])
+        self.assertEqual(result["raisons"]["pm_temoin:carnet_trop_large"], 1)
+
+    def test_la_fourchette_porte_sur_le_prix_paye_meme_dans_l_ecart_tolere(self):
+        # Affiché 0,52, payé 0,49 : écart toléré (0,03) mais sous prix_min 0,50.
+        meta, mids, _ = self._marches(1, ask=0.52)
+        books = {"#1000": {"bids": [(0.48, 500)], "asks": [(0.49, 500)]}}
+        result = self.runner(FakeApi(meta, mids, books), [TEMOIN]).cycle()
+        self.assertEqual(BetStore(self.tmp, "pm_temoin").open_bets(), [])
+        self.assertEqual(result["raisons"]["pm_temoin:prix_hors_fourchette_au_carnet"], 1)
+
+    def test_un_pari_marque_hors_regle_reste_dans_le_compte_mais_pas_dans_la_mesure(self):
+        settled = [{"status": "regle", "pnl_net": -10.09, "won": False, "entry_price": 0.24,
+                    "settle_time": "1", "hors_regle": True},
+                   {"status": "regle", "pnl_net": 4.0, "won": True, "entry_price": 0.6, "settle_time": "2"}]
+        stats = compute_stats(settled, 46, 30)
+        self.assertEqual((stats["paris_regles"], stats["pnl_net"], stats["paris_hors_regle"]), (1, 4.0, 1))
+        # La perte reste visible : à part, et dans le drawdown du compte.
+        self.assertEqual(stats["pnl_hors_regle"], -10.09)
+        self.assertEqual(stats["drawdown_max_pct"], 0.0)
+        self.assertAlmostEqual(stats["drawdown_compte_pct"], 100 * 10.09 / 46, places=3)
+        self.assertAlmostEqual(account(46.0, settled, [])["valeur"], 46 - 10.09 + 4.0)
+
+    def test_une_demande_qui_plante_ne_bloque_pas_les_reglements(self):
+        meta, mids, books = self._marches(1, ask=0.5)
+        runner = self.runner(FakeApi(meta, mids, books), [TEMOIN])
+        original = overlay.apply_requests
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("demande illisible")
+        try:
+            overlay.apply_requests = boom
+            result = runner.cycle()
+        finally:
+            overlay.apply_requests = original
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["demandes_traitees"], {"erreur": "RuntimeError"})
+
+    def test_le_carnet_retire_d_abord_les_meilleurs_prix_deja_pris(self):
+        self.assertEqual(remaining_asks([(0.5, 25), (0.52, 10)], 30), [(0.52, 5)])
+        self.assertEqual(buy_shares([(0.5, 5), (0.6, 5)], 8)["cost"], 2.5 + 1.8)
+        self.assertIsNone(buy_shares([(0.5, 5)], 8))
+
+    def test_une_issue_illisible_reste_ouverte_puis_est_comptee_perdue_par_prudence(self):
+        meta, mids, books = self._marches(1, ask=0.5)
+        api = FakeApi(meta, mids, books)
+        runner = self.runner(api, [TEMOIN])
+        runner.cycle()
+        # Marché disparu, aucune bougie, dernier prix connu à 0,50 : illisible.
+        api.meta, api.mids = {"outcomes": [], "questions": []}, {}
+        self.clock[0] = NOW + timedelta(hours=2)
+        runner.cycle()
+        store = BetStore(self.tmp, "pm_temoin")
+        self.assertEqual(store.settled(), [])
+        self.assertIsNotNone(store.open_bets()[0]["a_regler_depuis"])
+        self.clock[0] = NOW + timedelta(hours=27)
+        runner.cycle()
+        bet = store.settled()[0]
+        self.assertEqual((bet["status"], bet["won"], bet["regle_par_prudence"]), ("regle", False, True))
+        self.assertAlmostEqual(bet["pnl_net"], -10.0 * 1.009, places=6)
+        self.assertEqual(compute_stats(store.settled(), 46, 30)["regles_par_prudence"], 1)
+
+    def test_le_compte_rend_la_recette_du_reglement_au_solde(self):
+        settled = [{"status": "regle", "pnl_net": 9.5}, {"status": "regle", "pnl_net": -10.09}]
+        compte = account(46.0, settled, [{"stake_usd": 10.0, "fee_entry_usd": 0.09}])
+        self.assertAlmostEqual(compte["valeur"], 45.41)
+        self.assertAlmostEqual(compte["solde"], 35.32)
+
+
+class TestOrdreEtGagnesNets(unittest.TestCase):
+    def test_le_drawdown_ne_depend_pas_de_l_ordre_rendu_par_l_api(self):
+        bets = [{"id": c, "status": "regle", "pnl_net": p, "won": p > 0, "entry_price": 0.5,
+                 "settle_time": "2026-11-17T05:00:00+00:00", "entry_time": f"2026-11-17T04:0{i}:00+00:00"}
+                for i, (c, p) in enumerate([("a", 10), ("b", -20), ("c", -20), ("d", 30)])]
+        premier = compute_stats(bets, 46, 30)["drawdown_max_pct"]
+        self.assertEqual(compute_stats(list(reversed(bets)), 46, 30)["drawdown_max_pct"], premier)
+
+    def test_un_pari_gagne_mais_negatif_apres_frais_n_est_pas_un_gain_net(self):
+        bets = [{"status": "regle", "pnl_net": -0.08, "won": True, "settle_time": "1", "entry_price": 0.99},
+                {"status": "regle", "pnl_net": 5.0, "won": True, "settle_time": "2", "entry_price": 0.6}]
+        stats = compute_stats(bets, 46, 30)
+        self.assertEqual((stats["gagnes"], stats["gagnes_net"], stats["pertes_reelles"]), (2, 1, 0))
+
+
+class TestAgentApprentissage(PredictionTestCase):
+    """L'agent mesure chaque bras et ne propose que des forks resserrés."""
+
+    REGLAGE = {"actif": True, "intervalle_minutes": 60, "min_segment": 10, "min_bras": 20,
+               "max_forks_par_bras_par_jour": 1, "max_forks_total": 10}
+
+    def _config(self, arms):
+        return dict(make_config(arms), apprentissage=dict(self.REGLAGE))
+
+    def _paris(self, arm, rows):
+        path = BetStore(self.tmp, arm).settled_path
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as fh:
+            for i, (price, pnl, extra) in enumerate(rows):
+                fh.write(json.dumps(dict({"id": f"{arm}-{i}-{price}", "status": "regle", "entry_price": price,
+                                          "pnl_net": pnl, "won": pnl > 0, "domain": "crypto_seuil",
+                                          "settle_time": f"2026-11-16T{i % 24:02d}:00:00+00:00"},
+                                         **extra)) + "\n")
+
+    def _demandes(self):
+        return [r for r in overlay.read_jsonl(overlay.requests_path(self.tmp))
+                if r.get("origine") == "apprentissage"]
+
+    def test_sans_configuration_l_agent_ne_fait_rien(self):
+        self.assertEqual(learning.run(make_config([TEMOIN]), self.tmp, NOW), {"actif": False})
+
+    def test_l_agent_ne_compte_pas_les_paris_hors_regle(self):
+        self._paris("pm_temoin", [(0.85, -10.0, {"hors_regle": True})] * 12 + [(0.65, 4.0, {})] * 12)
+        learning.run(self._config([TEMOIN]), self.tmp, NOW)
+        self.assertEqual(learning.read_diagnostic(self.tmp, "pm_temoin")["paris_regles"], 12)
+        self.assertEqual(self._demandes(), [])
+
+    def test_sous_vingt_paris_l_agent_mesure_mais_ne_propose_rien(self):
+        self._paris("pm_temoin", [(0.85, -10.0, {})] * 15)
+        learning.run(self._config([TEMOIN]), self.tmp, NOW)
+        diag = learning.read_diagnostic(self.tmp, "pm_temoin")
+        self.assertEqual(diag["paris_regles"], 15)
+        self.assertIn("pas assez de données", diag["decision"])
+        self.assertEqual(self._demandes(), [])
+
+    def test_une_tranche_perdante_au_bord_haut_donne_un_fork_qui_resserre_la_fourchette(self):
+        self._paris("pm_temoin", [(0.85, -10.0, {})] * 12 + [(0.65, 4.0, {})] * 12)
+        learning.run(self._config([TEMOIN]), self.tmp, NOW)
+        demande = self._demandes()[0]
+        self.assertEqual((demande["parent"], demande["variable"]), ("pm_temoin", "fourchette"))
+        self.assertEqual(demande["value"], {"prix_min": 0.5, "prix_max": 0.8})
+        # Appliquée au cycle suivant : le parent est intact, le fork ne change qu'une borne.
+        runner = PredictionRunner(FakeApi(make_meta(), {}), self._config([TEMOIN]), self.tmp,
+                                  now=lambda: self.clock[0])
+        runner.cycle()
+        parent = next(a for a in runner.config["arms"] if a["name"] == "pm_temoin")
+        fork = next(a for a in runner.config["arms"] if a["name"] == demande["name"])
+        self.assertEqual((parent["prix_min"], parent["prix_max"]), (0.5, 0.95))
+        self.assertEqual((fork["prix_min"], fork["prix_max"], fork["origine"]), (0.5, 0.8, "apprentissage"))
+
+    def test_une_tranche_perdante_sous_dix_paris_ne_justifie_rien(self):
+        self._paris("pm_temoin", [(0.85, -10.0, {})] * 9 + [(0.65, 4.0, {})] * 15)
+        learning.run(self._config([TEMOIN]), self.tmp, NOW)
+        self.assertEqual(self._demandes(), [])
+
+    def test_un_parieur_qui_perd_sur_les_faibles_esperances_recoit_un_seuil_plus_haut(self):
+        self._paris("pm_vol_edge", [(0.4, -10.0, {"edge_au_carnet": 0.06})] * 12
+                    + [(0.4, 8.0, {"edge_au_carnet": 0.12})] * 12)
+        learning.run(self._config([VOL]), self.tmp, NOW)
+        demande = self._demandes()[0]
+        self.assertEqual((demande["variable"], demande["value"]), ("edge_min", 0.08))
+
+    def test_la_meme_proposition_n_est_pas_refaite_le_lendemain(self):
+        self._paris("pm_temoin", [(0.85, -10.0, {})] * 12 + [(0.65, 4.0, {})] * 12)
+        learning.run(self._config([TEMOIN]), self.tmp, NOW)
+        learning.run(self._config([TEMOIN]), self.tmp, NOW + timedelta(days=1))
+        self.assertEqual(len(self._demandes()), 1)
+
+    def test_l_agent_ne_repasse_pas_avant_son_intervalle(self):
+        learning.run(self._config([TEMOIN]), self.tmp, NOW)
+        resultat = learning.run(self._config([TEMOIN]), self.tmp, NOW + timedelta(minutes=10))
+        self.assertIn("prochain_passage_dans_min", resultat)
+
+
 class TestApiPrediction(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -574,6 +807,9 @@ class TestApiPrediction(unittest.TestCase):
 
         import api.server as server_module
         importlib.reload(server_module)
+        # Le jeton du site vient de `.env` : sans ceci, ces tests dépendaient de
+        # la machine (401 dès que DASHBOARD_TOKEN est défini, le 2026-11-17).
+        server_module.API_TOKEN = None
         self.server = server_module
 
     def tearDown(self):
@@ -649,6 +885,18 @@ class TestApiPrediction(unittest.TestCase):
         self.assertEqual([a["arm"] for a in body["arms"]], ["pm_temoin", "pm_vol_edge"])
         self.assertFalse(body["runner_online"])
         self.assertEqual(body["mode"], "PAPER")
+
+    def test_le_resume_donne_le_compte_de_chaque_bras(self):
+        body = self.server.get_prediction_summary()
+        self.assertEqual(body["arms"][0]["compte"]["valeur"], 1000)
+
+    def test_les_diagnostics_de_l_agent_portent_chacun_leur_bras(self):
+        learning.run(dict(make_config([TEMOIN, VOL]), apprentissage={"actif": True}),
+                     settings.PREDICTION_DATA_DIR, NOW)
+        body = self.server.get_prediction_learning()
+        self.assertEqual(sorted(d["arm"] for d in body["diagnostics"]), ["pm_temoin", "pm_vol_edge"])
+        with self.assertRaises(self.server.HTTPException):
+            self.server.get_prediction_learning(arm="pm_inconnu")
 
 
 if __name__ == "__main__":

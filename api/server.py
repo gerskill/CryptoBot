@@ -381,8 +381,9 @@ def get_prediction_summary(demo: bool = False) -> dict[str, Any]:
         "updated_at_iso": state.get("updated_at_iso"),
         "marches_par_domaine": state.get("marches_par_domaine", {}),
         "config": {key: config.get(key) for key in (
-            "capital_fictif_usd", "mise_pct", "exposition_max_pct_par_domaine",
-            "frais_pct", "frais_reglement_pct", "min_paris_verdict")},
+            "capital_fictif_usd", "mise_pct", "mise_max_pct", "exposition_max_pct_par_domaine",
+            "frais_pct", "frais_reglement_pct", "min_paris_verdict", "ordre_min_usd",
+            "regle_taille_min", "parts_entieres", "delai_prudence_heures")},
         "arms": prediction_summary(config, directory),
     }
 
@@ -425,6 +426,25 @@ def get_prediction_coherence(limit: int = 100, demo: bool = False) -> dict[str, 
     rows = _read_jsonl(os.path.join(_prediction_dir(demo), "coherence.jsonl"))
     return {"exemple_fictif": demo, "arm": "pm_coherence", "total": len(rows),
             "rows": rows[-max(1, min(limit, 500)):]}
+
+
+@app.get("/api/prediction/learning")
+def get_prediction_learning(arm: str = "all", limit: int = 100) -> dict[str, Any]:
+    """Diagnostics de l'agent d'apprentissage, une entrée par bras, et son
+    journal de propositions. Lecture seule : l'agent écrit, l'API lit."""
+    config = prediction_overlay.effective_config(_prediction_config(), settings.PREDICTION_DATA_DIR)
+    known = [entry["name"] for entry in config["arms"]]
+    if arm != "all" and arm not in known:
+        raise HTTPException(status_code=404, detail=f"bras inconnu : {arm}")
+    directory = os.path.join(settings.PREDICTION_DATA_DIR, "learning")
+    rows = []
+    for name in (known if arm == "all" else [arm]):
+        data = _read_json(os.path.join(directory, f"{name}.json"))
+        if isinstance(data, dict):
+            rows.append(dict(data, arm=name))
+    log = _read_jsonl(os.path.join(directory, "learning_log.jsonl"))
+    return {"arm": arm, "total": len(rows), "diagnostics": rows,
+            "journal": log[-max(1, min(limit, 500)):]}
 
 
 @app.get("/api/prediction/requests")

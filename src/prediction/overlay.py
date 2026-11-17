@@ -116,13 +116,17 @@ def build_fork(arms: list[dict[str, Any]], request: dict[str, Any],
     if all(parent.get(k) == v for k, v in change.items()):
         return None, "identique_au_parent"
 
-    fork = {k: v for k, v in parent.items() if k != "cree_depuis_le_site"}
+    fork = {k: v for k, v in parent.items() if k not in ("cree_depuis_le_site", "origine", "motif")}
     fork.update(change)
+    origine = "apprentissage" if request.get("origine") == "apprentissage" else "site"
+    auteur = "l'agent d'apprentissage" if origine == "apprentissage" else "le site"
     fork.update({
         "name": name, "enabled": True, "parent": parent["name"], "variable": variable_label,
-        "description": (f"Fork de {parent['name']} créé depuis le site le "
+        "origine": origine,
+        "description": (f"Fork de {parent['name']} créé par {auteur} le "
                         f"{moment.strftime('%Y-%m-%d')}, une seule variable changée : "
-                        f"{variable_label} = {shown}."),
+                        f"{variable_label} = {shown}."
+                        + (f" Motif : {request['motif']}" if request.get("motif") else "")),
     })
     return fork, ""
 

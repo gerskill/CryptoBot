@@ -1,12 +1,21 @@
 {
-  "version": "2.0",
+  "version": "3.0",
   "_note": "Bras PAPIER des marchés de prédiction Liquid (Hyperliquid HIP-4). Aucun capital réel. Lu par scripts/run_prediction.py, jamais par la boucle memecoin. Architecture : docs/adr/016.",
-  "capital_fictif_usd": 1000,
-  "mise_pct": 0.02,
-  "exposition_max_pct_par_domaine": 0.1,
+  "capital_fictif_usd": 46.0,
+  "_note_compte": "Chaque bras joue son propre compte papier de 46 $, la taille du vrai compte Liquid (≈ 47 USDC le 2026-11-16, 46 $ demandés par Killian le 2026-11-17) : solde, taille minimale d'ordre, parts entières, carnet partagé entre bras. ADR 018.",
+  "mise_pct": 0.22,
+  "_note_mise": "0,22 × 46 $ ≈ 10 $ : le minimum d'Hyperliquid. mise_max_pct borne ce qu'un pari peut coûter quand le minimum impose plus (un favori à 0,90 exige 100 parts = 90 $ : refusé).",
+  "mise_max_pct": 0.25,
+  "exposition_max_pct_par_domaine": 0.5,
   "frais_pct": 0.009,
   "frais_reglement_pct": 0.009,
   "_note_frais": "0,90 % à l'achat : annoncé par Liquid le 2026-11-16. 0,90 % au règlement : NON confirmé, compté par prudence. Mettre 0 seulement après vérification dans la documentation Liquid.",
+  "ordre_min_usd": 10.0,
+  "regle_taille_min": "min_cote",
+  "_note_taille_min": "Hyperliquid : parts × min(prix, 1 − prix) ≥ 10 $ selon hypernode-docs, parts × prix ≥ 10 $ selon QuickNode. Documentation officielle non lue [À VÉRIFIER] : la règle la plus sévère est retenue pour que le papier ne soit jamais plus généreux que le réel.",
+  "parts_entieres": true,
+  "delai_prudence_heures": 24,
+  "_note_prudence": "Un marché réglé disparaît de l'API. Une issue illisible 24 h après la première tentative est comptée PERDUE : plus aucun pari « indéterminé » hors des chiffres.",
   "min_paris_verdict": 30,
   "instantane_minutes": 15,
   "perps_dex": [
@@ -14,6 +23,16 @@
     "xyz"
   ],
   "_note_tournois": "Les marchés « vainqueur du tournoi » (sport_tournoi) et les tranches de prix (tranche_prix) sont relevés et surveillés par pm_coherence mais jamais pariés : règlement en 2027 pour les premiers, ordre des tranches non documenté pour les secondes.",
+  "apprentissage": {
+    "actif": true,
+    "intervalle_minutes": 60,
+    "min_segment": 10,
+    "min_bras": 20,
+    "max_forks_par_bras_par_jour": 1,
+    "max_forks_total": 10,
+    "forks_de_forks": false,
+    "_note": "src/prediction/learning.py : mesure chaque bras, propose des forks à UNE variable, seulement pour resserrer, jamais de modification d'un bras existant. ADR 018."
+  },
   "arms": [
     {
       "name": "pm_temoin",

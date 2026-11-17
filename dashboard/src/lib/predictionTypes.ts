@@ -26,6 +26,30 @@ export type PredictionStats = {
     pnl_net: number
   }[]
   par_domaine: Record<string, { paris: number; gagnes: number; pnl_net: number }>
+  /** Paris dont le P&L net est positif : un « gagné » acheté à 0,99 peut perdre après frais. */
+  gagnes_net?: number
+  win_rate_net?: number | null
+  pertes_reelles?: number
+  /** Issue illisible après le délai de prudence : comptée perdue. */
+  regles_par_prudence?: number
+}
+
+/** Compte papier d'un bras (`paper.py::account`), comme un vrai compte. */
+export type PredictionAccount = {
+  capital: number
+  valeur: number
+  engage: number
+  solde: number
+  resultat_regle: number
+}
+
+/** Dernier passage de l'agent d'apprentissage (`learning.py::read_diagnostic`). */
+export type LearningDiagnostic = {
+  t: string | null
+  paris_regles: number | null
+  decision: string | null
+  proposition: { variable: string; value: unknown; motif: string } | null
+  fork_demande: string | null
 }
 
 export type PredictionArm = {
@@ -45,6 +69,10 @@ export type PredictionArm = {
   domaines: string[]
   description: string
   ouverts: number
+  /** Absents d'une réponse antérieure à l'ADR 018. */
+  compte?: PredictionAccount
+  origine?: 'site' | 'apprentissage' | null
+  apprentissage?: LearningDiagnostic | null
   stats: PredictionStats
 }
 
@@ -61,6 +89,11 @@ export type PredictionSummary = {
     frais_pct: number
     frais_reglement_pct: number
     min_paris_verdict: number
+    mise_max_pct?: number | null
+    ordre_min_usd?: number | null
+    regle_taille_min?: string | null
+    parts_entieres?: boolean | null
+    delai_prudence_heures?: number | null
   }
   arms: PredictionArm[]
 }
@@ -79,6 +112,8 @@ export type PredictionBet = {
   /** Prix moyen payé au carnet vendeur, entre 0 et 1. */
   entry_price: number
   stake_usd: number
+  shares?: number
+  regle_par_prudence?: boolean
   prob_estimee: number | null
   source_estimation: string
   expiry: string | null
