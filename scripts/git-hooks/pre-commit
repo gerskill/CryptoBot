@@ -68,8 +68,10 @@ for f in $fichiers; do
         # os.environ[...], ${VAR}, <votre_cle>. Aucune cle reelle ne contient
         # ces caracteres — c'est au contraire le motif CORRECT a encourager.
         case "$valeur" in
-          *'('*|*')'*|*'['*|*']'*|*'{'*|*'}'*|*'$'*|*'<'*|*'>'*|*','*) continue ;;
-          *' '*|*'	'*) continue ;;
+          # « ( » devant chaque motif : sans lui, le « ) » du motif ferme la
+          # substitution $(...) pour le bash 3.2 de macOS (erreur ligne 71).
+          (*'('*|*')'*|*'['*|*']'*|*'{'*|*'}'*|*'$'*|*'<'*|*'>'*|*','*) continue ;;
+          (*' '*|*'	'*) continue ;;
         esac
 
         printf '%s\n' "$valeur" | grep -qiE "$PLACEHOLDER" && continue
