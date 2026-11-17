@@ -73,6 +73,11 @@ inatteignable puisque le module d'exécution n'existe pas.
 Un trade = **une** sortie finale (`is_final_exit: true`). TP1 et TP2 vendent
 des fractions et écrivent des lignes de journal intermédiaires. Compter
 toutes les lignes double le nombre de trades : utiliser `read_final_exits()`.
+**Pour le P&L, le win rate ou le drawdown : `read_positions()`**, qui recolle
+les jambes d'une position. `read_final_exits()` jette les lignes TP1/TP2, donc
+leur gain : mesuré sur 40 lignes réelles, 1 gagnant visible au lieu de 4
+(docstring de `src/core/journal.py::read_positions`). Dashboard, rapport hebdo,
+`/api/arms/performance` et `voir_bras.py --perf` lisent `read_positions()`.
 
 ### Coût de sortie réel
 Impact de prix Jupiter (deux devis réels, achat + vente) + priority fee
@@ -159,6 +164,16 @@ décide si le filtre s'applique ou non.
 
 **Le journal de trades n'est pas versionné.** `data/` est gitignoré — c'est la
 mémoire du bot et elle n'est protégée que par `./scripts/backup.sh`.
+
+**Derrière un tunnel, tout vient de 127.0.0.1.** Le site passe par un tunnel
+Cloudflare (`logs/tunnel.log`) et `DASHBOARD_TOKEN` est défini : `/api/params`
+exige le jeton. Ne jamais l'exempter « pour les requêtes locales » — cloudflared,
+ngrok et `tailscale serve` relaient les requêtes d'Internet depuis 127.0.0.1.
+Lecture locale d'un bras : `python scripts/voir_bras.py <bras>` (fichiers).
+
+**Six fichiers de tests en style pytest ne tournaient pas.** `unittest discover`
+n'exécute pas les fonctions nues : « Ran 0 ». `tests/test_pont_pytest.py` les
+lance via pytest depuis le 2026-11-17 ; un nouveau test s'écrit en `TestCase`.
 
 ---
 

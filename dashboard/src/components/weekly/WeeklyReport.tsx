@@ -10,6 +10,7 @@ import { WeekSelector } from './WeekSelector'
 import { WeeklyEquityCurve } from './WeeklyEquityCurve'
 import { ArmWeeklyTable } from './ArmWeeklyTable'
 import { BestWorstTrades } from './BestWorstTrades'
+import { ArmPerformance } from './ArmPerformance'
 
 const ZERO_STAT = (arm: string): ArmWeeklyStat => ({
   arm,
@@ -60,6 +61,9 @@ export function WeeklyReport() {
 
   return (
     <div className="space-y-4">
+      {/* Indépendant de la semaine choisie : fenêtres glissantes 7 j / 30 j / tout. */}
+      <ArmPerformance />
+
       <WeekSelector weekOffset={weekOffset} onChange={setWeekOffset} />
 
       {fetched.trades === null ? (

@@ -22,8 +22,14 @@ Un signal noyé dans 600 lignes n'est pas un signal. Tant qu'aucune
 configuration n'est écrite, le seul garde-fou Python est la suite de tests —
 et le dire vaut mieux que faire semblant de linter.
 
-Les tests utilisent `unittest` (pas pytest, malgré le `.pytest_cache` résiduel)
-et insèrent la racine du dépôt dans `sys.path` en tête de fichier. Aucun test ne
+Les tests utilisent `unittest` et insèrent la racine du dépôt dans `sys.path`
+en tête de fichier. **Exception mesurée le 2026-11-17** : six fichiers
+(`test_onchain_observer`, `test_insider_obs`, `test_top_signal_antirug`,
+`test_chainstack_rpc`, `test_copy_smart_manual`, `test_rug_pnl_floor`) sont
+écrits en fonctions nues pour pytest, et `unittest discover` y affichait
+« Ran 0 » : 56 tests ne protégeaient rien. `tests/test_pont_pytest.py` les
+lance désormais via pytest (épinglé dans `requirements.txt`) et échoue s'ils
+échouent. Un nouveau test s'écrit en classe `unittest.TestCase`. Aucun test ne
 touche le réseau : les APIs sont doublées, et un test qui appellerait GMGN ou
 Birdeye serait à la fois lent et faux.
 

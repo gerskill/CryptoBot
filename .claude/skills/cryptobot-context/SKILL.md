@@ -29,7 +29,7 @@ s'évaluent indépendamment.
 | `rugcheck_score` | score de **sûreté** (haut = sûr), inversé à l'ingestion (ADR 001) |
 | shadow trade | rejet suivi 4 h, sert à arbitrer des **seuils**, jamais à mesurer une perf (ADR 007) |
 | famille de rejet | regroupement des motifs ; `rugcheck` et `authority` jamais relâchées |
-| sortie finale | `is_final_exit: true` — utiliser `read_final_exits()`, sinon les trades sont comptés double |
+| sortie finale | `is_final_exit: true` — `read_final_exits()` pour COMPTER ; `read_positions()` pour le P&L, sinon le gain des TP1/TP2 disparaît |
 
 ## Invariants — ne se négocient pas
 

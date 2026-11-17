@@ -400,3 +400,140 @@ def longest_drawdown(
     """
     episodes = drawdown_episodes(positions, starting_equity)
     return max(episodes, key=lambda e: e.trades) if episodes else None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Performance par bras sur une fenêtre (7 j, 30 j, tout)
+#
+# POURQUOI ICI. `scripts/rapport_hebdo.py` calculait déjà trades / WR / PF / P&L
+# par bras, mais en local dans le script. Le dashboard avait besoin des mêmes
+# chiffres : deux calculs séparés finissent toujours par raconter deux
+# histoires différentes. Le rapport et l'endpoint `/api/arms/performance`
+# appellent désormais ces deux fonctions.
+#
+# ENTRÉE. Toujours des positions de `read_positions()` (jambes agrégées), pas
+# `read_final_exits()` : ce dernier compte juste mais perd le gain des TP1/TP2
+# (une jambe partielle n'est pas `is_final_exit`). Le coût de sortie est déjà
+# dans `pnl_usd` de chaque jambe (ADR 009/010 pour la finale, ADR 012 pour
+# l'estimation sur les partielles) : rien à redéduire ici.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Raisons produites par la boucle elle-même. Tout autre préfixe est une
+# fermeture manuelle (panic button, /STOP) — reconnue par exclusion pour ne pas
+# deviner une chaîne figée. Comparaison par PRÉFIXE : la raison porte toujours
+# un détail entre parenthèses (`"RUG_PULL (liquidité -80%)"`).
+RAISONS_AUTOMATIQUES = (
+    "STOP_LOSS", "BREAKEVEN_STOP", "TAKE_PROFIT", "TRAILING_STOP",
+    "TIME_STOP", "RUG_PULL",
+)
+
+
+def exit_datetime(position: dict[str, Any]):
+    """Instant de clôture en UTC, ou `None` s'il est absent ou illisible.
+
+    Un horodatage SANS fuseau est lu comme UTC, comme `_parse_ts` de l'API.
+    `datetime.timestamp()` sur une date naïve supposerait l'heure LOCALE du
+    Mac (Europe/Zurich) et décalerait les fenêtres de une à deux heures.
+    """
+    from datetime import datetime, timezone
+
+    brut = position.get("timestamp_exit")
+    if not brut:
+        return None
+    try:
+        moment = datetime.fromisoformat(str(brut).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment
+
+
+def position_stats(positions: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """Compteurs d'un lot de positions. Aucune extrapolation, aucun arrondi
+    décisionnel : l'interprétation se fait avec `win_rate_interval`.
+
+    `profit_factor` vaut `None` quand il n'y a aucune perte : l'infini ne
+    passe pas en JSON, et 0 dirait l'inverse de la réalité. `gross_win` dit
+    alors s'il s'agit de « que des gains » ou de « rien du tout ».
+    """
+    gagnants = [p for p in positions if (p.get("pnl_usd") or 0) > 0]
+    gains = sum(p.get("pnl_usd") or 0 for p in gagnants)
+    pertes = abs(sum(p.get("pnl_usd") or 0 for p in positions if (p.get("pnl_usd") or 0) <= 0))
+    avec_cout = [p for p in positions if p.get("exit_cost_pct") is not None]
+    n = len(positions)
+    return {
+        "trades": n,
+        "wins": len(gagnants),
+        "win_rate": round(100 * len(gagnants) / n, 1) if n else 0.0,
+        "pnl_usd": round(gains - pertes, 4),
+        "gross_win": round(gains, 4),
+        "gross_loss": round(pertes, 4),
+        "profit_factor": round(gains / pertes, 2) if pertes else None,
+        "exit_cost_coverage_pct": round(100 * len(avec_cout) / n, 1) if n else 0.0,
+        "rug_pulls": sum(
+            1 for p in positions if str(p.get("exit_reason", "")).startswith("RUG_PULL")
+        ),
+        "manual_closes": sum(
+            1 for p in positions
+            if not str(p.get("exit_reason", "")).startswith(RAISONS_AUTOMATIQUES)
+        ),
+    }
+
+
+def window_performance(
+    positions: Sequence[dict[str, Any]],
+    starting_equity: float,
+    since=None,
+) -> dict[str, Any]:
+    """Performance d'UN bras sur [since, maintenant[ — `since=None` = tout.
+
+    `positions` : TOUT l'historique du bras, trié par `timestamp_exit`
+    croissant. Il faut l'historique complet, pas la seule fenêtre : le
+    drawdown d'une fenêtre se mesure depuis l'équité RÉELLE au début de la
+    fenêtre (mise de départ + tout le P&L antérieur). Repartir de la mise de
+    départ ferait croire qu'un bras déjà à -40 % démarre la semaine à zéro.
+
+    Le drawdown d'une fenêtre est le pire recul DANS la fenêtre, pic pris à
+    partir de son début : un recul commencé avant n'est compté que pour la
+    part subie dans la fenêtre.
+    """
+    anterieur = 0.0
+    fenetre: list[dict[str, Any]] = []
+    for position in positions:
+        moment = exit_datetime(position)
+        if since is not None and (moment is None or moment < since):
+            if moment is not None:
+                anterieur += position.get("pnl_usd") or 0.0
+            continue
+        fenetre.append(position)
+
+    equite_debut = starting_equity + anterieur
+    equite = equite_debut
+    pic = equite_debut
+    pire = 0.0
+    par_jour: dict[str, dict[str, Any]] = {}
+    for position in fenetre:
+        pnl = position.get("pnl_usd") or 0.0
+        equite += pnl
+        pic = max(pic, equite)
+        if pic > 0:
+            pire = max(pire, 100 * (pic - equite) / pic)
+        moment = exit_datetime(position)
+        jour = moment.date().isoformat() if moment is not None else "inconnu"
+        case = par_jour.setdefault(jour, {"date": jour, "trades": 0, "pnl_usd": 0.0})
+        case["trades"] += 1
+        case["pnl_usd"] += pnl
+
+    resultat = position_stats(fenetre)
+    resultat.update({
+        "equity_start": round(equite_debut, 2),
+        "equity_end": round(equite, 2),
+        "max_drawdown_pct": round(pire, 2),
+        "win_rate_interval": win_rate_interval(fenetre).as_dict() if fenetre else None,
+        "daily": [
+            {**case, "pnl_usd": round(case["pnl_usd"], 4)}
+            for case in sorted(par_jour.values(), key=lambda c: c["date"])
+        ],
+    })
+    return resultat

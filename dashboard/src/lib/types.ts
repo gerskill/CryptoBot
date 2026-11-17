@@ -211,3 +211,56 @@ export type CapabilityStatus = {
   down: string[]
   blind: boolean
 }
+
+/** Fenêtres servies par `/api/arms/performance` — liste fermée côté serveur. */
+export type PerformanceWindow = '7d' | '30d' | 'all'
+
+export type IntervalDict = {
+  value: number
+  low: number
+  high: number
+  n: number
+  conclusive: boolean
+}
+
+/** Miroir de `src/core/stats.py::window_performance` + `arm`, `role`, `verdict`. */
+export type ArmPerformance = {
+  arm: string
+  role?: string | null
+  trades: number
+  wins: number
+  win_rate: number
+  win_rate_interval: IntervalDict | null
+  pnl_usd: number
+  gross_win: number
+  gross_loss: number
+  /** `null` = aucune perte dans la fenêtre (l'infini ne passe pas en JSON). */
+  profit_factor: number | null
+  exit_cost_coverage_pct: number
+  rug_pulls: number
+  manual_closes: number
+  equity_start: number
+  equity_end: number
+  max_drawdown_pct: number
+  daily: { date: string; trades: number; pnl_usd: number }[]
+  /** `null` pour le témoin : il ne se compare pas à lui-même. */
+  verdict: { verdict: string; interval: IntervalDict | null; reference: IntervalDict | null } | null
+}
+
+export type ArmsPerformanceResponse = {
+  window: PerformanceWindow
+  since: string | null
+  until: string
+  starting_capital_per_arm: number
+  baseline: string
+  arms: ArmPerformance[]
+  fleet: {
+    arm: 'flotte'
+    label: string
+    trades: number
+    wins: number
+    win_rate: number
+    pnl_usd: number
+    profit_factor: number | null
+  }
+}

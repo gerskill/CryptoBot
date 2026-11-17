@@ -20,6 +20,7 @@ FastAPI, lue seulement, servie par `uvicorn api.server:app --port 8000`.
 | `/api/state` | état courant (positions, candidats, bras) |
 | `/api/trades?limit&arm` | journal, filtrable par bras |
 | `/api/arms` | manifeste + état par bras |
+| `/api/arms/performance?window=7d\|30d\|all` | P&L, WR (IC95), PF, drawdown, P&L/jour et verdict par bras — calcul dans `src/core/stats.py::window_performance` |
 | `/api/confluence` | votes du bras `consensus` |
 | `/api/shadow?limit&arm` | rejets suivis |
 | `/api/params?...` | document de paramètres d'un bras |
