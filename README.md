@@ -17,6 +17,17 @@ Tests :
 python -m unittest discover -s tests -v
 ```
 
+Les fichiers de tests écrits pour pytest (fonctions nues) sont lancés par
+`tests/test_pont_pytest.py` : `pytest` fait partie de `requirements.txt`.
+
+Exploitation (détails dans `docs/HEBERGEMENT.md`) :
+
+```bash
+./scripts/installe_services.sh            # bot, site, Liquid et veille en services launchd (macOS)
+python scripts/voir_bras.py quality       # règles d'un bras, sans jeton ni API
+python scripts/rapport_hebdo.py --jours 30
+```
+
 ## Architecture
 
 ```
@@ -40,6 +51,9 @@ src/core/learning.py      étape 6 : stats, segments, ajustement borné des para
 src/core/shadow.py        suivi des rejets — corrige le biais du survivant
 src/core/params.py        lecture/écriture params.json + historique d'ajustements
 src/analysis/technical.py bougies reconstruites, HH/HL, volume
+src/core/stats.py         IC95, verdict vs témoin, performance par bras et par fenêtre
+api/server.py             API du dashboard ; /api/arms/performance?window=7d|30d|all
+scripts/veille.py         alerte Telegram si bot, site ou Liquid se taisent
 ```
 
 ## Boucle papier complète
@@ -241,5 +255,14 @@ du token. Il ne peut pas alimenter `social_mentions_1h` et ne le fait pas.
 
 ## Non implémenté
 
-Exécution des trades (Jupiter/1inch), wallets, test honeypot, journal Airtable/Notion,
-backtest de validation (étape 6.4).
+Exécution des trades (Jupiter/1inch), wallets, test honeypot, journal Airtable/Notion.
+
+**Backtest de validation (étape 6.4) : partiel.** Ce qui existe : avant
+d'appliquer un ajustement, `LearningEngine` rejoue le journal
+(`simulate_filters`, `simulate_exits`, `exit_grid`) et annule le changement si
+le rejeu n'améliore pas le P&L/trade (« backtest non concluant »). Ce qui
+manque : la validation **hors échantillon**. `walk_forward()` et
+`overfit_gap()` existent dans `src/core/stats.py` mais ne servent qu'à
+`scripts/audit.py` ; l'apprentissage valide donc sur les trades qui ont
+motivé l'ajustement. L'onglet « Backtester » du dashboard n'est pas un
+backtest : il trace les courbes du journal papier par bras.

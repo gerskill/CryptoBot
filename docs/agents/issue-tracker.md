@@ -3,8 +3,11 @@
 Les issues de ce repo vivent dans des fichiers markdown sous `.scratch/`.
 Aucun service externe, aucun compte : tout reste sur la machine.
 
-Ce repo n'a pas de remote GitHub. Si un remote est ajouté plus tard et que tu
-veux basculer sur GitHub Issues, relance `/setup-matt-pocock-skills`.
+`.scratch/` est dans `.gitignore` : ces issues restent sur la machine qui
+les écrit et **n'atteignent ni GitHub ni une session cloud**. Le dépôt a un
+remote (`gerskill/CryptoBot`) depuis 2026-08 ; ce qui doit être partagé entre
+le Mac mini et les agents cloud va dans `docs/FEUILLE_DE_ROUTE.md` (versionné)
+ou dans `HANDOFF.md`.
 
 ## Emplacement et nommage
 

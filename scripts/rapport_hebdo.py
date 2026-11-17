@@ -29,52 +29,29 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src import settings  # noqa: E402
 from src.core.arm import load_manifest  # noqa: E402
 from src.core.journal import TradeJournal  # noqa: E402
-
-# Raisons produites par la boucle elle-même (règles automatiques). Tout ce qui
-# n'est PAS l'un de ces préfixes est une fermeture manuelle (panic button,
-# force_close) — la raison exacte est libre (`MANUAL_STOP`, `PANIC_STOP`, ...),
-# la reconnaître par exclusion évite de deviner une chaîne figée.
-RAISONS_AUTOMATIQUES = (
-    "STOP_LOSS", "BREAKEVEN_STOP", "TAKE_PROFIT", "TRAILING_STOP",
-    "TIME_STOP", "RUG_PULL",
-)
+from src.core.stats import exit_datetime, position_stats  # noqa: E402
 
 
 def _dans_fenetre(position: dict, depuis: datetime) -> bool:
-    horodatage = position.get("timestamp_exit")
-    if not horodatage:
-        return False
-    try:
-        exit_dt = datetime.fromisoformat(horodatage)
-    except ValueError:
-        return False
-    if exit_dt.tzinfo is None:
-        exit_dt = exit_dt.replace(tzinfo=timezone.utc)
-    return exit_dt >= depuis
+    moment = exit_datetime(position)
+    return moment is not None and moment >= depuis
 
 
 def _stats_bras(positions: list[dict]) -> dict:
-    gagnants = [p for p in positions if p.get("pnl_usd", 0) > 0]
-    perdants = [p for p in positions if p.get("pnl_usd", 0) <= 0]
-    gains = sum(p.get("pnl_usd", 0) for p in gagnants)
-    pertes = abs(sum(p.get("pnl_usd", 0) for p in perdants))
-    avec_cout = [p for p in positions if p.get("exit_cost_pct") is not None]
-
+    """Mêmes chiffres que `/api/arms/performance` : une seule source,
+    `src.core.stats.position_stats`. Seul l'affichage reste ici."""
+    s = position_stats(positions)
+    pf = s["profit_factor"]
+    if pf is None:
+        pf = float("inf") if s["gross_win"] else 0.0
     return {
-        "trades": len(positions),
-        "win_rate": 100 * len(gagnants) / len(positions) if positions else 0.0,
-        "pnl_usd": gains - pertes,
-        "profit_factor": (gains / pertes) if pertes else (float("inf") if gains else 0.0),
-        "couverture_couts_pct": (
-            100 * len(avec_cout) / len(positions) if positions else 0.0
-        ),
-        "rug_pulls": sum(
-            1 for p in positions if str(p.get("exit_reason", "")).startswith("RUG_PULL")
-        ),
-        "fermetures_manuelles": sum(
-            1 for p in positions
-            if not str(p.get("exit_reason", "")).startswith(RAISONS_AUTOMATIQUES)
-        ),
+        "trades": s["trades"],
+        "win_rate": s["win_rate"],
+        "pnl_usd": s["pnl_usd"],
+        "profit_factor": pf,
+        "couverture_couts_pct": s["exit_cost_coverage_pct"],
+        "rug_pulls": s["rug_pulls"],
+        "fermetures_manuelles": s["manual_closes"],
     }
 
 

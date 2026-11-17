@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Site : API + dashboard sur 127.0.0.1:8000.
+     MODÈLE : __PROJET__, __PYTHON__ et __PATH__ sont remplis par
+     scripts/installe_services.sh. Ne pas copier tel quel. -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.cryptobbot.ui</string>
+	<key>ProgramArguments</key>
+	<array><string>__PYTHON__</string><string>scripts/run_ui.py</string></array>
+	<key>WorkingDirectory</key>
+	<string>__PROJET__</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<!-- PATH du shell au moment de l'installation : launchd n'en donne
+		     qu'un minimal, et le bot appelle gmgn-cli (Node) en sous-processus. -->
+		<key>PATH</key>
+		<string>__PATH__</string>
+		<key>PYTHONUNBUFFERED</key>
+		<string>1</string>
+	</dict>
+	<!-- Relancé s'il s'arrête, y compris après un redémarrage du Mac.
+	     ThrottleInterval : au plus une relance par minute, pour qu'un
+	     plantage au démarrage ne tourne pas en boucle serrée. -->
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>60</integer>
+	<key>StandardOutPath</key>
+	<string>__PROJET__/logs/ui.log</string>
+	<key>StandardErrorPath</key>
+	<string>__PROJET__/logs/ui.log</string>
+</dict>
+</plist>

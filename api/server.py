@@ -299,6 +299,97 @@ def get_arms() -> dict[str, Any]:
     }
 
 
+# Fenêtres servies par `/api/arms/performance`. Fermées : une fenêtre libre
+# (`?days=3`) invite à chercher celle qui flatte un bras, ce qui est un
+# choix de période fait après coup sur les résultats.
+PERFORMANCE_WINDOWS = {"7d": 7, "30d": 30, "all": None}
+
+# Même règle que `src/main.py::_starting_capital` : `capital_total` de
+# params.json, sinon le capital papier fictif de 1000 $. En PAPER chaque bras
+# reçoit CETTE mise entière, `capital_pct` n'est pas appliqué (voir
+# `src/core/arm.py::attach_portfolios`). Recopié et non importé : importer
+# `src.main` depuis l'API chargerait toute la boucle de trading.
+PAPER_DEFAULT_CAPITAL = 1000.0
+
+
+def _starting_capital() -> float:
+    params = _read_json(settings.PARAMS_PATH) or {}
+    try:
+        capital = float(params.get("capital_total") or 0)
+    except (TypeError, ValueError):
+        capital = 0.0
+    return capital if capital > 0 else PAPER_DEFAULT_CAPITAL
+
+
+@app.get("/api/arms/performance")
+def get_arms_performance(window: str = "7d") -> dict[str, Any]:
+    """P&L par bras sur 7 j, 30 j ou tout : trades, WR (+ IC95), PF, P&L,
+    drawdown de la fenêtre, P&L jour par jour, verdict contre le témoin.
+
+    Source : `read_positions()` (une position = jambes agrégées), comme
+    `/api/trades`. Les coûts de sortie sont déjà dans `pnl_usd` (ADR 009, 010,
+    012). Chaque ligne porte son `arm` : un chiffre sans bras nommé est le
+    bug d'interface le plus coûteux de ce dashboard.
+
+    Le verdict compare le bras au témoin SUR LA MÊME FENÊTRE ; à 7 jours il
+    vaut presque toujours « échantillon trop court », et c'est la bonne
+    réponse, pas un défaut d'affichage.
+    """
+    from datetime import timedelta
+
+    from src.core.stats import position_stats, verdict_vs_reference, window_performance
+
+    if window not in PERFORMANCE_WINDOWS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"fenêtre inconnue : {window} (attendu : {', '.join(PERFORMANCE_WINDOWS)})",
+        )
+    days = PERFORMANCE_WINDOWS[window]
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=days) if days is not None else None
+    capital = _starting_capital()
+
+    def dans_fenetre(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if since is None:
+            return rows
+        return [r for r in rows if (m := _parse_ts(r.get("timestamp_exit"))) and m >= since]
+
+    try:
+        reference = dans_fenetre(_collect_positions(settings.BASELINE_ARM))
+    except HTTPException:
+        # Témoin absent du manifeste : pas de référence, donc pas de verdict
+        # — et surtout pas une erreur 404 sur tout le tableau.
+        reference = []
+    arms = []
+    fleet: list[dict[str, Any]] = []
+    for entry in load_manifest():
+        if not entry.get("enabled", True):
+            continue
+        name = entry["name"]
+        positions = _collect_positions(name)
+        perf = window_performance(positions, capital, since)
+        fenetre = dans_fenetre(positions)
+        fleet.extend(fenetre)
+        perf["verdict"] = (
+            None if name == settings.BASELINE_ARM
+            else verdict_vs_reference(fenetre, reference)
+        )
+        arms.append({"arm": name, "role": entry.get("role"), **perf})
+
+    flotte = position_stats(fleet)
+    flotte["arm"] = "flotte"
+    flotte["label"] = "somme des bras activés (drawdown non agrégeable, voir chaque bras)"
+    return {
+        "window": window,
+        "since": since.isoformat() if since else None,
+        "until": now.isoformat(),
+        "starting_capital_per_arm": capital,
+        "baseline": settings.BASELINE_ARM,
+        "arms": arms,
+        "fleet": flotte,
+    }
+
+
 @app.get("/api/confluence")
 def get_confluence() -> dict[str, Any]:
     """Sur quels tokens les stratégies tombent d'accord, au dernier cycle."""

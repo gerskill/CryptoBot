@@ -24,7 +24,8 @@ Relire dans cet ordre. Chaque point vient d'un bug réellement survenu.
 ## 2. Comptage et vocabulaire
 
 - [ ] Compte de trades via `read_final_exits()`, pas `read_all()` — sinon TP1
-      et TP2 doublent le total.
+      et TP2 doublent le total. **P&L, WR, PF, drawdown via `read_positions()`** :
+      `read_final_exits()` perd le gain des jambes partielles.
 - [ ] `alpha_score_absolute` pour autoriser une entrée,
       `alpha_score` **uniquement** pour trier. Le nom de variable le dit.
 - [ ] `rugcheck_score` traité comme un score de **sûreté** (haut = sûr).
