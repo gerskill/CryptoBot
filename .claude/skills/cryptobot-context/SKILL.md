@@ -72,6 +72,7 @@ s'évaluent indépendamment.
 | endpoints FastAPI, composants React, types partagés | `api-dashboard` |
 | écrire/lancer des tests, lint | `tests-qualite` |
 | `scripts/`, entonnoir, IC95, rapport hebdo | `analyse-reporting` |
+| rendement annualisé, « +120 %/an », quels bras garder ou supprimer | `rentabilite-annuelle` |
 | `.env`, clés, allowlists, backup, lancement, PAPER/LIVE | `securite-exploitation` |
 | décision structurante, mise à jour de doc | `adr-documentation` |
 | bug ou tâche à consigner, état d'une issue | `issues-triage` |

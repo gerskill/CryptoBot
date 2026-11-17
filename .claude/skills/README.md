@@ -17,6 +17,7 @@ invariants et l'aiguillage.
 | `api-dashboard` | FastAPI + React/TypeScript, types partagés |
 | `tests-qualite` | unittest, lint, définition de « terminé » |
 | `analyse-reporting` | scripts d'analyse, entonnoir, IC95, rapports |
+| `rentabilite-annuelle` | rendement annualisé, objectif +X %/an, garder ou supprimer un bras |
 | `securite-exploitation` | `.env`, allowlists, PAPER/LIVE, backup, quotas |
 | `adr-documentation` | ADR, `CONTEXT.md`, état du projet |
 | `issues-triage` | tracker markdown `.scratch/`, vocabulaire de triage |
