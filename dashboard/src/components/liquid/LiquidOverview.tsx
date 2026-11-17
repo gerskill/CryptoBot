@@ -22,7 +22,9 @@ function ArmCard({ arm, need, onToggle }: {
         </span>
       </div>
       {arm.cree_depuis_le_site && (
-        <div className="mt-1 text-[10px] text-warn">créé depuis le site</div>
+        <div className="mt-1 text-[10px] text-warn">
+          {arm.origine === 'apprentissage' ? 'créé par l’agent d’apprentissage' : 'créé depuis le site'}
+        </div>
       )}
       {arm.parent && (
         <div className="mt-1 font-mono text-[10px] text-dim">
@@ -46,6 +48,17 @@ function ArmCard({ arm, need, onToggle }: {
               {done ? signed(arm.stats.pnl_net) : '—'}
             </span>
           </div>
+          {arm.compte && (
+            <div className="mt-1 flex items-baseline justify-between font-mono text-[10px] tabular-nums text-dim">
+              <span>compte {arm.compte.valeur.toFixed(2)} $</span>
+              <span>solde {arm.compte.solde.toFixed(2)} $ · engagé {arm.compte.engage.toFixed(2)} $</span>
+            </div>
+          )}
+          {arm.apprentissage?.decision && (
+            <div className="mt-1.5 text-[10px] leading-snug text-muted">
+              <span className="text-tide">Agent :</span> {arm.apprentissage.decision}
+            </div>
+          )}
         </>
       )}
       {onToggle && (
@@ -80,8 +93,12 @@ export function LiquidOverview({ summary }: { summary: PredictionSummary }) {
           {[
             ['1 · Relever', 'Toutes les minutes : la liste des marchés, leurs prix, les carnets utiles. Un relevé de tous les prix est gardé toutes les 15 minutes.'],
             ['2 · Classer', 'Prix, sport, questions. Un modèle de marché inconnu part en « non classé » et n’est jamais parié.'],
-            ['3 · Décider', 'Chaque bras applique sa règle. Entrée simulée au prix réel du carnet vendeur, refusée si le carnet est trop loin du prix affiché.'],
-            ['4 · Régler', `Frais ${(cfg.frais_pct * 100).toFixed(2)} % à l’achat et ${(cfg.frais_reglement_pct * 100).toFixed(2)} % au règlement. Issue douteuse = « indéterminé », hors de tous les chiffres.`],
+            ['3 · Décider', cfg.ordre_min_usd
+              ? `Chaque bras joue son compte de ${cfg.capital_fictif_usd} $ comme le vrai : parts entières, ordre minimum ${cfg.ordre_min_usd} $, solde suffisant, carnet partagé entre bras. Entrée au prix réel du carnet vendeur.`
+              : 'Chaque bras applique sa règle. Entrée simulée au prix réel du carnet vendeur, refusée si le carnet est trop loin du prix affiché.'],
+            ['4 · Régler', `Frais ${(cfg.frais_pct * 100).toFixed(2)} % à l’achat et ${(cfg.frais_reglement_pct * 100).toFixed(2)} % au règlement. ` + (cfg.delai_prudence_heures
+              ? `Issue illisible ${cfg.delai_prudence_heures} h après l’échéance = comptée perdue, par prudence.`
+              : 'Issue douteuse = « indéterminé », hors de tous les chiffres.')],
           ].map(([title, text]) => (
             <li key={title} className="rounded-md px-3 py-2.5 ring-1 ring-edge/50">
               <div className="font-mono text-[10px] uppercase tracking-wider text-tide">{title}</div>

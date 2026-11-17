@@ -6,6 +6,7 @@ compter double : chaque ligne du journal est une sortie finale.
 """
 
 import json
+import math
 import os
 from typing import Any, Optional
 
@@ -28,6 +29,78 @@ def simulate_entry(asks: list[tuple[float, float]], stake_usd: float) -> Optiona
         if remaining <= 1e-9:
             return {"price": stake_usd / shares, "shares": shares}
     return None
+
+
+def remaining_asks(asks: list[tuple[float, float]], taken: float) -> list[tuple[float, float]]:
+    """Carnet vendeur moins les `taken` parts déjà achetées CE cycle.
+
+    Les parts achetées par un autre bras ne sont plus à vendre : on les retire
+    en partant du meilleur prix. Sans ça, cinq bras achetaient le même marché
+    au même prix, comme si chacun était seul — relevé le 2026-11-17 sur
+    « BTC > 65050 ».
+    """
+    left, out = max(0.0, taken), []
+    for price, size in asks:
+        if left > 0:
+            used = min(left, size)
+            left -= used
+            size -= used
+        if size > 1e-12:
+            out.append((price, size))
+    return out
+
+
+def buy_shares(asks: list[tuple[float, float]], shares: float) -> Optional[dict[str, float]]:
+    """Achat de `shares` parts en remontant le carnet vendeur.
+
+    Renvoie le prix moyen payé, les parts et le coût, ou `None` si le carnet
+    ne contient pas assez de parts : on n'achète pas ce qui n'est pas à vendre.
+    """
+    if shares <= 0:
+        return None
+    wanted, cost = shares, 0.0
+    for price, size in asks:
+        if price <= 0 or price >= 1:
+            continue
+        take = min(size, wanted)
+        cost += take * price
+        wanted -= take
+        if wanted <= 1e-9:
+            return {"price": cost / shares, "shares": shares, "cost": cost}
+    return None
+
+
+def min_shares(price: float, min_order_usd: float, rule: str = "min_cote") -> float:
+    """Plus petit nombre de parts qu'Hyperliquid accepte à ce prix.
+
+    Deux règles publiées, non départagées par la documentation officielle
+    (lecture impossible le 2026-11-17) [À VÉRIFIER] :
+      - « min_cote »  : parts × min(prix, 1 − prix) ≥ minimum (hypernode-docs) ;
+      - « notionnel » : parts × prix ≥ minimum (guide QuickNode).
+    La première est la plus sévère : par défaut, le papier ne doit jamais
+    accepter un ordre que le réel refuserait.
+    """
+    if min_order_usd <= 0 or not 0 < price < 1:
+        return 0.0
+    basis = min(price, 1 - price) if rule == "min_cote" else price
+    return float(math.ceil(min_order_usd / basis - 1e-9))
+
+
+def account(capital: float, settled: list[dict[str, Any]],
+            open_bets: list[dict[str, Any]]) -> dict[str, float]:
+    """Compte d'un bras, comme un vrai compte : solde, engagé, valeur.
+
+    Une mise et ses frais d'achat quittent le solde à l'achat ; la recette
+    du règlement y revient. `valeur` = capital + gains et pertes réglés.
+    """
+    realized = sum(float(b["pnl_net"]) for b in settled
+                   if b.get("status") == "regle" and b.get("pnl_net") is not None)
+    engaged = sum(float(b.get("stake_usd") or 0) + float(b.get("fee_entry_usd") or 0)
+                  for b in open_bets)
+    equity = capital + realized
+    return {"capital": round(capital, 4), "valeur": round(equity, 4),
+            "engage": round(engaged, 4), "solde": round(equity - engaged, 4),
+            "resultat_regle": round(realized, 4)}
 
 
 def net_pnl(stake_usd: float, shares: float, settle_value: float,
@@ -106,11 +179,21 @@ class BetStore:
         append_jsonl(self.settled_path, closed)
         _write_atomic(self.open_path, [b for b in self.open_bets() if b.get("id") != bet_id])
 
+    def update(self, bet_id: str, fields: dict[str, Any]) -> None:
+        """Annote un pari encore ouvert (ex. : issue pas encore lisible)."""
+        _write_atomic(self.open_path, [dict(b, **fields) if b.get("id") == bet_id else b
+                                       for b in self.open_bets()])
+
     def seen_outcomes(self) -> set[int]:
         return {b["outcome"] for b in self.open_bets() + self.settled() if "outcome" in b}
 
 
 TRANCHES_PRIX = ((0.0, 0.2), (0.2, 0.4), (0.4, 0.6), (0.6, 0.8), (0.8, 1.01))
+
+
+def order_key(bet: dict[str, Any]) -> tuple[str, str, str]:
+    """Ordre chronologique des paris réglés, départagé à heure égale."""
+    return (bet.get("settle_time") or "", bet.get("entry_time") or "", str(bet.get("id") or ""))
 
 
 def compute_stats(settled: list[dict[str, Any]], capital: float, min_bets: int) -> dict[str, Any]:
@@ -120,7 +203,10 @@ def compute_stats(settled: list[dict[str, Any]], capital: float, min_bets: int) 
     n'entrent dans aucun chiffre : un résultat deviné n'est pas un résultat.
     """
     decided = [b for b in settled if b.get("status") == "regle" and b.get("pnl_net") is not None]
-    decided.sort(key=lambda b: b.get("settle_time") or "")
+    # Départage : 79 paris pour 9 horaires de règlement le 2026-11-17. Trier
+    # sur l'heure seule laissait l'ordre — donc le drawdown — au hasard de
+    # l'API (de -256 à -281 $ sur le même jeu). Ordre stable, reproductible.
+    decided.sort(key=order_key)
     pnls = [float(b["pnl_net"]) for b in decided]
     gains = sum(p for p in pnls if p > 0)
     losses = -sum(p for p in pnls if p < 0)
@@ -167,6 +253,12 @@ def compute_stats(settled: list[dict[str, Any]], capital: float, min_bets: int) 
         "paris_indetermines": sum(1 for b in settled if b.get("status") == "indetermine"),
         "gagnes": sum(1 for b in decided if b.get("won")),
         "win_rate": (sum(1 for b in decided if b.get("won")) / count) if count else None,
+        # Un pari « gagné » acheté à 0,99 perd de l'argent une fois les frais
+        # payés : les deux comptes sont donnés côte à côte, jamais l'un pour l'autre.
+        "gagnes_net": sum(1 for p in pnls if p > 0),
+        "win_rate_net": (sum(1 for p in pnls if p > 0) / count) if count else None,
+        "pertes_reelles": sum(1 for b in decided if b.get("won") is False),
+        "regles_par_prudence": sum(1 for b in decided if b.get("regle_par_prudence")),
         "profit_factor": (gains / losses) if losses > 0 else None,
         "pnl_net": round(sum(pnls), 4),
         "drawdown_max_pct": round(100 * max_dd / capital, 3) if capital else None,

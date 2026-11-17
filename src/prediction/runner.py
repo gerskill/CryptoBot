@@ -7,16 +7,19 @@ INVARIANTS repris de la boucle memecoin :
     de carnet = pas de pari, et la raison est comptée.
 """
 
+import math
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 
 from src.prediction import estimators
+from src.prediction import learning
 from src.prediction import overlay
 from src.prediction.markets import (DOMAINES_SEUIL, Market, parse_outcome_meta,
                                     settled_outcomes)
-from src.prediction.paper import (BetStore, _write_atomic, append_jsonl,
-                                  compute_stats, net_pnl, read_json, read_jsonl,
+from src.prediction.paper import (BetStore, _write_atomic, account, append_jsonl,
+                                  buy_shares, compute_stats, min_shares, net_pnl,
+                                  read_json, read_jsonl, remaining_asks,
                                   simulate_entry)
 
 INTERVAL_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
@@ -52,6 +55,9 @@ class PredictionRunner:
         self.data_dir = data_dir
         self.now = now
         self._candles: dict[tuple[str, str], list[dict[str, float]]] = {}
+        # Parts achetées CE cycle, par pièce, tous bras confondus : un même
+        # carnet ne se vend pas deux fois.
+        self._taken: dict[str, float] = {}
 
     # ---------- accès fichiers ----------
 
@@ -162,26 +168,67 @@ class PredictionRunner:
 
     def _open(self, arm: dict[str, Any], market: Market, pick: dict[str, Any],
               moment: datetime) -> str:
+        """Achat simulé comme sur un vrai compte (ADR 018).
+
+        Le compte du bras a un solde : une mise qu'il ne peut pas payer est
+        refusée. Hyperliquid impose une taille minimale d'ordre : en dessous,
+        l'ordre réel serait rejeté, donc le papier aussi. Les parts déjà
+        achetées ce cycle par un autre bras ne sont plus dans le carnet.
+        """
+        cfg = self.config
         store = self.store(arm["name"])
-        capital = self.config["capital_fictif_usd"]
-        stake = capital * self.config["mise_pct"]
-        exposure = sum(b["stake_usd"] for b in store.open_bets() if b.get("domain") == market.domain)
-        if exposure + stake > capital * self.config["exposition_max_pct_par_domaine"] + 1e-9:
+        open_bets = store.open_bets()
+        compte = account(cfg["capital_fictif_usd"], store.settled(), open_bets)
+        valeur = compte["valeur"]
+        target = valeur * cfg["mise_pct"]
+        exposure = sum(b["stake_usd"] for b in open_bets if b.get("domain") == market.domain)
+        exposure_cap = valeur * cfg["exposition_max_pct_par_domaine"] + 1e-9
+        if exposure + target > exposure_cap:
             return "exposition_max"
         side = pick["side"]
         book = self.api.l2_book(side.coin)
         if not book or not book["asks"]:
             return "carnet_absent"
-        fill = simulate_entry(book["asks"], stake)
+        asks = remaining_asks(book["asks"], self._taken.get(side.coin, 0.0))
+        if not asks:
+            return "carnet_deja_pris"
+        min_usd = float(cfg.get("ordre_min_usd", 0) or 0)
+        whole = bool(cfg.get("parts_entieres", False))
+        sized_by_minimum = False
+        if min_usd > 0 or whole:
+            best = next((p for p, _ in asks if 0 < p < 1), None)
+            if best is None:
+                return "carnet_absent"
+            wanted = target / best
+            wanted = float(math.floor(wanted)) if whole else wanted
+            minimum = min_shares(best, min_usd, cfg.get("regle_taille_min", "min_cote"))
+            if minimum > wanted:
+                wanted, sized_by_minimum = minimum, True
+            fill = buy_shares(asks, wanted)
+        else:
+            fill = simulate_entry(asks, target)
+            if fill is not None:
+                fill["cost"] = target
         if fill is None:
             return "carnet_trop_mince"
+        stake = fill["cost"]
+        if stake > valeur * float(cfg.get("mise_max_pct", 1.0)) + 1e-9:
+            # Le minimum d'Hyperliquid exige plus que ce que le bras accepte de
+            # risquer sur un pari : avec 46 $, un favori à 0,90 coûterait 90 $.
+            return "sous_taille_minimale" if sized_by_minimum else "mise_trop_grande"
+        fee, settle_fee = cfg["frais_pct"], cfg["frais_reglement_pct"]
+        if stake * (1 + fee) > compte["solde"] + 1e-9:
+            return "solde_insuffisant"
+        if exposure + stake > exposure_cap:
+            return "exposition_max"
         if pick.get("mid") is not None and fill["price"] - pick["mid"] > ECART_MAX_CARNET:
             return "carnet_trop_large"
-        fee, settle_fee = self.config["frais_pct"], self.config["frais_reglement_pct"]
+        edge = None
         if pick["prob"] is not None:
             edge = pick["prob"] * (1 - settle_fee) - fill["price"] * (1 + fee)
             if edge < arm.get("edge_min", 0.05):
                 return "esperance_insuffisante_au_carnet"
+        self._taken[side.coin] = self._taken.get(side.coin, 0.0) + fill["shares"]
         bid = book["bids"][0][0] if book["bids"] else None
         ask = book["asks"][0][0]
         bet = {
@@ -204,8 +251,11 @@ class PredictionRunner:
             "entry_time": _iso(moment),
             "entry_price": round(fill["price"], 6),
             "shares": round(fill["shares"], 6),
-            "stake_usd": stake,
+            "stake_usd": round(stake, 6),
             "fee_entry_usd": round(stake * fee, 6),
+            "edge_au_carnet": round(edge, 6) if edge is not None else None,
+            "taille_au_minimum": sized_by_minimum,
+            "solde_avant": compte["solde"],
             "spread_at_entry": round(ask - bid, 6) if bid is not None else None,
             "prob_estimee": round(pick["prob"], 6) if pick["prob"] is not None else None,
             "source_estimation": pick["source"],
@@ -286,7 +336,26 @@ class PredictionRunner:
                 if yes_value is None:
                     continue
                 closed = dict(bet, settle_time=_iso(moment))
-                if yes_value < 0:
+                prudence = self.config.get("delai_prudence_heures")
+                if yes_value < 0 and prudence is not None:
+                    # Un vrai compte n'a pas de pari « indéterminé » : il est
+                    # gagné ou perdu. Tant que l'issue reste illisible, le pari
+                    # reste ouvert (sa mise reste engagée) ; passé le délai, il
+                    # est compté PERDU — l'hypothèse qui protège le capital.
+                    since = bet.get("a_regler_depuis")
+                    if since is None:
+                        store.update(bet["id"], {"a_regler_depuis": _iso(moment)})
+                        continue
+                    if moment - datetime.fromisoformat(since) < timedelta(hours=float(prudence)):
+                        continue
+                    pnl = net_pnl(bet["stake_usd"], bet["shares"], 0.0,
+                                  self.config["frais_pct"], self.config["frais_reglement_pct"])
+                    closed.update(status="regle", settle_value=0.0, pnl_net=round(pnl, 6), won=False,
+                                  regle_par_prudence=True,
+                                  motif_reglement=(f"issue illisible {float(prudence):g} h après la "
+                                                   "première tentative : comptée perdue par prudence"))
+                    self._track(bet["coin"], moment, 0.0)
+                elif yes_value < 0:
                     closed.update(status="indetermine", settle_value=None, pnl_net=None, won=None)
                 else:
                     value = yes_value if bet["side_index"] == 0 else 1 - yes_value
@@ -441,6 +510,7 @@ class PredictionRunner:
     def cycle(self) -> dict[str, Any]:
         moment = self.now()
         self._candles = {}
+        self._taken = {}
         meta = self.api.outcome_meta()
         if meta is None:
             # Sans la liste des marchés on ne sait pas lesquels sont clos : ne
@@ -505,6 +575,14 @@ class PredictionRunner:
         observers = [a for a in arms if a.get("role") == "observateur"]
         anomalies = self._coherence(markets, mids, moment) if observers else 0
 
+        # Agent d'apprentissage : mesure chaque bras et PROPOSE des forks
+        # (boîte de demandes, appliqués au cycle suivant). Il ne modifie
+        # jamais un bras existant. Une erreur ici n'arrête pas le cycle.
+        try:
+            appris = learning.run(self.config, self.data_dir, moment)
+        except Exception as exc:  # noqa: BLE001 — le cycle ne meurt jamais
+            appris = {"erreur": type(exc).__name__}
+
         by_domain: dict[str, int] = {}
         for market in markets:
             if not market.is_fallback:
@@ -523,6 +601,7 @@ class PredictionRunner:
             "instantane_ecrit": snapshot,
             "perps_releves": perps,
             "demandes_traitees": demandes,
+            "apprentissage": appris,
             "raisons": reasons,
         }
         _write_atomic(os.path.join(self.data_dir, "state.json"), state)
@@ -548,6 +627,9 @@ def summary(config: dict[str, Any], data_dir: str) -> list[dict[str, Any]]:
                                              "max_jours", "min_minutes", "intervalle") if k in arm},
             "description": arm.get("description", ""),
             "ouverts": len(store.open_bets()),
+            "compte": account(config["capital_fictif_usd"], store.settled(), store.open_bets()),
+            "origine": arm.get("origine"),
+            "apprentissage": learning.read_diagnostic(data_dir, arm["name"]),
             "stats": compute_stats(store.settled(), config["capital_fictif_usd"],
                                    config["min_paris_verdict"]),
         })
