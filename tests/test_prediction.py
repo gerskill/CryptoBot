@@ -647,6 +647,10 @@ class TestCompteReel(PredictionTestCase):
                    {"status": "regle", "pnl_net": 4.0, "won": True, "entry_price": 0.6, "settle_time": "2"}]
         stats = compute_stats(settled, 46, 30)
         self.assertEqual((stats["paris_regles"], stats["pnl_net"], stats["paris_hors_regle"]), (1, 4.0, 1))
+        # La perte reste visible : à part, et dans le drawdown du compte.
+        self.assertEqual(stats["pnl_hors_regle"], -10.09)
+        self.assertEqual(stats["drawdown_max_pct"], 0.0)
+        self.assertAlmostEqual(stats["drawdown_compte_pct"], 100 * 10.09 / 46, places=3)
         self.assertAlmostEqual(account(46.0, settled, [])["valeur"], 46 - 10.09 + 4.0)
 
     def test_une_demande_qui_plante_ne_bloque_pas_les_reglements(self):
@@ -735,6 +739,12 @@ class TestAgentApprentissage(PredictionTestCase):
 
     def test_sans_configuration_l_agent_ne_fait_rien(self):
         self.assertEqual(learning.run(make_config([TEMOIN]), self.tmp, NOW), {"actif": False})
+
+    def test_l_agent_ne_compte_pas_les_paris_hors_regle(self):
+        self._paris("pm_temoin", [(0.85, -10.0, {"hors_regle": True})] * 12 + [(0.65, 4.0, {})] * 12)
+        learning.run(self._config([TEMOIN]), self.tmp, NOW)
+        self.assertEqual(learning.read_diagnostic(self.tmp, "pm_temoin")["paris_regles"], 12)
+        self.assertEqual(self._demandes(), [])
 
     def test_sous_vingt_paris_l_agent_mesure_mais_ne_propose_rien(self):
         self._paris("pm_temoin", [(0.85, -10.0, {})] * 15)

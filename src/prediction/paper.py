@@ -196,6 +196,15 @@ def order_key(bet: dict[str, Any]) -> tuple[str, str, str]:
     return (bet.get("settle_time") or "", bet.get("entry_time") or "", str(bet.get("id") or ""))
 
 
+def _drawdown_pct(bets: list[dict[str, Any]], capital: float) -> Optional[float]:
+    peak = equity = worst = 0.0
+    for bet in bets:
+        equity += float(bet["pnl_net"])
+        peak = max(peak, equity)
+        worst = max(worst, peak - equity)
+    return round(100 * worst / capital, 3) if capital else None
+
+
 def compute_stats(settled: list[dict[str, Any]], capital: float, min_bets: int) -> dict[str, Any]:
     """Chiffres d'un bras, sur les paris RÉGLÉS seulement.
 
@@ -265,6 +274,14 @@ def compute_stats(settled: list[dict[str, Any]], capital: float, min_bets: int) 
         "pertes_reelles": sum(1 for b in decided if b.get("won") is False),
         "regles_par_prudence": sum(1 for b in decided if b.get("regle_par_prudence")),
         "paris_hors_regle": sum(1 for b in settled if b.get("hors_regle")),
+        # Le COMPTE, lui, a payé ces paris : leur résultat est donné à part, et
+        # le drawdown du compte les inclut. Pour passer en réel, c'est le
+        # compte qui compte, pas la règle seule (juge, 2026-11-17).
+        "pnl_hors_regle": round(sum(float(b["pnl_net"]) for b in settled
+                                    if b.get("hors_regle") and b.get("pnl_net") is not None), 4),
+        "drawdown_compte_pct": _drawdown_pct(
+            sorted([b for b in settled if b.get("status") == "regle" and b.get("pnl_net") is not None],
+                   key=order_key), capital),
         "profit_factor": (gains / losses) if losses > 0 else None,
         "pnl_net": round(sum(pnls), 4),
         "drawdown_max_pct": round(100 * max_dd / capital, 3) if capital else None,

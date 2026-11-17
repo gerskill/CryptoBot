@@ -177,8 +177,11 @@ def run(config: dict[str, Any], data_dir: str, moment: datetime) -> dict[str, An
     for arm in arms:
         if arm.get("role") not in ROLES or not arm.get("enabled", True):
             continue
+        # Les paris pris hors de la règle du bras (défaut corrigé) ne mesurent
+        # pas la règle : ni dans le seuil de 20, ni dans les segments.
         decided = [b for b in BetStore(data_dir, arm["name"]).settled()
-                   if b.get("status") == "regle" and b.get("pnl_net") is not None]
+                   if b.get("status") == "regle" and b.get("pnl_net") is not None
+                   and not b.get("hors_regle")]
         diag = diagnose(arm, decided)
         diag.update(t=_iso(moment), proposition=None, fork_demande=None)
         measured += 1
