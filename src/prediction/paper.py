@@ -199,10 +199,15 @@ def order_key(bet: dict[str, Any]) -> tuple[str, str, str]:
 def compute_stats(settled: list[dict[str, Any]], capital: float, min_bets: int) -> dict[str, Any]:
     """Chiffres d'un bras, sur les paris RÉGLÉS seulement.
 
-    Les paris « indéterminés » (règlement non établi) sont comptés à part et
-    n'entrent dans aucun chiffre : un résultat deviné n'est pas un résultat.
+    Depuis l'ADR 018, une issue illisible est comptée perdue après le délai de
+    prudence (`regles_par_prudence`) : plus aucun pari ne sort des chiffres.
+    Seuls restent à part : les « indéterminés » d'avant l'ADR 018, et les paris
+    marqués `hors_regle` (pris en dehors de la règle du bras à cause d'un
+    défaut corrigé depuis) — leur argent compte dans le compte du bras, mais
+    ils ne mesurent pas la règle.
     """
-    decided = [b for b in settled if b.get("status") == "regle" and b.get("pnl_net") is not None]
+    decided = [b for b in settled if b.get("status") == "regle" and b.get("pnl_net") is not None
+               and not b.get("hors_regle")]
     # Départage : 79 paris pour 9 horaires de règlement le 2026-11-17. Trier
     # sur l'heure seule laissait l'ordre — donc le drawdown — au hasard de
     # l'API (de -256 à -281 $ sur le même jeu). Ordre stable, reproductible.
@@ -259,6 +264,7 @@ def compute_stats(settled: list[dict[str, Any]], capital: float, min_bets: int) 
         "win_rate_net": (sum(1 for p in pnls if p > 0) / count) if count else None,
         "pertes_reelles": sum(1 for b in decided if b.get("won") is False),
         "regles_par_prudence": sum(1 for b in decided if b.get("regle_par_prudence")),
+        "paris_hors_regle": sum(1 for b in settled if b.get("hors_regle")),
         "profit_factor": (gains / losses) if losses > 0 else None,
         "pnl_net": round(sum(pnls), 4),
         "drawdown_max_pct": round(100 * max_dd / capital, 3) if capital else None,

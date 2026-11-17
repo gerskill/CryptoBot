@@ -221,8 +221,17 @@ class PredictionRunner:
             return "solde_insuffisant"
         if exposure + stake > exposure_cap:
             return "exposition_max"
-        if pick.get("mid") is not None and fill["price"] - pick["mid"] > ECART_MAX_CARNET:
+        # Dans les DEUX sens (juge, 2026-11-17) : un carnet très en dessous du
+        # prix affiché faisait acheter au témoin un « favori » à 0,24 alors que
+        # sa fourchette est 0,50–0,95. L'une des deux sources est en retard, et
+        # le papier ne doit pas parier sur celle qui l'arrange.
+        if pick.get("mid") is not None and abs(fill["price"] - pick["mid"]) > ECART_MAX_CARNET:
             return "carnet_trop_large"
+        # La fourchette d'un bras témoin/règle porte sur le prix PAYÉ, pas
+        # seulement sur le prix affiché qui a servi à choisir le côté.
+        if pick["prob"] is None and not (arm.get("prix_min", 0.0) - 1e-9 <= fill["price"]
+                                         <= arm.get("prix_max", 1.0) + 1e-9):
+            return "prix_hors_fourchette_au_carnet"
         edge = None
         if pick["prob"] is not None:
             edge = pick["prob"] * (1 - settle_fee) - fill["price"] * (1 + fee)
@@ -519,7 +528,12 @@ class PredictionRunner:
         mids = self.api.all_mids()
         markets = parse_outcome_meta(meta)
         # Demandes venues du site, puis configuration effective de CE cycle.
-        demandes = overlay.apply_requests(self.base_config, self.data_dir, moment)
+        # Une demande qui ferait planter le code ne doit pas bloquer les
+        # règlements : le cycle continue avec la configuration existante.
+        try:
+            demandes = overlay.apply_requests(self.base_config, self.data_dir, moment)
+        except Exception as exc:  # noqa: BLE001 — le cycle ne meurt jamais
+            demandes = {"erreur": type(exc).__name__}
         self.config = overlay.effective_config(self.base_config, self.data_dir)
         roles = ("temoin", "regle", "parieur", "consensus")
         arms = [a for a in self.config["arms"] if a.get("enabled", True)]

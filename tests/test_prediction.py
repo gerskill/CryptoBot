@@ -625,6 +625,45 @@ class TestCompteReel(PredictionTestCase):
         # Il ne restait que 5 parts à 0,50 : les 15 autres à 0,52.
         self.assertAlmostEqual(second["entry_price"], (5 * 0.5 + 15 * 0.52) / 20)
 
+    def test_le_temoin_n_achete_pas_un_favori_que_le_carnet_vend_hors_de_sa_fourchette(self):
+        # Cas réel du 2026-11-17 (pm_temoin-382601) : affiché 0,555, vendu 0,24.
+        meta, mids, _ = self._marches(1, ask=0.555)
+        books = {"#1000": {"bids": [(0.15, 500)], "asks": [(0.24, 500)]}}
+        result = self.runner(FakeApi(meta, mids, books), [TEMOIN]).cycle()
+        self.assertEqual(BetStore(self.tmp, "pm_temoin").open_bets(), [])
+        self.assertEqual(result["raisons"]["pm_temoin:carnet_trop_large"], 1)
+
+    def test_la_fourchette_porte_sur_le_prix_paye_meme_dans_l_ecart_tolere(self):
+        # Affiché 0,52, payé 0,49 : écart toléré (0,03) mais sous prix_min 0,50.
+        meta, mids, _ = self._marches(1, ask=0.52)
+        books = {"#1000": {"bids": [(0.48, 500)], "asks": [(0.49, 500)]}}
+        result = self.runner(FakeApi(meta, mids, books), [TEMOIN]).cycle()
+        self.assertEqual(BetStore(self.tmp, "pm_temoin").open_bets(), [])
+        self.assertEqual(result["raisons"]["pm_temoin:prix_hors_fourchette_au_carnet"], 1)
+
+    def test_un_pari_marque_hors_regle_reste_dans_le_compte_mais_pas_dans_la_mesure(self):
+        settled = [{"status": "regle", "pnl_net": -10.09, "won": False, "entry_price": 0.24,
+                    "settle_time": "1", "hors_regle": True},
+                   {"status": "regle", "pnl_net": 4.0, "won": True, "entry_price": 0.6, "settle_time": "2"}]
+        stats = compute_stats(settled, 46, 30)
+        self.assertEqual((stats["paris_regles"], stats["pnl_net"], stats["paris_hors_regle"]), (1, 4.0, 1))
+        self.assertAlmostEqual(account(46.0, settled, [])["valeur"], 46 - 10.09 + 4.0)
+
+    def test_une_demande_qui_plante_ne_bloque_pas_les_reglements(self):
+        meta, mids, books = self._marches(1, ask=0.5)
+        runner = self.runner(FakeApi(meta, mids, books), [TEMOIN])
+        original = overlay.apply_requests
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("demande illisible")
+        try:
+            overlay.apply_requests = boom
+            result = runner.cycle()
+        finally:
+            overlay.apply_requests = original
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["demandes_traitees"], {"erreur": "RuntimeError"})
+
     def test_le_carnet_retire_d_abord_les_meilleurs_prix_deja_pris(self):
         self.assertEqual(remaining_asks([(0.5, 25), (0.52, 10)], 30), [(0.52, 5)])
         self.assertEqual(buy_shares([(0.5, 5), (0.6, 5)], 8)["cost"], 2.5 + 1.8)

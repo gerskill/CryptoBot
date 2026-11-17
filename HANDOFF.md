@@ -1,52 +1,25 @@
-# HANDOFF — 2026-11-16 (soir)
+# HANDOFF — 2026-11-17
 
 ## Objectif en cours
-Tester en PAPIER tous les domaines des marchés de prédiction Liquid avec des
-bras rangés par famille, et les suivre dans l'espace « Liquid » du site
-(séparé de l'espace « Memecoins »).
+Liquid en papier « comme le réel » : chaque bras joue un compte de 46 $ (taille du vrai compte), avec un agent d'apprentissage par bras. Aucun ordre réel.
 
 ## Décisions confirmées
-- Processus séparé, lecture seule de l'API publique Hyperliquid (ADR 015).
-- Domaines, familles de bras, rôle `regle`, site en deux espaces (ADR 016).
-- Modifications depuis le site par boîte de demandes : activer/désactiver,
-  créer un fork à une variable (ADR 017). Rien vers la boucle memecoin.
-- Quatorze bras dans `config/prediction_arms.json` (un désactivé).
-- « Tout enregistrer » (accord Killian) : catalogue, perpétuels, relevé de
-  tous les prix toutes les 15 minutes.
-- Connecteur Liquid de Claude en mode paper.
+- Papier = réel (ADR 018, PR #13) : solde par bras, taille minimale Hyperliquid (règle la plus sévère), parts entières, carnet partagé, plus de pari « indéterminé » (perdu par prudence après 24 h), tri départagé.
+- Agent d'apprentissage : diagnostic par bras ; fork à une variable, ≥ 20 paris réglés, segment ≥ 10, resserrer seulement, jamais de modification d'un bras existant.
+- Saison 1 (1 000 $, mises de 20 $) archivée : `data/prediction/archive/saison1_1000usd_20261117/`. Ses 83 paris ouverts ne sont plus suivis.
+- Hook `pre-commit` réparé, bascule Helius (PR #12). PR #13 part de la branche de #12 : fusionner #12 d'abord.
+- Rapport par bras du 17/11 : verdict du juge REFUSÉ, aucun bras memecoin ni Liquid ne passe les critères (`scripts/out/rapport_bras/`).
 
-## Preuves
-- Formes réelles de l'API : `tests/fixtures/outcome_meta_2026-11-16.json`
-  (relevé depuis le Mac mini). Avant correction : 4 marchés lus sur 309.
-- Tests : `python -m unittest discover -s tests`.
-- PR : https://github.com/gerskill/CryptoBot/pull/10
-
-## Fichiers concernés
-`src/prediction/`, `config/prediction_arms.json`, `api/server.py`
-(`/api/prediction/*`, `/api/liquid/perps`), `dashboard/src/components/liquid/`,
-`dashboard/src/components/NavBar.tsx`, `Shell.tsx`, `tests/test_prediction.py`,
-`docs/PREDICTION_LIQUID.md`, `docs/adr/016-…`.
+## État sur le Mac mini
+- Dépôt sur la branche `claude/liquid-compte-reel` (non fusionnée). Moteur Liquid et site relancés sur ce code.
+- Site public : tunnel Cloudflare rapide (adresse dans `logs/tunnel.log`, change si le tunnel redémarre). `DASHBOARD_TOKEN` dans `.env`.
+- Bot memecoin : processus de dimanche, ancien code en mémoire. Helius toujours épuisé.
 
 ## Questions ouvertes
-- Sens exact de `settledNamedOutcomes` : à lire sur le premier match réglé.
-- Frais au règlement chez Liquid (0,90 % compté par prudence).
-- Ordre des tranches de prix (`priceBucket`) : non documenté, non parié.
-- Source de cotes pour `pm_sport_reference`.
-- Bras papier sur perpétuels : pas décidé, aujourd'hui affichage seul.
-
-## État sur le Mac mini (2026-11-16, 15:20 UTC)
-- PR n° 10 NON fusionnée : `main` et le site du port 8000 n'ont pas l'espace Liquid.
-- Copie à part `~/Projects/CryptobBot-liquid` (worktree de la branche) : la
-  simulation y tourne (`scripts/run_prediction.py`, journal dans
-  `data/prediction/runner.log`) et un aperçu du site est servi sur
-  http://127.0.0.1:8001. Les deux s'arrêtent au redémarrage du Mac.
-- Premier cycle réel : 55 paris papier ouverts, aucun réglé.
-- Le journal d'incohérences contient encore des artefacts de marchés non cotés
-  affichés vers 49 % : à filtrer par lecture du carnet avant d'en tirer un bras.
+- Taille minimale réelle (parts × min(p, 1 − p) ou parts × p ≥ 10 $) [À VÉRIFIER].
+- Frais Liquid au règlement (0,9 % compté par prudence) [À VÉRIFIER].
+- Adresse fixe : tunnel Cloudflare nommé (domaine requis) ou Tailscale.
+- Rapport memecoin : ajouter coûts par position, base de capital des bras test, période (demandes du juge).
 
 ## Prochaine action
-Killian fusionne la PR n° 10. Ensuite : `git pull` dans `~/Projects/CryptobBot`,
-`cd dashboard && npm ci && npm run build`, déplacer
-`CryptobBot-liquid/data/prediction` vers `CryptobBot/data/prediction`,
-relancer `scripts/run_ui.py` et `scripts/run_prediction.py` depuis le dépôt
-principal. Aucun chiffre à annoncer avant 30 paris réglés par bras, ni sans le juge.
+Fusionner #12 puis #13, puis relancer le bot memecoin pour qu'il prenne la bascule Helius. Revoir les bras Liquid quand chacun a 30 paris réglés.
