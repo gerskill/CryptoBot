@@ -41,11 +41,19 @@ def load_env(path: Path) -> dict:
     return env
 
 
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from helius_budget import CreditBudget  # plafond de crédits : scripts/helius_budget.py
+BUDGET = CreditBudget(name=__file__)
+
+
 def helius_txs(api_key: str, wallet: str, before: Optional[str] = None) -> tuple[list[dict], Optional[str]]:
     q = f"api-key={api_key}&limit=100"
     if before:
         q += f"&before={before}"
     url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?{q}"
+    if not BUDGET.charge():
+        return [], "budget_credits_epuise"
     req = urllib.request.Request(url)
     try:
         with urllib.request.urlopen(req, timeout=45) as r:
