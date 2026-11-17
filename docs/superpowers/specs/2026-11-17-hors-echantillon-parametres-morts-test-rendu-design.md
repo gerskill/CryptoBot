@@ -296,6 +296,46 @@ choix de Claude.
    existantes de Vite, React ou TypeScript ; si aucune version compatible
    n'existe, le dire dans le rapport au lieu de monter la chaîne.
 
+## Amendements après l'audit d'architecture (I10) — proposés par Claude
+
+L'audit (`docs/audits/2026-11-17-audit_architecture.md`, § I10) a trouvé des
+fuites que la version ci-dessus laisse passer ; (a) et (c) re-vérifiées dans
+le code. Ces amendements **priment** sur les sections A2.2 à A2.4 et sur le
+point tranché 3.
+
+- **(a) Rejouer ce qui sera appliqué.** `_bounded_set` modifie la valeur après
+  l'évaluation (pas maximal ±15 pts sur TP1 et ±2 pts sur le stop via
+  `_limit_step`, bornes, plafond du stop effectif, TP1 < TP2). Extraire le
+  calcul de la valeur dans une fonction pure (`_planned_value(path, value)`,
+  aucune écriture) que `_bounded_set` appelle ; la confirmation sur le tiers
+  de test rejoue **les valeurs planifiées**, pas le point de grille. Les
+  lignes de grille dont le stop effectif (stop + tampon) est ≥ 0 sont
+  écartées : elles ne peuvent pas être appliquées.
+- **(b) La validation dans l'échantillon ne défait plus un choix confirmé hors
+  échantillon.** Dans `run()`, `_adjust_exits` puis `validate_exit_changes`
+  (inchangés), **ensuite seulement** `_search_exits`.
+- **(c) Pas de mesure faite sur le futur.** `measured_breakeven_rest` lit tout
+  le journal (`learning.py:1107-1120`, l'argument `rows` est ignoré). Lui
+  ajouter une borne `until` (instant de clôture) ; pour la sélection sur
+  l'apprentissage, glissement et reste sont mesurés sur les jambes closes au
+  plus tard à la fin de la tranche d'apprentissage.
+- **(d) Dédoublonner avant de couper** : une même position (même
+  `token_address` et même instant d'entrée) ne peut pas être des deux côtés ;
+  la version propre au bras est gardée.
+- **(e) Critère apparié au lieu de « 10 % relatif ».** `simulate_exits` rend
+  aussi le P&L par position (`pnl_par_position`, même ordre que l'entrée). Sur
+  le tiers de test : différences par position (planifié − actuel), puis
+  `bootstrap_mean` ; **confirmé si la borne basse de l'intervalle est > 0** et
+  si au moins `EXIT_BACKTEST_MIN_CHANGED` positions changent. Fin du seuil
+  relatif à une référence de quelques centimes.
+- **(g)** La phrase « 50 dernières lignes écrites, donc quasi chronologique »
+  (point tranché 5) est retirée : le tri par instant de clôture est fait dans
+  `_search_exits` dans tous les cas.
+
+Restent hors périmètre, et inscrits dans `docs/AUDIT_2026-11-17.md` : filtres
+sans verrou hors échantillon (I1), ordre pic/creux deviné (I6), emprunts
+dominés par `consensus` (I5), mélange de régimes dans un journal (B4).
+
 ## Laissé au builder
 
 Noms internes (attribut de verdict, fonctions d'aide), emplacement de
