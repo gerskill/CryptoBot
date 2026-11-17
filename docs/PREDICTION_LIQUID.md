@@ -43,8 +43,11 @@ Fichiers écrits dans `data/prediction/` à chaque cycle : `state.json`,
 terme, affichage seul), `coherence.jsonl`, et toutes les 15 minutes
 `snapshots/AAAA-MM-JJ.jsonl` (prix de tous les marchés).
 
-Capital fictif 1 000 $ par bras, mise 2 %, plafond 10 % par domaine, un seul
-pari par marché et par bras.
+Compte papier de **46 $ par bras** (taille du vrai compte, ADR 018), mise 22 %
+du compte (≈ 10 $, le minimum d'Hyperliquid), 25 % au plus par pari, plafond
+50 % du compte par domaine, un seul pari par marché et par bras. Valeurs
+courantes dans `config/prediction_arms.json` ; l'ancienne saison à 1 000 $ et
+2 % est archivée (`data/prediction/archive/saison1_1000usd_20261117/`).
 
 ## Fichiers écrits
 
