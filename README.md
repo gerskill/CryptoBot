@@ -211,12 +211,18 @@ exclus du score et leur poids est réparti sur les autres. Le score reste sur 10
 **Filtres non bloquants sur donnée absente.** Un filtre dont la donnée manque (holders sans
 clé Helius) ne rejette pas le candidat. Sans Helius, `min_holders` n'est donc pas appliqué.
 
-**`min_liquidity_lock_days` non vérifiable.** RugCheck expose `lpLockedPct`, pas une durée
-de lock. Le filtre en jours nécessite une autre source.
+**Paramètres déclarés mais non appliqués.** `entry_rules.min_liquidity_lock_days` (RugCheck
+expose `lpLockedPct`, pas une durée de lock : aucune source) et quatre autres clés de la
+config ne sont lues par aucun code. La liste exacte, avec la raison de chacune, est
+`PARAMETRES_NON_APPLIQUES` dans `src/core/params.py` ; `scripts/voir_bras.py` les signale
+« non appliqué » et `tests/test_parametres_appliques.py` interdit d'en ajouter une sans la
+déclarer.
 
-**P&L papier optimiste.** Les sorties sont simulées au prix observé, sans slippage ni
-frais. Sur un memecoin à 20K de liquidité, l'aller-retour coûte plusieurs pour cent en
-réel. Un win rate papier de 45 % ne garantit donc pas un win rate réel de 45 %.
+**P&L papier encore optimiste.** Le coût de sortie est mesuré sur la jambe finale (ADR 009
+et 010) et estimé sur les jambes partielles (ADR 012). Le P&L reste optimiste en ce qu'il
+n'y a ni ordre réel ni file d'attente : sur un memecoin à 20K de liquidité, l'exécution
+réelle coûte plus cher. Un win rate papier de 45 % ne garantit donc pas un win rate réel
+de 45 %.
 
 ## Capacités, pas API
 

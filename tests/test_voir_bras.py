@@ -69,6 +69,14 @@ class TestDifferences(VoirBrasTestCase):
         self.assertNotIn("exit_rules._note", voir_bras.aplatir(voir_bras.parametres("quality")))
 
 
+class TestAnnotationNonApplique(unittest.TestCase):
+    def test_un_parametre_non_applique_est_signale(self):
+        self.assertIn("non appliqué", voir_bras.annotation("entry_rules.min_liquidity_lock_days"))
+
+    def test_un_parametre_applique_na_pas_dannotation(self):
+        self.assertEqual(voir_bras.annotation("exit_rules.stop_loss_pct"), "")
+
+
 class TestResumeAjustement(unittest.TestCase):
     def test_un_ajustement_de_section_naffiche_que_les_cles_modifiees(self):
         avant = {"a": 1, "b": 2, "_note": "x"}
