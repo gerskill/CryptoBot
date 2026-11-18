@@ -424,7 +424,7 @@ def longest_drawdown(
 # un détail entre parenthèses (`"RUG_PULL (liquidité -80%)"`).
 RAISONS_AUTOMATIQUES = (
     "STOP_LOSS", "BREAKEVEN_STOP", "TAKE_PROFIT", "TRAILING_STOP",
-    "TIME_STOP", "RUG_PULL",
+    "TIME_STOP", "RUG_PULL", "ZOMBIE",
 )
 
 

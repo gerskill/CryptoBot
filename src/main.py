@@ -114,6 +114,11 @@ FIRST_SUMMARY_DELAY = 15 * 60
 # accumule facilement le double.
 DIGEST_MAX_LINES = 12
 RUG_WINDOW_SECONDS = 120
+# Délai de grâce APRÈS le time stop avant de fermer d'office une position dont
+# aucune source ne donne de prix. Avec un prix, le time stop l'aurait déjà
+# fermée : encore ouverte 30 min plus tard, elle est forcément bloquée sans
+# prix (token mort ou rugué). Le délai absorbe une panne passagère des API.
+ZOMBIE_GRACE_MINUTES = 30
 # Un RUG_PULL exige 2 lectures consécutives du monitoring sous le seuil (une de
 # plus = 5 s au tick nominal), sauf si le prix s'est effondré en même temps.
 # 225 des 229 faux RUG_PULL mesurés venaient d'UNE lecture « liquidité 0 » qui
@@ -996,11 +1001,18 @@ class AlphaLoop:
                 price = self.market.price(position.token_address) or self._current_price(
                     position.token_address, position.chain, position.pair_address
                 )
-                if price is None or not math.isfinite(price):
-                    print(
-                        f"  ⚠️{arm.label} {position.symbol} : prix indisponible, "
-                        f"position NON fermée"
+                if price is None or not math.isfinite(price) or price <= 0:
+                    # Aucune source ne donne de prix : /STOP veut dire stop.
+                    # On la compte à -100 % de la part restante plutôt que de
+                    # la laisser ouverte et invisible (B1).
+                    row = self._close_worthless(
+                        arm, position, "PANIC_STOP (sans prix)"
                     )
+                    if row:
+                        print(
+                            f"  💀{arm.label} {position.symbol} sans prix : "
+                            f"fermé à {row['pnl_pct']:+.1f}%"
+                        )
                     continue
                 self.market.put(
                     position.chain, position.pair_address, position.token_address,
@@ -1471,6 +1483,32 @@ class AlphaLoop:
                 return portfolio.force_close(position.id, price, reason, exit_cost=cost)
         return None
 
+    def _close_worthless(self, arm, position, reason: str):
+        """Ferme à -100 % une position sans prix, sous le verrou des livres.
+
+        Ne lève jamais : la boucle de surveillance ne doit pas mourir pour une
+        position qu'on n'arrive pas à clore (elle sera retentée au tick suivant).
+        """
+        try:
+            with _books_lock(self):
+                row = arm.portfolio.close_worthless(position.id, reason)
+            if row:
+                try:
+                    self.funnel.record_exit(
+                        arm.name, position, 0.0, row["exit_reason"],
+                        row["pnl_pct"], None,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[Monitor]{arm.label} entonnoir : sortie sans prix non notée ({exc})")
+                self._after_trade_closed(arm)
+            return row
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"[Monitor]{arm.label} {position.symbol} : fermeture sans prix "
+                f"impossible ({type(exc).__name__}: {exc}), nouvel essai au prochain tick"
+            )
+            return None
+
     def _monitor_arm(self, arm, verbose: bool = True) -> None:
         portfolio = arm.portfolio
         with _books_lock(self):
@@ -1489,7 +1527,22 @@ class AlphaLoop:
             # Python). <= 0 non plus n'est pas un prix. On ne reprend pas
             # `_last_prices` : c'est l'affichage, pas un prix exécutable.
             if not quote_is_usable(price):
-                if verbose:
+                # Avec un prix, le time stop l'aurait déjà fermée : encore
+                # ouverte au-delà du délai de grâce, elle est bloquée sans
+                # prix. La règle ne lit que `entry_time` (persisté), donc elle
+                # tient après un redémarrage.
+                age = position.duration_minutes()
+                limite = position.max_hold_time_minutes + ZOMBIE_GRACE_MINUTES
+                if age >= limite:
+                    print(
+                        f"[Monitor]{arm.label} {position.symbol} : aucun prix depuis "
+                        f"{age:.0f} min (time stop {position.max_hold_time_minutes:.0f} "
+                        f"+ grâce {ZOMBIE_GRACE_MINUTES} min), fermée à -100 %"
+                    )
+                    self._close_worthless(
+                        arm, position, "ZOMBIE (sans prix depuis le time stop)"
+                    )
+                elif verbose:
                     print(
                         f"[Monitor]{arm.label} {position.symbol} : prix indisponible, "
                         f"position gardée"

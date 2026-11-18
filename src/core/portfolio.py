@@ -910,6 +910,48 @@ class PaperPortfolio:
         self._finalize(position, price)
         return row
 
+    def close_worthless(self, position_id: str, reason: str) -> Optional[dict[str, Any]]:
+        """Sortie finale de toute la part restante à prix 0 : -100 % honnête.
+
+        POURQUOI UNE MÉTHODE À PART. `force_close` refuse un prix <= 0, et c'est
+        voulu : un prix nul est une donnée manquante, pas une cotation. Mais une
+        position dont AUCUNE source ne donne de prix (token mort ou rugué) doit
+        pourtant sortir des livres, sinon elle reste ouverte pour toujours et
+        disparaît de `read_positions()` (B1). Pas de devis : un token invendable
+        n'en a pas, donc coût de sortie `None` et capital crédité de 0. Le frais
+        d'entrée déjà payé reste compté dans le P&L du journal, comme
+        `_exit_pnl` le fait pour toute sortie finale. Les jambes TP1/TP2 déjà
+        encaissées restent dans le journal : seule la part restante est perdue.
+        """
+        position = self.positions.get(position_id)
+        if position is None:
+            return None
+
+        fraction = position.remaining_fraction
+        price_pnl, journal_pnl, realized_cost = self._exit_pnl(position, 0.0, 0.0)
+        position = apply_exit(
+            position, ExitAction(fraction, reason, is_final=True), 0.0, cost_pct=realized_cost
+        )
+        self.positions[position_id] = position
+        # price_pnl vaut -100 : la part restante ne rapporte rien.
+        self.capital += position.size_usd * fraction * (1 + price_pnl / 100)
+
+        row = self.journal.record_exit(
+            position=position,
+            exit_price=0.0,
+            pnl_pct=journal_pnl,
+            fraction=fraction,
+            reason=reason,
+            is_final=True,
+            exit_cost_pct=None,
+            entry_cost_version=position.entry_cost_version,
+            entry_cost_pct=(
+                position.entry_cost_pct if position.entry_cost_version else None
+            ),
+        )
+        self._finalize(position, 0.0)
+        return row
+
     def _finalize(self, position: Position, exit_price: float) -> None:
         """Clôture définitive : stats, cooldown, notification."""
         del self.positions[position.id]
