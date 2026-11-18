@@ -50,6 +50,7 @@ React 19 + TypeScript + Vite + Tailwind 4 + zustand + framer-motion.
 
 ```bash
 cd dashboard && npm run dev      # développement
+npm test                         # vitest (rendu du panneau « P&L par bras »)
 npm run build                    # tsc -b && vite build — doit passer
 npm run lint                     # oxlint
 ```
@@ -76,12 +77,13 @@ nouvel endpoint qui agrège des chiffres suit la même règle, et son test aussi
 Ce que ces tests ne couvrent pas : le rendu. Un composant peut toujours
 afficher un total correct sans imprimer le nom du bras qu'il a reçu. Tant qu'il
 n'y a pas de test de navigateur, cette relecture-là est manuelle — la faire à
-chaque modification d'un panneau qui agrège.
+chaque modification d'un panneau qui agrège. Seul « P&L par bras » a un test de
+rendu (`ArmPerformance.test.tsx`, vitest) ; les autres panneaux restent à relire.
 
 ## Vérifier
 
 ```bash
 python -m unittest tests.test_api_server tests.test_state tests.test_metrics \
   tests.test_state_position_payload
-cd dashboard && npm run build && npm run lint
+cd dashboard && npm test && npm run build && npm run lint
 ```

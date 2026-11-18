@@ -30,7 +30,7 @@ quelle (un bras test, une mesure ponctuelle).
    *Settings → General → Pull Requests → Automatically delete head branches*.
 5. **Les tests passent avant fusion** :
    `python -m unittest discover -s tests` et, si le dashboard est touché,
-   `cd dashboard && npm run build && npm run lint`.
+   `cd dashboard && npm test && npm run build && npm run lint`.
 6. **Pas de chiffre de performance dans une PR sans le juge** (`CLAUDE.md`).
 
 ## Protection de `main` (à régler dans GitHub, une fois)
