@@ -13,11 +13,12 @@ rentabilité (« quel bras fait +120 %/an ? »). PAPER uniquement.
   hors échantillon, paramètres non appliqués listés et verrouillés par test,
   `npm test` dans `dashboard/`.
 - B1 fait : positions sans prix fermées à -100 % après le time stop + 30 min, et par `/STOP` (spec `docs/superpowers/specs/2026-11-18-positions-zombies-design.md`).
+- App iPhone faite (spec `docs/superpowers/specs/2026-11-18-app-iphone-design.md`) : PWA GitHub Pages + Supabase, lecture seule ; à mettre en route avec `docs/APP_IPHONE.md`.
 - Skill `rentabilite-annuelle` : pas de rendement annualisé sous 30 jours et
   30 positions ; aucune suppression de bras hors ADR 011.
 
 ## Preuves
-- `python -m unittest discover -s tests` : 1312 OK.
+- `python -m unittest discover -s tests` : 1355 OK ; `node mobile/test/smoke.mjs` : 79 ok.
 - `cd dashboard && npm test && npm run build && npm run lint` : OK.
 - Chaque tâche relue par un sous-agent indépendant, revue finale de branche
   sur le modèle le plus capable ; mutations vérifiées (retirer `until=` ou
@@ -39,5 +40,6 @@ rentabilité (« quel bras fait +120 %/an ? »). PAPER uniquement.
   5 paris par domaine ; écran Liquid à clarifier.
 
 ## Prochaine action
+Suivre `docs/RUNBOOK_MISE_A_JOUR_MAC.md`, puis `docs/APP_IPHONE.md` (Supabase, Pages, `.env`, iPhone).
 Après fusion et `git pull` sur le Mac : vérifier les lignes « ZOMBIE » au
 premier cycle (fermetures attendues). Puis choisir M2, B2 ou B4.

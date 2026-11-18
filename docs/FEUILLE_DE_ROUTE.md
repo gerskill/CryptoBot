@@ -32,6 +32,14 @@ seront fermés : baisse brute et voulue des chiffres des bras concernés.**
 Prochains candidats de l'audit : M2 (entrées perdues), B2 (verdict fragile),
 B4 (gel des paramètres par période).
 
+## Fait le 2026-11-18 — app iPhone (lecture seule)
+
+`mobile/` (PWA sur GitHub Pages) lit dans Supabase les résumés que
+`scripts/publie_supabase.py` publie toutes les 2 min depuis le Mac : état +
+alertes, positions ouvertes, P&L par bras, Liquid. Mise en route une fois :
+`docs/APP_IPHONE.md`. ADR 019 et 020 écrits ; runbook
+`docs/RUNBOOK_MISE_A_JOUR_MAC.md`.
+
 ## À surveiller sur le Mac après fusion
 
 Lignes `🧠 recherche de sorties` par bras : part de « indéterminé » avec moins
