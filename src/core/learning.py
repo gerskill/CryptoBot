@@ -361,10 +361,19 @@ def chronological_split(
     exclues = 0
     for pos in positions:
         entree = pos.get("timestamp_entry")
-        cle = (pos.get("token_address"), entree) if entree else ("id", pos.get("position_id"))
-        if cle in vues:
-            continue
-        vues.add(cle)
+        token = pos.get("token_address")
+        if token and entree:
+            cle: Any = (token, entree)
+        elif pos.get("position_id"):
+            cle = ("id", pos["position_id"])
+        else:
+            # Aucune clé exploitable : rien ne prouve un doublon. Dédoublonner
+            # sur None fusionnerait en silence toutes ces positions en une.
+            cle = None
+        if cle is not None:
+            if cle in vues:
+                continue
+            vues.add(cle)
         sortie = exit_datetime(pos)
         if sortie is None:
             exclues += 1
@@ -436,7 +445,7 @@ class LearningEngine:
         rel, absolute = MAX_STEP.get(path, (DEFAULT_MAX_STEP_REL, 0.0))
         return max(rel * abs(current), absolute)
 
-    def _limit_step(self, path: str, value: float) -> float:
+    def _limit_step(self, path: str, value: float, silent: bool = False) -> float:
         """Rapproche `value` de la valeur courante d'au plus un pas."""
         current = self.params.get(path)
         if not isinstance(current, (int, float)) or isinstance(current, bool):
@@ -445,14 +454,16 @@ class LearningEngine:
         if step <= 0:
             return value
         limited = max(current - step, min(current + step, value))
-        if abs(limited - value) > 1e-9:
+        if abs(limited - value) > 1e-9 and not silent:
             print(
                 f"🧠 {path} : {current} → {value} limité à {limited} "
                 f"(pas max ±{step:g} par ajustement)"
             )
         return limited
 
-    def _plan(self, path: str, value: float) -> tuple[float, float]:
+    def _plan(
+        self, path: str, value: float, silent: bool = False
+    ) -> tuple[float, float]:
         """Chaîne de garde-fous commune à l'écriture et à la simulation.
 
         Retourne `(avant_bornes, final)`. Source UNIQUE de ce que
@@ -462,7 +473,7 @@ class LearningEngine:
         """
         # PETIT PAS d'abord, garde-fous ensuite : ces derniers (stop effectif,
         # TP1 < TP2, PARAM_BOUNDS) doivent toujours avoir le dernier mot.
-        value = self._limit_step(path, value)
+        value = self._limit_step(path, value, silent)
 
         # GARDE-FOU CROISÉ, ici pour de bon. `_recalibrate_slippage_buffer` et
         # la branche resserrage de `_adjust_exits` calculaient chacune leur
@@ -503,7 +514,9 @@ class LearningEngine:
         if self._starving(path, value):
             courante = self.params.get(path)
             return value if courante is None else courante
-        return self._plan(path, value)[1]
+        # silent : fonction pure, appelée en boucle par le hors-échantillon ;
+        # un message « limité à » ressemblerait à un vrai ajustement.
+        return self._plan(path, value, silent=True)[1]
 
     def _bounded_set(
         self, path: str, value: float, reason: str, sample: int

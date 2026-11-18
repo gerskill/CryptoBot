@@ -5,6 +5,8 @@ les mêmes trades : valeur réellement écrite (a), mesure bornée dans le temps
 (c), P&L par position (d), découpage chronologique dédoublonné (e).
 """
 
+import contextlib
+import io
 import json
 import os
 import sys
@@ -106,6 +108,19 @@ class TestDecoupageChronologique(unittest.TestCase):
         train, test, _ = chronological_split([a, b])
         self.assertEqual(len(train) + len(test), 1)
 
+    def test_positions_sans_cle_exploitable_ne_sont_pas_fusionnees(self):
+        sans_cle = []
+        for j in (1, 2, 3):
+            p = position(j, token=f"T{j}")
+            del p["timestamp_entry"]  # ni position_id ni timestamp_entry
+            sans_cle.append(p)
+        sans_token = position(4)
+        del sans_token["token_address"]
+        autre = position(4)
+        del autre["token_address"]  # même entrée, token absent des deux
+        train, test, exclues = chronological_split(sans_cle + [sans_token, autre])
+        self.assertEqual((len(train) + len(test), exclues), (5, 0))
+
     def test_position_sans_date_exclue_et_comptee(self):
         sans = position(2, token="A")
         del sans["timestamp_exit"]
@@ -144,6 +159,19 @@ class TestValeurPlanifiee(Base):
         self.engine.params.set("exit_rules.take_profit_1", 295, "init", 0)
         planifie = self.engine._planned_value("exit_rules.take_profit_1", 400)
         self.assertLess(planifie, 300)
+
+    def test_la_valeur_planifiee_nimprime_rien_quand_le_pas_limite(self):
+        sortie = io.StringIO()
+        with contextlib.redirect_stdout(sortie):
+            planifie = self.engine._planned_value("exit_rules.take_profit_1", 150)
+        self.assertAlmostEqual(planifie, 115)
+        self.assertEqual(sortie.getvalue(), "")
+
+    def test_bounded_set_imprime_toujours_le_message_de_pas_limite(self):
+        sortie = io.StringIO()
+        with contextlib.redirect_stdout(sortie):
+            self.engine._bounded_set("exit_rules.take_profit_1", 150, "test", 20)
+        self.assertIn("limité à 115.0", sortie.getvalue())
 
     def test_famine_bloquee_renvoie_la_valeur_courante(self):
         path = "exit_rules.take_profit_1"
