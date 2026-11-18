@@ -475,6 +475,68 @@ class TestReseau(DonneesTestCase):
             self.assertNotIn("service_role", entetes)
 
 
+class TestDurcissement(DonneesTestCase):
+    """Fuite du jeton par un .tmp non ignoré, traceback launchd, PANNE chassée du top 20."""
+
+    def setUp(self):
+        super().setUp()
+        self._ancien = pub.SESSION_PATH
+        pub.SESSION_PATH = os.path.join(self.tmp, "supabase_session.json")
+
+    def tearDown(self):
+        pub.SESSION_PATH = self._ancien
+        super().tearDown()
+
+    def test_le_fichier_temporaire_de_session_est_ignore_par_git(self):
+        import subprocess
+        racine = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for chemin in (pub._chemin_tmp(os.path.join(racine, "data", "supabase_session.json")),):
+            code = subprocess.run(["git", "check-ignore", "-q", chemin], cwd=racine).returncode
+            self.assertEqual(code, 0, f"{chemin} n'est pas ignoré par git")
+
+    def test_ecriture_de_session_impossible_publie_quand_meme(self):
+        envois = []
+
+        def post(url, **kw):
+            if "/auth/v1/token" in url:
+                return Reponse(200, {"access_token": "a", "refresh_token": "REFRESH-SECRET"})
+            envois.append(url)
+            return Reponse(201)
+
+        sortie, erreur = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ, ENV_COMPLET, clear=True), \
+                mock.patch.object(pub.requests, "post", post), \
+                mock.patch.object(pub.os, "open", side_effect=OSError("disque plein REFRESH-SECRET")), \
+                redirect_stdout(sortie), redirect_stderr(erreur):
+            code = pub.main([])
+        self.assertEqual(code, 0)
+        self.assertEqual(len(envois), 1)
+        texte = sortie.getvalue() + erreur.getvalue()
+        self.assertNotIn("REFRESH-SECRET", texte)
+        self.assertNotIn(MOT_DE_PASSE, texte)
+
+    def test_exception_imprevue_sortie_un_sans_traceback_ni_valeur(self):
+        erreur = io.StringIO()
+        with mock.patch.dict(os.environ, ENV_COMPLET, clear=True), \
+                mock.patch.object(pub, "construire_snapshots", side_effect=RuntimeError(MOT_DE_PASSE)), \
+                redirect_stdout(io.StringIO()), redirect_stderr(erreur):
+            code = pub.main([])
+        self.assertEqual(code, 1)
+        self.assertIn("RuntimeError", erreur.getvalue())
+        self.assertNotIn(MOT_DE_PASSE, erreur.getvalue())
+        self.assertNotIn("Traceback", erreur.getvalue())
+
+    def test_une_panne_en_cours_n_est_pas_chassee_par_vingt_zombies_recents(self):
+        self._manifeste("baseline")
+        self._trades("baseline", [
+            self._sortie(str(i), "ZOMBIE", MAINTENANT - timedelta(minutes=i + 1)) for i in range(25)])
+        depuis = (MAINTENANT - timedelta(hours=10)).timestamp()
+        self._ecrire("veille_etat.json", {"bot": {"ok": False, "depuis": depuis}})
+        lignes = pub.construire_snapshots(MAINTENANT)["alertes"]["lignes"]
+        self.assertEqual(len(lignes), 20)
+        self.assertEqual(lignes[0]["type"], "PANNE")
+
+
 class TestSchemaSql(unittest.TestCase):
     """Le schéma est relançable et ferme l'accès anonyme."""
 

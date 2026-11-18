@@ -148,6 +148,7 @@ def _liquid(resume: dict) -> dict:
 def _alertes(maintenant: datetime) -> dict:
     limite = maintenant - timedelta(hours=ALERTES_HEURES)
     lignes: list[tuple[datetime, dict]] = []
+    pannes: list[tuple[datetime, dict]] = []
     try:
         sorties = server._collect_positions("all")
     except Exception:  # noqa: BLE001 — un journal illisible ne doit pas taire les pannes
@@ -176,14 +177,17 @@ def _alertes(maintenant: datetime) -> dict:
         if depuis is None:
             continue
         minutes = max(0, int((maintenant - depuis).total_seconds() // 60))
-        lignes.append((depuis, {
+        pannes.append((depuis, {
             "quand": depuis.astimezone(timezone.utc).isoformat(),
             "type": "PANNE",
             "bras": None,
             "texte": f"{nom} en panne depuis {minutes} min",
         }))
+    # Les pannes EN COURS d'abord : vingt sorties récentes ne doivent pas
+    # chasser du haut de la liste un service toujours à l'arrêt.
+    pannes.sort(key=lambda t: t[0], reverse=True)
     lignes.sort(key=lambda t: t[0], reverse=True)
-    return {"lignes": [ligne for _, ligne in lignes[:ALERTES_MAX]]}
+    return {"lignes": [ligne for _, ligne in (pannes + lignes)[:ALERTES_MAX]]}
 
 
 def _vide(cle: str) -> dict:
@@ -238,6 +242,14 @@ def _post(url: str, **kwargs):
         raise ErreurPublication(f"Supabase injoignable ({type(exc).__name__})") from None
 
 
+def _chemin_tmp(chemin: str) -> str:
+    """Temporaire de la session : se termine par `.json` pour tomber sous
+    `data/*.json` du .gitignore (dépôt public : un jeton ne doit jamais être
+    ajouté par un `git add -A` après un plantage entre écriture et remplacement)."""
+    racine, extension = os.path.splitext(chemin)
+    return f"{racine}.tmp{extension}"
+
+
 class Session:
     """Jeton d'accès Supabase du compte de Killian."""
 
@@ -263,16 +275,25 @@ class Session:
 
     @staticmethod
     def _garder(refresh) -> None:
-        """Écrit le jeton de rafraîchissement (droits 600, jamais le mot de passe)."""
+        """Écrit le jeton de rafraîchissement (droits 600, jamais le mot de passe).
+        Échec d'écriture : on publie quand même (prochain passage = mot de passe)."""
         if not refresh:
             return
-        os.makedirs(os.path.dirname(SESSION_PATH), exist_ok=True)
-        tmp = f"{SESSION_PATH}.tmp"
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump({"refresh_token": refresh}, fh)
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, SESSION_PATH)
+        tmp = _chemin_tmp(SESSION_PATH)
+        try:
+            os.makedirs(os.path.dirname(SESSION_PATH), exist_ok=True)
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump({"refresh_token": refresh}, fh)
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, SESSION_PATH)
+        except OSError as exc:
+            print(f"Session Supabase non enregistrée ({type(exc).__name__}) : publication poursuivie.",
+                  file=sys.stderr)
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
     def _refresh_gardé(self) -> "str | None":
         try:
@@ -336,6 +357,9 @@ def main(argv=None) -> int:
         publier(construire_snapshots(datetime.now(timezone.utc)), Session(env))
     except ErreurPublication as exc:
         print(f"Publication Supabase échouée : {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:  # noqa: BLE001 — dernier recours : pas de traceback dans le journal launchd
+        print(f"Publication Supabase échouée : erreur inattendue ({type(exc).__name__})", file=sys.stderr)
         return 1
     return 0
 

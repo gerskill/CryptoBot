@@ -52,3 +52,4 @@ data/gmgn_observe/
 # que data/arms/.
 data/prediction/
 data/prediction_demo/
+data/*.tmp
