@@ -1,7 +1,7 @@
 """Hors-échantillon de la recherche de sorties (audit I10, conception A2).
 
 Briques sans fuite : valeur réellement écrite (a), mesure bornée dans le temps
-(c), P&L par position (d), découpage chronologique dédoublonné (e). Puis la
+(c), P&L par position (e), découpage chronologique dédoublonné (d). Puis la
 recherche elle-même : choisie sur les positions anciennes, confirmée sur les
 récentes, sans que la validation dans l'échantillon puisse la défaire (b).
 """
@@ -26,6 +26,7 @@ from src.core.learning import (  # noqa: E402
     chronological_split,
 )
 from src.core.params import ParamsStore  # noqa: E402
+from src.core.stats import exit_datetime  # noqa: E402
 
 EXITS = {
     "stop_loss_pct": -20,
@@ -102,6 +103,56 @@ class TestDecoupageChronologique(unittest.TestCase):
         self.assertEqual(
             [p for p in tous if p["token_address"] == "DUP"][0]["position_id"],
             "p-propre")
+
+    def _copie_dun_autre_bras(self, decalage_s):
+        """Position propre du jeton DUP + sa copie empruntée, entrée `decalage_s`
+        plus tard (négatif : plus tôt), qui sort bien après toutes les autres.
+
+        Horodatages au format réel du journal (ISO à la microseconde) : chaque
+        bras construit sa Position avec `time.time()`, deux bras qui achètent
+        au même cycle ont des entrées à quelques millisecondes d'écart.
+        """
+        debut = datetime(2026, 11, 1, 8, 0, 0, 123456, tzinfo=timezone.utc)
+        propre = position(1, token="DUP", position_id="p-propre")
+        propre["timestamp_entry"] = debut.isoformat()
+        propre["timestamp_exit"] = (debut + timedelta(hours=1)).isoformat()
+        autres = []
+        for heure in range(2, 10):
+            autre = position(1, token=f"T{heure}", position_id=f"p{heure}")
+            autre["timestamp_entry"] = (debut + timedelta(hours=heure - 1)).isoformat()
+            autre["timestamp_exit"] = (debut + timedelta(hours=heure)).isoformat()
+            autres.append(autre)
+        emprunt = position(1, token="DUP", position_id="p-emprunt")
+        emprunt["timestamp_entry"] = (debut + timedelta(seconds=decalage_s)).isoformat()
+        emprunt["timestamp_exit"] = (debut + timedelta(hours=20)).isoformat()
+        # Ordre de `_instrumented` : propres d'abord, empruntées ensuite.
+        return [propre] + autres + [emprunt]
+
+    def test_copie_empruntee_a_quelques_dixiemes_de_seconde_nest_que_dun_cote(self):
+        # Le bug verrouillé : la clé exacte (jeton, entrée) ne reconnaissait
+        # jamais la copie d'un autre bras (0,37 s d'écart) ; elle sortait plus
+        # tard et tombait dans le tiers de test pendant que l'originale
+        # nourrissait l'apprentissage.
+        train, test, exclues = chronological_split(self._copie_dun_autre_bras(0.37))
+        dup = [p for p in train + test if p["token_address"] == "DUP"]
+        self.assertEqual([p["position_id"] for p in dup], ["p-propre"])
+        self.assertIn(dup[0], train)
+        self.assertFalse([p for p in test if p["token_address"] == "DUP"])
+        self.assertEqual((len(train), len(test), exclues), (6, 3, 0))
+
+    def test_copie_entree_juste_avant_la_propre_est_aussi_un_doublon(self):
+        # ±300 s : l'autre bras a pu acheter une fraction de seconde AVANT ;
+        # c'est toujours la propre (première de la liste) qui reste.
+        train, test, _ = chronological_split(self._copie_dun_autre_bras(-0.37))
+        dup = [p for p in train + test if p["token_address"] == "DUP"]
+        self.assertEqual([p["position_id"] for p in dup], ["p-propre"])
+
+    def test_meme_jeton_reentre_plus_de_300_s_apres_compte_deux_fois(self):
+        # Au-delà de la fenêtre, c'est une nouvelle entrée, pas une copie.
+        train, test, _ = chronological_split(self._copie_dun_autre_bras(301))
+        dup = [p["position_id"] for p in train + test if p["token_address"] == "DUP"]
+        self.assertEqual(sorted(dup), ["p-emprunt", "p-propre"])
+        self.assertEqual(len(train) + len(test), 10)
 
     def test_sans_timestamp_entry_le_doublon_se_detecte_par_position_id(self):
         a = position(3, token="X", position_id="same")
@@ -365,6 +416,35 @@ class TestRechercheHorsEchantillon(Base):
         # à côté des règles actuelles.
         self.assertEqual({r["take_profit_1"] for r in sur_le_test}, {100, 115})
 
+    def test_le_choix_ne_mesure_rien_apres_la_fin_de_lapprentissage(self):
+        # Fuite I10 c verrouillée : la référence et les 36 lignes de grille,
+        # calculées sur l'apprentissage, doivent borner la mesure du reste au
+        # breakeven à la dernière clôture de l'apprentissage (`until`). Sans
+        # borne, elles liraient les jambes du tiers de test. La confirmation,
+        # elle, mesure le présent : aucune borne.
+        rows = chronologie((21, FAVORABLE))
+        self._ecrire(rows)
+        appels = []
+        reel = self.engine.simulate_exits
+
+        def espion(positions, rules, ambiguity="resolve", until=None):
+            appels.append(({p["position_id"] for p in positions}, until))
+            return reel(positions, rules, ambiguity, until)
+
+        self.engine.simulate_exits = espion
+        self._chercher()
+        self.assertEqual(self.engine.last_exit_search["issue"], "confirmé")
+        anciennes = {row["position_id"] for row in rows[:14]}
+        recentes = {row["position_id"] for row in rows[14:]}
+        fin_apprentissage = exit_datetime(rows[13])
+        sur_lapprentissage = [until for ids, until in appels if ids and ids <= anciennes]
+        sur_le_test = [until for ids, until in appels if ids and ids <= recentes]
+        # référence + 36 lignes de grille ; actuel + planifié
+        self.assertEqual(len(sur_lapprentissage), 37)
+        self.assertEqual(len(sur_le_test), 2)
+        self.assertEqual(set(sur_lapprentissage), {fin_apprentissage})
+        self.assertEqual(sur_le_test, [None, None])
+
     def test_trop_peu_de_positions_changees_en_test_donne_indetermine(self):
         self._ecrire(chronologie((14, FAVORABLE), (7, CALME)))
         changes, sortie = self._chercher()
@@ -456,6 +536,35 @@ class TestRechercheHorsEchantillon(Base):
         self.assertIn(f"{TP1} -> 115.0", applied)
         self.assertFalse([c for c in applied if c.startswith("(annulé)")])
 
+    def test_lannulation_dun_ajustement_ne_defait_pas_le_choix_confirme(self):
+        # Ordre verrouillé dans run() (audit I10 b). `_adjust_exits` allonge le
+        # time stop (15 gagnants coupés par lui) ; `validate_exit_changes`
+        # l'annule (le rejeu ne voit pas le temps : gain nul) en restaurant
+        # TOUT `exit_rules` tel qu'avant l'ajustement. Si la recherche passait
+        # avant cette annulation, la restauration effacerait en silence le TP1
+        # confirmé hors échantillon, que `applied` annoncerait pourtant.
+        coupe = dict(FAVORABLE, exit_reason="TIME_STOP (240 min)")
+        perte = dict(peak=4.0, trough=-14.0, pnl_pct=-14.0, size=430.0,
+                     minutes_to_peak=10.0, minutes_to_trough=40.0,
+                     exit_reason="TIME_STOP (240 min)")
+        self._ecrire(chronologie((10, coupe), (4, perte), (5, coupe), (2, perte)))
+        self.engine.params.set("learning.cadence_trades", 20, log=False)
+        duree_avant = self.engine.params.get("exit_rules.max_hold_time_minutes")
+        sortie = io.StringIO()
+        with contextlib.redirect_stdout(sortie):
+            applied = self.engine.run()
+        # La validation a bien annulé un ajustement de sorties ce cycle...
+        annules = [c for c in applied
+                   if c.startswith("(annulé) exit_rules.max_hold_time_minutes")]
+        self.assertEqual(len(annules), 1, applied)
+        self.assertEqual(self.engine.params.get("exit_rules.max_hold_time_minutes"),
+                         duree_avant)
+        # ... et le choix confirmé de la recherche survit, dans les paramètres
+        # comme dans ce que run() annonce.
+        self.assertEqual(self.engine.last_exit_search["issue"], "confirmé")
+        self.assertEqual(self.engine.params.get(TP1), 115)
+        self.assertIn(f"{TP1} -> 115.0", applied)
+
     def test_sous_la_couverture_rien_comme_avant(self):
         self.assertIsNone(self.engine.last_exit_search)
         self._ecrire(chronologie((10, FAVORABLE)))
@@ -522,11 +631,14 @@ FILTRES = {
 
 
 class TestMesureFiltres(unittest.TestCase):
-    """`validate_filter_changes` ajoute une MESURE hors échantillon, sans décider.
+    """`validate_filter_changes` ajoute une MESURE sur le tiers récent, sans décider.
 
-    Le bug verrouillé : le backtest des filtres valide sur les 50 dernières
-    positions, celles-là mêmes qui ont inspiré le changement ; le message ne
-    disait rien de la tranche récente. La mesure s'affiche, la décision ne bouge pas.
+    Bugs verrouillés : le backtest des filtres valide sur les 50 dernières
+    positions, celles-là mêmes qui ont inspiré le changement, et le message ne
+    disait rien de la tranche récente ; puis la mesure ajoutée s'appelait
+    « hors échantillon » alors qu'elle ne l'est pas — `_adjust_filters` décide
+    sur `refresh_stats()`, qui lit toutes les positions, tiers récent compris.
+    La mesure s'affiche sous son vrai nom, la décision ne bouge pas.
     """
 
     def setUp(self):
@@ -560,17 +672,45 @@ class TestMesureFiltres(unittest.TestCase):
                 date=True if dates is None else dates(i),
             )
 
-    def test_filtres_valides_portent_la_mesure_hors_echantillon(self):
+    def test_filtres_valides_portent_la_mesure_du_tiers_recent(self):
         self._perdants_et_gagnants()
         avant = self.params.get("filters")
         self.params.set("filters.min_liquidity_usd", 30000, log=False)
 
         message = self.engine.validate_filter_changes(avant)
         self.assertIn("filtres validés (P&L/trade", message)
-        self.assertIn("hors échantillon (", message)
-        self.assertIn("récents)", message)
-        self.assertNotIn("(indicatif)", message)  # 17 récents : assez
+        # 50 positions : 34 anciennes, 16 récentes (8 perdants, 8 gagnants).
+        self.assertIn("tiers récent (16) : P&L/trade 5.0 → 40.0", message)
+        self.assertNotIn("(indicatif)", message)  # 16 récents : assez
         self.assertEqual(self.params.get("filters.min_liquidity_usd"), 30000)
+
+    def test_la_mesure_des_filtres_ne_se_dit_pas_hors_echantillon(self):
+        # Le choix des filtres a vu le tiers récent (`refresh_stats` lit toutes
+        # les positions) : l'appeler « hors échantillon » ferait croire à une
+        # preuve qui n'existe pas.
+        self._perdants_et_gagnants()
+        avant = self.params.get("filters")
+        self.params.set("filters.min_liquidity_usd", 30000, log=False)
+
+        message = self.engine.validate_filter_changes(avant)
+        self.assertIn("tiers récent", message)
+        self.assertNotIn("hors échantillon", message)
+
+    def test_tiers_recent_entierement_filtre_le_dit_au_lieu_de_zero(self):
+        # 34 anciens alternés, puis 16 récents tous perdants à liquidité 20000 :
+        # validé sur la fenêtre, mais le nouveau filtre ne garde AUCUN récent.
+        # « 0.0 » aurait ressemblé à un résultat plat.
+        for i in range(BACKTEST_WINDOW):
+            perdant = i >= 34 or i % 2 == 0
+            self._trade(i, -30 if perdant else 40, 20000 if perdant else 60000)
+        avant = self.params.get("filters")
+        self.params.set("filters.min_liquidity_usd", 30000, log=False)
+
+        message = self.engine.validate_filter_changes(avant)
+        self.assertIn("filtres validés", message)
+        self.assertIn("tiers récent (16) : P&L/trade -30.0 → aucun trade conservé",
+                      message)
+        self.assertNotIn("0.0 → 0.0", message)
 
     def test_la_mesure_ne_change_pas_la_decision(self):
         for i in range(BACKTEST_WINDOW):
@@ -580,28 +720,30 @@ class TestMesureFiltres(unittest.TestCase):
 
         message = self.engine.validate_filter_changes(avant)
         self.assertIn("filtres annulés", message)
-        self.assertNotIn("hors échantillon", message)
+        self.assertNotIn("tiers récent", message)
         self.assertEqual(self.params.get("filters.min_liquidity_usd"), 15000)
 
     def test_peu_de_recents_marque_indicatif(self):
-        # Trois lignes datées seulement : tranche test de 1 position (< 5).
+        # Trois lignes datées seulement : tranche récente de 1 position (< 5),
+        # un perdant que le nouveau filtre écarte.
         self._perdants_et_gagnants(dates=lambda i: i < 3)
         avant = self.params.get("filters")
         self.params.set("filters.min_liquidity_usd", 30000, log=False)
 
         message = self.engine.validate_filter_changes(avant)
         self.assertIn("filtres validés", message)
-        self.assertIn("hors échantillon (1 récents)", message)
+        self.assertIn("tiers récent (1) : P&L/trade -30.0 → aucun trade conservé",
+                      message)
         self.assertTrue(message.endswith("(indicatif)"), message)
 
-    def test_aucune_position_datee_pas_de_suffixe_hors_echantillon(self):
+    def test_aucune_position_datee_pas_de_mesure_du_tiers_recent(self):
         self._perdants_et_gagnants(dates=lambda i: False)
         avant = self.params.get("filters")
         self.params.set("filters.min_liquidity_usd", 30000, log=False)
 
         message = self.engine.validate_filter_changes(avant)
         self.assertIn("filtres validés", message)
-        self.assertNotIn("hors échantillon", message)
+        self.assertNotIn("tiers récent", message)
 
 
 if __name__ == "__main__":

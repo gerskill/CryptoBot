@@ -12,7 +12,7 @@ SEGMENT concerné. Sans ça le bot sur-réagit au bruit.
 
 import math
 import statistics
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 from src.core.journal import TradeJournal
@@ -142,9 +142,10 @@ BACKTEST_MIN_KEPT = 5
 # savoir ne doit pas vouloir dire « annule ».
 EXIT_BACKTEST_MIN_COVERAGE = 15
 EXIT_BACKTEST_MIN_CHANGED = 5
-# Sous ce nombre de positions récentes, la mesure hors échantillon des filtres
-# est affichée mais marquée « indicatif » (elle ne décide rien).
-FILTER_OOS_MIN_RECENT = 5
+# Sous ce nombre de positions récentes, la mesure des filtres sur le tiers
+# récent est affichée mais marquée « indicatif » (elle ne décide rien, et ce
+# n'est pas un hors-échantillon : voir `validate_filter_changes`).
+FILTER_RECENT_MIN = 5
 # Au-delà de cette part de positions dont l'ordre pic/creux est DEVINÉ, un
 # rejeu ne sert pas à décider : ces positions ambiguës sont précisément les
 # gagnantes (voir `_tp_before_sl`). Même valeur qu'avant le hors-échantillon,
@@ -157,6 +158,19 @@ EXIT_BACKTEST_MAX_DEGRADED_SHARE = 0.25
 # trivial et ne prédit rien. 2/3 : assez d'apprentissage pour que la grille ait
 # un sens, assez de test pour que la confirmation ne soit pas du bruit.
 HOLDOUT_TRAIN_FRACTION = 2 / 3
+
+# Deux positions du MÊME jeton entrées à moins de 5 min d'écart sont la même
+# trajectoire vue par deux bras (audit I5,
+# docs/audits/2026-11-17-audit_architecture.md, qui recommande ±5 min). Chaque
+# bras construit sa propre Position avec `time.time()` (positions.py,
+# portfolio.py) et le journal date l'entrée à la microseconde (journal.py) :
+# deux bras qui achètent au même cycle ont des entrées à quelques millisecondes
+# l'une de l'autre, qu'une clé exacte (jeton, entrée) ne reconnaît jamais. La
+# copie empruntée tombait alors dans le tiers de test pendant que l'originale
+# nourrissait l'apprentissage. Si la fenêtre est trop large : deux vraies
+# ré-entrées du même jeton à moins de 5 min comptent pour une — rares, et de
+# toute façon corrélées.
+DUPLICATE_ENTRY_WINDOW_SECONDS = 300
 
 # Repli quand l'échantillon ne permet pas encore de les mesurer.
 DEFAULT_SL_SLIPPAGE = -4.4
@@ -349,29 +363,61 @@ def segment_stats(rows: list[dict[str, Any]], key: str, buckets: list) -> dict[s
     }
 
 
+def _entry_datetime(position: dict[str, Any]) -> Optional[datetime]:
+    """Instant d'entrée en UTC, ou `None` s'il est absent ou illisible.
+
+    Même lecture que `exit_datetime` : une date sans fuseau est lue comme UTC,
+    pour que deux entrées se comparent sans `TypeError` (naïve contre aware).
+    """
+    brut = position.get("timestamp_entry")
+    if not brut:
+        return None
+    try:
+        moment = datetime.fromisoformat(str(brut).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment
+
+
 def chronological_split(
     positions: list[dict[str, Any]],
     train_fraction: float = HOLDOUT_TRAIN_FRACTION,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
     """Coupe les positions dans le temps : (apprentissage, test, nb_exclues).
 
-    DÉDOUBLONNE D'ABORD (fuite I10 e) : `_instrumented` empile les positions du
+    DÉDOUBLONNE D'ABORD (fuite I10 d) : `_instrumented` empile les positions du
     bras et celles empruntées au pool, qui peuvent être la même trajectoire.
     Sans dédoublonnage, un doublon tombe des deux côtés de la coupe et le test
-    « hors échantillon » contient ce que l'apprentissage a déjà vu. Clé
-    `(token_address, timestamp_entry)`, ou `position_id` si l'entrée n'est pas
-    datée ; la première occurrence gagne (l'appelant met les positions propres
-    en tête). Tri par `exit_datetime` (date de clôture, la seule qui ordonne
-    l'information connue) ; sans date lisible : exclue et comptée.
+    « hors échantillon » contient ce que l'apprentissage a déjà vu. Est un
+    doublon :
+    - une position du même `token_address` entrée à
+      ±`DUPLICATE_ENTRY_WINDOW_SECONDS` (300 s) d'une position déjà gardée —
+      la copie d'un autre bras, entrée au même cycle à quelques millisecondes
+      près (audit I5) ;
+    - une position de même clé exacte `(token_address, timestamp_entry)`,
+      même si l'entrée est illisible ;
+    - à défaut de jeton ou d'entrée, une position de même `position_id`.
+    Une position sans aucune de ces clés n'est PAS dédoublonnée : rien ne
+    prouve qu'elle en copie une autre. La première occurrence gagne
+    (l'appelant met les positions propres en tête). Tri par `exit_datetime`
+    (date de clôture, la seule qui ordonne l'information connue) ; sans date
+    lisible : exclue et comptée.
     """
     vues: set[Any] = set()
+    # Instants d'entrée des positions GARDÉES, par jeton : une copie se compare
+    # à ce qui reste, pas à une autre copie déjà écartée.
+    entrees_gardees: dict[str, list[datetime]] = {}
     datees: list[tuple[datetime, dict[str, Any]]] = []
     exclues = 0
     for pos in positions:
         entree = pos.get("timestamp_entry")
         token = pos.get("token_address")
+        instant: Optional[datetime] = None
         if token and entree:
             cle: Any = (token, entree)
+            instant = _entry_datetime(pos)
         elif pos.get("position_id"):
             cle = ("id", pos["position_id"])
         else:
@@ -381,7 +427,14 @@ def chronological_split(
         if cle is not None:
             if cle in vues:
                 continue
+            if instant is not None and any(
+                abs((instant - gardee).total_seconds()) <= DUPLICATE_ENTRY_WINDOW_SECONDS
+                for gardee in entrees_gardees.get(token, ())
+            ):
+                continue
             vues.add(cle)
+            if instant is not None:
+                entrees_gardees.setdefault(token, []).append(instant)
         sortie = exit_datetime(pos)
         if sortie is None:
             exclues += 1
@@ -391,6 +444,17 @@ def chronological_split(
     ordonnees = [pos for _, pos in datees]
     coupe = math.ceil(len(ordonnees) * train_fraction)
     return ordonnees[:coupe], ordonnees[coupe:], exclues
+
+
+def _pnl_conserve(simulation: dict[str, Any]) -> str:
+    """P&L/trade d'un rejeu de filtres, ou « aucun trade conservé ».
+
+    `simulate_filters` rend 0.0 quand il ne garde rien : « 0.0 → 0.0 »
+    ressemblerait à un résultat plat alors qu'aucun trade n'a été mesuré.
+    """
+    if not simulation["trades"]:
+        return "aucun trade conservé"
+    return str(simulation["pnl_per_trade"])
 
 
 def _meme_valeur(a: Any, b: Any) -> bool:
@@ -1201,18 +1265,21 @@ class LearningEngine:
         message = (
             f"filtres validés (P&L/trade {before['pnl_per_trade']} → {after['pnl_per_trade']})"
         )
-        # MESURE seule : la décision est déjà prise sur toute la fenêtre. On
-        # montre ce que le changement aurait donné sur le tiers le plus récent,
-        # que le choix n'a pas pu « voir » ; aucun seuil ne dépend de ce chiffre.
+        # MESURE seule : la décision est déjà prise sur toute la fenêtre, et
+        # aucun seuil ne dépend de ce chiffre. Ce n'est PAS une preuve hors
+        # échantillon : `_adjust_filters` décide sur `refresh_stats()`, qui lit
+        # TOUTES les positions du bras, tiers récent compris. On montre
+        # seulement ce que le changement donne sur les trades les plus récents,
+        # pour qu'un gain porté par les seuls anciens se voie.
         _, recents, _ = chronological_split(rows)
         if recents:
             avant_r = self.simulate_filters(recents, previous_filters)
             apres_r = self.simulate_filters(recents, self.params.get("filters", {}))
             message += (
-                f" ; hors échantillon ({len(recents)} récents) : P&L/trade "
-                f"{avant_r['pnl_per_trade']} → {apres_r['pnl_per_trade']}"
+                f" ; tiers récent ({len(recents)}) : P&L/trade "
+                f"{_pnl_conserve(avant_r)} → {_pnl_conserve(apres_r)}"
             )
-            if len(recents) < FILTER_OOS_MIN_RECENT:
+            if len(recents) < FILTER_RECENT_MIN:
                 message += " (indicatif)"  # trop peu de positions pour compter
         return message
 
@@ -1248,6 +1315,8 @@ class LearningEngine:
         regard en avant. Avec `until`, seules comptent les jambes sorties au
         plus tard à cet instant ; une jambe sans date lisible est exclue (on ne
         peut pas prouver qu'elle précède). Sans `until` : comportement inchangé.
+        `until` doit porter un fuseau (valeur rendue par `exit_datetime`) : il
+        est comparé à des instants UTC, et une date naïve lèverait `TypeError`.
         """
         rests = []
         for leg in self.journal.read_all():
@@ -1329,6 +1398,17 @@ class LearningEngine:
            retombe sur le P&L réel, produit par le stop loss historique. La
            grille est indicative, jamais un motif de rejet.
         6. Le P&L reste optimiste côté take profit : ni slippage ni frais.
+
+        `until` borne la mesure du reste au breakeven (`measured_breakeven_rest`)
+        aux jambes closes au plus tard à cet instant : une tranche passée ne
+        doit rien mesurer d'après elle. Il doit porter un fuseau (valeur rendue
+        par `exit_datetime`) ; `None` = tout le journal.
+
+        Le résultat porte aussi `pnl_par_position` : le P&L de chaque position
+        ÉVALUÉE, dans l'ordre reçu (les positions sans pic ou sans creux sont
+        sautées selon leurs données seules, jamais selon les règles). Deux
+        rejeux de la même liste sous deux règles s'apparient donc position par
+        position.
         """
         stop_loss = exit_rules.get("stop_loss_pct", -25)
         buffer_pct = exit_rules.get("stop_loss_slippage_buffer_pct", 0.0)
@@ -1348,7 +1428,7 @@ class LearningEngine:
         degraded = 0
         changed = 0
         by_outcome: dict[str, int] = {}
-        # P&L de chaque position évaluée (fuite I10 d) : la somme seule ne dit
+        # P&L de chaque position évaluée (fuite I10 e) : la somme seule ne dit
         # pas si un gain tient à une position ; l'écart apprentissage/test et
         # l'IC95 par position en ont besoin.
         pnl_par_position: list[float] = []

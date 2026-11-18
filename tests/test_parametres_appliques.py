@@ -6,6 +6,14 @@ Bug verrouillé : `entry_rules.min_liquidity_lock_days` figurait dans
 durée de verrou). Un lecteur de la config croyait à une protection absente.
 Le test lit les fichiers de `config/` sans jamais les écrire : ils sont
 réécrits à l'exécution par l'apprentissage.
+
+LIMITE CONNUE : la correspondance se fait par NOM NU de clé, parmi les
+chaînes littérales de `src/`. Un littéral homonyme ailleurs dans le code (même
+nom, autre section ou autre usage) suffit à faire passer une clé pour lue :
+le test peut donc MASQUER une clé morte. Il ne peut pas, à l'inverse, lever
+une fausse alarme sur une clé réellement lue par son nom littéral. Une clé
+lue sous un nom construit à l'exécution se déclare dans
+`PARAMETRES_LUS_DYNAMIQUEMENT`.
 """
 
 import ast
