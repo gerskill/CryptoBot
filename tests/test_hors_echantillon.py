@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.core.journal import TradeJournal  # noqa: E402
 from src.core.learning import (  # noqa: E402
+    BACKTEST_WINDOW,
     HOLDOUT_TRAIN_FRACTION,
     STOP_LOSS_PCT_PATH,
     LearningEngine,
@@ -512,6 +513,95 @@ class TestRechercheHorsEchantillon(Base):
         self._ecrire(chronologie((21, FAVORABLE)))
         self._chercher()
         self.assertEqual(self.engine.last_exit_search["candidat"]["stop_loss_pct"], -20)
+
+
+FILTRES = {
+    "min_age_hours": 0.5, "max_age_hours": 6, "min_liquidity_usd": 15000,
+    "min_holders": 75, "min_social_mentions_1h": 0,
+}
+
+
+class TestMesureFiltres(unittest.TestCase):
+    """`validate_filter_changes` ajoute une MESURE hors échantillon, sans décider.
+
+    Le bug verrouillé : le backtest des filtres valide sur les 50 dernières
+    positions, celles-là mêmes qui ont inspiré le changement ; le message ne
+    disait rien de la tranche récente. La mesure s'affiche, la décision ne bouge pas.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        path = os.path.join(self.tmp, "params.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({**PARAMS, "filters": dict(FILTRES)}, fh)
+        self.params = ParamsStore(path)
+        self.journal = TradeJournal(os.path.join(self.tmp, "trades.jsonl"))
+        self.engine = LearningEngine(self.params, self.journal)
+
+    def _trade(self, indice, pnl_usd, liquidity, date=True):
+        row = {
+            "is_final_exit": True, "pnl_usd": pnl_usd, "pnl_pct": pnl_usd,
+            "liquidity_at_entry": liquidity, "age_hours_at_entry": 2.0,
+            "holders_at_entry": 500, "social_score": None, "rugcheck_score": 90,
+            "exit_reason": "STOP_LOSS" if pnl_usd < 0 else "TAKE_PROFIT_1",
+        }
+        if date:
+            moment = datetime(2026, 11, 1, tzinfo=timezone.utc) + timedelta(hours=indice)
+            row["timestamp_exit"] = moment.isoformat()
+        self.journal._append(row)
+
+    def _perdants_et_gagnants(self, dates=None):
+        """50 trades alternés : les perdants (liquidité 20000) passent le filtre
+        d'origine (15000) mais pas le nouveau (30000)."""
+        for i in range(BACKTEST_WINDOW):
+            perdant = i % 2 == 0
+            self._trade(
+                i, -30 if perdant else 40, 20000 if perdant else 60000,
+                date=True if dates is None else dates(i),
+            )
+
+    def test_filtres_valides_portent_la_mesure_hors_echantillon(self):
+        self._perdants_et_gagnants()
+        avant = self.params.get("filters")
+        self.params.set("filters.min_liquidity_usd", 30000, log=False)
+
+        message = self.engine.validate_filter_changes(avant)
+        self.assertIn("filtres validés (P&L/trade", message)
+        self.assertIn("hors échantillon (", message)
+        self.assertIn("récents)", message)
+        self.assertNotIn("(indicatif)", message)  # 17 récents : assez
+        self.assertEqual(self.params.get("filters.min_liquidity_usd"), 30000)
+
+    def test_la_mesure_ne_change_pas_la_decision(self):
+        for i in range(BACKTEST_WINDOW):
+            self._trade(i, +10, 60000)
+        avant = self.params.get("filters")
+        self.params.set("filters.min_liquidity_usd", 20000, log=False)
+
+        message = self.engine.validate_filter_changes(avant)
+        self.assertIn("filtres annulés", message)
+        self.assertNotIn("hors échantillon", message)
+        self.assertEqual(self.params.get("filters.min_liquidity_usd"), 15000)
+
+    def test_peu_de_recents_marque_indicatif(self):
+        # Trois lignes datées seulement : tranche test de 1 position (< 5).
+        self._perdants_et_gagnants(dates=lambda i: i < 3)
+        avant = self.params.get("filters")
+        self.params.set("filters.min_liquidity_usd", 30000, log=False)
+
+        message = self.engine.validate_filter_changes(avant)
+        self.assertIn("filtres validés", message)
+        self.assertIn("hors échantillon (1 récents)", message)
+        self.assertTrue(message.endswith("(indicatif)"), message)
+
+    def test_aucune_position_datee_pas_de_suffixe_hors_echantillon(self):
+        self._perdants_et_gagnants(dates=lambda i: False)
+        avant = self.params.get("filters")
+        self.params.set("filters.min_liquidity_usd", 30000, log=False)
+
+        message = self.engine.validate_filter_changes(avant)
+        self.assertIn("filtres validés", message)
+        self.assertNotIn("hors échantillon", message)
 
 
 if __name__ == "__main__":

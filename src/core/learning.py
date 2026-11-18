@@ -142,6 +142,9 @@ BACKTEST_MIN_KEPT = 5
 # savoir ne doit pas vouloir dire « annule ».
 EXIT_BACKTEST_MIN_COVERAGE = 15
 EXIT_BACKTEST_MIN_CHANGED = 5
+# Sous ce nombre de positions récentes, la mesure hors échantillon des filtres
+# est affichée mais marquée « indicatif » (elle ne décide rien).
+FILTER_OOS_MIN_RECENT = 5
 # Au-delà de cette part de positions dont l'ordre pic/creux est DEVINÉ, un
 # rejeu ne sert pas à décider : ces positions ambiguës sont précisément les
 # gagnantes (voir `_tp_before_sl`). Même valeur qu'avant le hors-échantillon,
@@ -1195,9 +1198,23 @@ class LearningEngine:
             )
             return "filtres annulés (backtest non concluant)"
 
-        return (
+        message = (
             f"filtres validés (P&L/trade {before['pnl_per_trade']} → {after['pnl_per_trade']})"
         )
+        # MESURE seule : la décision est déjà prise sur toute la fenêtre. On
+        # montre ce que le changement aurait donné sur le tiers le plus récent,
+        # que le choix n'a pas pu « voir » ; aucun seuil ne dépend de ce chiffre.
+        _, recents, _ = chronological_split(rows)
+        if recents:
+            avant_r = self.simulate_filters(recents, previous_filters)
+            apres_r = self.simulate_filters(recents, self.params.get("filters", {}))
+            message += (
+                f" ; hors échantillon ({len(recents)} récents) : P&L/trade "
+                f"{avant_r['pnl_per_trade']} → {apres_r['pnl_per_trade']}"
+            )
+            if len(recents) < FILTER_OOS_MIN_RECENT:
+                message += " (indicatif)"  # trop peu de positions pour compter
+        return message
 
     # ------------------------------------------------------- rejeu / sortie
 
