@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installe le bot, le site, la simulation Liquid et la veille comme services
+# Installe le bot, le site, la simulation Liquid, la veille et la publication iPhone comme services
 # launchd (macOS) : ils redémarrent seuls après un plantage ou un reboot.
 #
 # POURQUOI. Tout tournait lancé à la main sur le Mac mini : un redémarrage
@@ -7,9 +7,9 @@
 # Gratuit, local, sans hébergeur : voir docs/HEBERGEMENT.md.
 #
 # Usage (depuis la racine du dépôt) :
-#   ./scripts/installe_services.sh                    # les quatre services
+#   ./scripts/installe_services.sh                    # les cinq services
 #   ./scripts/installe_services.sh bot veille         # seulement ceux-là
-#   ./scripts/installe_services.sh --desinstalle      # retire les quatre
+#   ./scripts/installe_services.sh --desinstalle      # retire les cinq
 #   ./scripts/installe_services.sh --simule DOSSIER   # écrit les .plist sans rien charger
 #
 # GARDE-FOU. Refuse de démarrer un service dont une copie lancée à la main
@@ -21,7 +21,7 @@ set -eu
 PROJET=$(cd "$(dirname "$0")/.." && pwd)
 MODELES="$PROJET/scripts/launchd"
 AGENTS="$HOME/Library/LaunchAgents"
-TOUS="bot ui prediction veille"
+TOUS="bot ui prediction veille publie"
 SIMULE=""
 DESINSTALLE=0
 
@@ -37,7 +37,7 @@ while [ $# -gt 0 ]; do
 	case "$1" in
 		--desinstalle) DESINSTALLE=1 ;;
 		--simule) shift; SIMULE="${1:?--simule demande un dossier}" ;;
-		bot|ui|prediction|veille) SERVICES="$SERVICES $1" ;;
+		bot|ui|prediction|veille|publie) SERVICES="$SERVICES $1" ;;
 		*) echo "Argument inconnu : $1" >&2; exit 2 ;;
 	esac
 	shift
@@ -50,6 +50,7 @@ motif() {
 		ui) echo "scripts/run_ui\.py" ;;
 		prediction) echo "scripts/run_prediction\.py" ;;
 		veille) echo "scripts/veille\.py" ;;
+		publie) echo "scripts/publie_supabase\.py" ;;
 	esac
 }
 

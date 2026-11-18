@@ -90,7 +90,7 @@ class TestDiagnostic(unittest.TestCase):
 class TestModelesLaunchd(unittest.TestCase):
     def test_chaque_modele_rempli_est_un_plist_valide(self):
         modeles = glob.glob(os.path.join(RACINE, "scripts", "launchd", "*.plist.modele"))
-        self.assertEqual(len(modeles), 4)
+        self.assertEqual(len(modeles), 5)
         for chemin in modeles:
             texte = open(chemin, encoding="utf-8").read()
             for cle in ("__PROJET__", "__PYTHON__", "__PATH__"):
