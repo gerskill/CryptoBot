@@ -1,0 +1,37 @@
+# Publie l'app iPhone (dossier mobile/) sur GitHub Pages.
+# Adresse : https://gerskill.github.io/CryptoBot/ — guide : docs/APP_IPHONE.md.
+# Prérequis (une fois) : Settings → Pages → Source : « GitHub Actions ».
+# Actions épinglées par commit (tag entre parenthèses).
+name: App iPhone (GitHub Pages)
+
+on:
+  push:
+    branches: [main]
+    paths: ['mobile/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploiement.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+      - name: Coquille de l'app, sans les tests
+        run: mkdir _site && cp -R mobile/. _site/ && rm -rf _site/test
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: _site
+      - id: deploiement
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

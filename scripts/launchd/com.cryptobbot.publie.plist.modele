@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Publication : résumés du bot envoyés à Supabase pour l'app iPhone (lecture seule).
+     MODÈLE : __PROJET__, __PYTHON__ et __PATH__ sont remplis par
+     scripts/installe_services.sh. Ne pas copier tel quel. -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.cryptobbot.publie</string>
+	<key>ProgramArguments</key>
+	<array><string>__PYTHON__</string><string>scripts/publie_supabase.py</string></array>
+	<key>WorkingDirectory</key>
+	<string>__PROJET__</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<!-- PATH du shell au moment de l'installation : launchd n'en donne
+		     qu'un minimal, et le bot appelle gmgn-cli (Node) en sous-processus. -->
+		<key>PATH</key>
+		<string>__PATH__</string>
+		<key>PYTHONUNBUFFERED</key>
+		<string>1</string>
+	</dict>
+	<!-- Un passage toutes les 2 minutes, pas un processus permanent. -->
+	<key>StartInterval</key>
+	<integer>120</integer>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>__PROJET__/logs/publie.log</string>
+	<key>StandardErrorPath</key>
+	<string>__PROJET__/logs/publie.log</string>
+</dict>
+</plist>

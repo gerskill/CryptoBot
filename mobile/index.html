@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#17233B">
+<meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="CryptoBot">
+<meta name="robots" content="noindex">
+<title>CryptoBot</title>
+<meta name="description" content="Suivi du bot CryptoBot en lecture seule : état, positions, bras, Liquid. Mode papier.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="ecran-config" class="ecran-plein" hidden>
+  <h1>CryptoBot</h1>
+  <p>L'app n'est pas encore reliée à Supabase : voir docs/APP_IPHONE.md.</p>
+</div>
+
+<div id="ecran-connexion" class="ecran-plein" hidden>
+  <h1>CryptoBot</h1>
+  <p class="secondaire">Suivi du bot, en lecture seule.</p>
+  <form id="form-connexion" novalidate>
+    <label for="email">E-mail</label>
+    <input id="email" type="email" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" required>
+    <label for="mot-de-passe">Mot de passe</label>
+    <input id="mot-de-passe" type="password" autocomplete="current-password" required>
+    <p id="message-connexion" role="alert" hidden></p>
+    <button id="bouton-connexion" type="submit">Se connecter</button>
+  </form>
+</div>
+
+<div id="app" hidden>
+  <p id="bandeau-perime" role="status" hidden></p>
+  <main>
+    <div id="indicateur-tirer" aria-hidden="true"></div>
+    <section id="vue-etat" class="vue" aria-labelledby="titre-etat">
+      <h1 id="titre-etat" class="masque">État</h1>
+      <p id="phrase-etat" class="phrase"></p>
+      <p id="ligne-liquid"></p>
+      <p id="ligne-mode" class="secondaire"></p>
+      <h2>Alertes des dernières 24 h</h2>
+      <ul id="liste-alertes" class="liste"></ul>
+    </section>
+
+    <section id="vue-positions" class="vue" aria-labelledby="titre-positions" hidden>
+      <h1 id="titre-positions">Positions</h1>
+      <ul id="liste-positions" class="liste"></ul>
+      <p id="flotte-positions" class="flotte"></p>
+    </section>
+
+    <section id="vue-bras" class="vue" aria-labelledby="titre-bras" hidden>
+      <h1 id="titre-bras">Bras</h1>
+      <div class="segmente" role="group" aria-label="Fenêtre">
+        <button type="button" data-fenetre="7d" aria-pressed="true">7 j</button>
+        <button type="button" data-fenetre="30d" aria-pressed="false">30 j</button>
+        <button type="button" data-fenetre="all" aria-pressed="false">tout</button>
+      </div>
+      <p id="capital-bras" class="secondaire"></p>
+      <ul id="liste-bras" class="liste"></ul>
+      <p id="flotte-bras" class="flotte"></p>
+    </section>
+
+    <section id="vue-liquid" class="vue" aria-labelledby="titre-liquid" hidden>
+      <h1 id="titre-liquid">Liquid</h1>
+      <p class="secondaire">Paris de prédiction, en papier.</p>
+      <ul id="liste-liquid" class="liste"></ul>
+      <p id="flotte-liquid" class="flotte"></p>
+    </section>
+
+    <p id="publication" class="secondaire">
+      <span id="texte-publication"></span>
+      <button type="button" id="bouton-actualiser">Actualiser</button>
+    </p>
+  </main>
+
+  <nav aria-label="Onglets">
+    <button type="button" data-onglet="etat" aria-current="page">État</button>
+    <button type="button" data-onglet="positions">Positions</button>
+    <button type="button" data-onglet="bras">Bras</button>
+    <button type="button" data-onglet="liquid">Liquid</button>
+  </nav>
+</div>
+
+<script src="config.js"></script>
+<script src="vendor/supabase.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
