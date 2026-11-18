@@ -1516,8 +1516,9 @@ class LearningEngine:
            plafond du stop effectif, TP1 < TP2, bornes), pas le point de
            grille — sinon on confirmerait un réglage jamais appliqué (I10 a) ;
         4. confirmation APPARIÉE (I10 e) : écart de P&L position par position
-           (planifié − actuel), IC95 par bootstrap, borne basse > 0. Un seuil
-           de 10 % d'une référence de quelques centimes se franchit par hasard.
+           (planifié − actuel), au moins `EXIT_BACKTEST_MIN_CHANGED` écarts NON
+           NULS, IC95 par bootstrap, borne basse > 0. Un seuil de 10 % d'une
+           référence de quelques centimes se franchit par hasard.
 
         Toute issue autre que « confirmé » laisse les paramètres en place : ne
         pas savoir ne justifie pas de bouger. Verdict dans `last_exit_search`,
@@ -1644,19 +1645,27 @@ class LearningEngine:
                 f"pic/creux deviné, la confirmation reposerait sur une supposition",
                 **infos,
             )
-        if apres["changed"] < EXIT_BACKTEST_MIN_CHANGED:
-            return self._fin_recherche(
-                "indéterminé",
-                f"{ecrit} : {apres['changed']}/{len(test)} positions récentes "
-                f"changées, sous {EXIT_BACKTEST_MIN_CHANGED} — le test ne dit rien",
-                **infos,
-            )
         # Appariement valide : même liste d'entrée, et une position n'est
         # sautée (pic ou creux absent) que selon ses données, jamais selon les
         # règles — les deux listes sont alignées position par position.
         ecarts = [
             b - a for a, b in zip(avant["pnl_par_position"], apres["pnl_par_position"])
         ]
+        # La PREUVE, ce sont les positions dont le P&L change entre l'actuel et
+        # le planifié — pas celles où le planifié franchit un seuil (`changed`
+        # de `simulate_exits`). Une position stoppée sous les deux réglages
+        # franchit un seuil et apporte un écart nul : mesuré à la revue, une
+        # confirmation reposait sur 3 positions sur 7 « changées ».
+        changees = sum(1 for ecart_position in ecarts if abs(ecart_position) > 1e-9)
+        infos["test_changees"] = changees
+        if changees < EXIT_BACKTEST_MIN_CHANGED:
+            return self._fin_recherche(
+                "indéterminé",
+                f"{ecrit} : {changees}/{len(test)} positions récentes dont le P&L "
+                f"change (seuil franchi sur {apres['changed']}), sous "
+                f"{EXIT_BACKTEST_MIN_CHANGED} — le test ne dit rien",
+                **infos,
+            )
         intervalle = bootstrap_mean(ecarts)
         if intervalle is None:
             return self._fin_recherche(

@@ -250,8 +250,15 @@ TP1 = "exit_rules.take_profit_1"
 FAVORABLE = dict(peak=200.0, trough=-5.0, pnl_pct=40.0,
                  minutes_to_peak=10.0, minutes_to_trough=40.0)
 # Creux AVANT le pic : stop touché sous tous les réglages, aucun TP1 atteint.
+# Franchit un seuil sous l'actuel COMME sous le planifié, au même P&L : elle
+# ne prouve rien, ni pour ni contre le changement.
 PUNITIVE = dict(peak=30.0, trough=-60.0, pnl_pct=-25.0,
                 minutes_to_peak=40.0, minutes_to_trough=10.0)
+# Pic à 110 AVANT un creux à -16 : TP1 100 (actuel) est pris, TP1 115
+# (planifié) jamais, et le stop effectif (-15) sort ensuite la position. Le
+# TP1 plus haut y perd, position par position.
+PIEGE = dict(peak=110.0, trough=-16.0, pnl_pct=47.0,
+             minutes_to_peak=10.0, minutes_to_trough=40.0)
 # Aucun seuil franchi : la position garderait son P&L réel sous tout réglage.
 CALME = dict(peak=4.0, trough=-4.0, pnl_pct=-1.0,
              minutes_to_peak=10.0, minutes_to_trough=40.0)
@@ -306,13 +313,17 @@ class TestRechercheHorsEchantillon(Base):
         return changes, sortie.getvalue()
 
     def test_couple_bon_sur_le_passe_mauvais_sur_le_recent_nest_pas_applique(self):
-        self._ecrire(chronologie((14, FAVORABLE), (7, PUNITIVE)))
+        self._ecrire(chronologie((14, FAVORABLE), (7, PIEGE)))
         changes, sortie = self._chercher()
         self.assertEqual(changes, [])
         self.assertEqual(self.engine.params.get(TP1), 100)
         self.assertEqual(self.engine.params.get(STOP_LOSS_PCT_PATH), -20)
         verdict = self.engine.last_exit_search
         self.assertEqual(verdict["issue"], "rejeté hors échantillon")
+        # Le test dit vraiment « pire » : chaque position récente perd sous le
+        # TP1 planifié, l'intervalle apparié est entièrement négatif.
+        self.assertEqual(verdict["test_changees"], 7)
+        self.assertLess(verdict["ecart_haut"], 0)
         self.assertEqual((verdict["train_n"], verdict["test_n"], verdict["exclues"]),
                          (14, 7, 0))
         self.assertIn("🧠", sortie)
@@ -358,12 +369,27 @@ class TestRechercheHorsEchantillon(Base):
         changes, sortie = self._chercher()
         self.assertEqual(changes, [])
         self.assertEqual(self.engine.last_exit_search["issue"], "indéterminé")
+        self.assertEqual(self.engine.last_exit_search["test_changees"], 0)
         self.assertEqual(self.engine.params.get(TP1), 100)
         self.assertIn("indéterminé", sortie)
         self.assertNotIn("rejeté", sortie)
 
+    def test_seuils_franchis_a_pnl_identique_ne_comptent_pas_comme_changees(self):
+        # Sur le test, le planifié franchit un seuil sur les 7 positions, mais
+        # 4 sortent au stop au même P&L sous les deux réglages : seules 3
+        # positions changent de P&L, sous les 5 exigées. Compter les seuils
+        # franchis laissait une confirmation reposer sur 3 positions.
+        self._ecrire(chronologie((14, FAVORABLE), (4, PUNITIVE), (3, FAVORABLE)))
+        changes, sortie = self._chercher()
+        verdict = self.engine.last_exit_search
+        self.assertEqual(changes, [])
+        self.assertEqual(verdict["issue"], "indéterminé")
+        self.assertEqual(verdict["test_changees"], 3)
+        self.assertEqual(self.engine.params.get(TP1), 100)
+        self.assertIn("indéterminé", sortie)
+
     def test_ordre_melange_donne_la_meme_decision_que_trie(self):
-        rows = chronologie((14, FAVORABLE), (7, PUNITIVE))
+        rows = chronologie((14, FAVORABLE), (7, PIEGE))
         trie = self._moteur("trie")
         melange = self._moteur("melange")
         self._ecrire(rows, trie.journal)

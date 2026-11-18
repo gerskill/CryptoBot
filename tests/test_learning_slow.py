@@ -164,7 +164,7 @@ class TestPetitsPas(Base):
         # écrit (75 → 90) gagne sur chaque position, donc il est confirmé.
         self.engine.simulate_exits = (
             lambda positions, rules, ambiguity="x", until=None: {
-                "pnl_per_trade": -5.0, "degraded": 0, "changed": 10,
+                "pnl_per_trade": -5.0, "degraded": 0,
                 "pnl_par_position": [rules["take_profit_1"] / 100] * len(positions)})
         self.engine.exit_grid = lambda positions, current, until=None: [{
             "stop_loss_pct": -40.0, "take_profit_1": 150.0, "changed": 10,
