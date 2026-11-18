@@ -16,7 +16,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { snapshots, lignesSupabase, CLES_DU_CONTRAT, CHAMPS_LIGNE } from './fixtures.mjs';
+import { snapshots, lignesSupabase } from './fixtures.mjs';
 
 const require = createRequire(import.meta.url);
 const { chromium, devices } = require('playwright');
@@ -24,6 +24,9 @@ const { chromium, devices } = require('playwright');
 const ICI = path.dirname(fileURLToPath(import.meta.url));
 const RACINE = path.resolve(ICI, '..');
 const APPAREIL = devices['iPhone 15'];
+// Le contrat que l'app lit ; le publieur est vérifié contre le même fichier (tests/test_contrat_app.py).
+const CONTRAT = JSON.parse(fs.readFileSync(path.join(RACINE, 'contrat.json'), 'utf8'));
+const ENCOCHE_PX = 59; // zone de sécurité du haut d'un iPhone 15 (Chromium la donne à 0)
 const iCaptures = process.argv.indexOf('--captures');
 const CAPTURES = iCaptures > 0 ? path.resolve(process.argv[iCaptures + 1]) : null;
 
@@ -36,6 +39,7 @@ const FAUX_CLIENT = `
 window.supabase = { createClient(url, cle, options) {
   const f = window.__faux; const ecouteurs = [];
   const prevenir = (ev, s) => ecouteurs.forEach(cb => cb(ev, s));
+  f.declencher = prevenir; // le test simule un événement de supabase-js (ex. SIGNED_OUT)
   return {
     auth: {
       getSession: async () => ({ data: { session: f.session }, error: null }),
@@ -95,19 +99,34 @@ async function capture(page, nom) {
   await page.screenshot({ path: path.join(CAPTURES, `${nom}.png`) });
 }
 
+// Simule un doigt qui tire l'écran vers le bas de `dy` px (sans relâcher si `relacher` est faux).
+async function tirer(page, dy, relacher) {
+  await page.evaluate(({ dy, relacher }) => {
+    const t = y => new Touch({ identifier: 1, target: document.body, clientX: 150, clientY: y });
+    const ev = (type, y) => document.body.dispatchEvent(new TouchEvent(type, {
+      touches: type === 'touchend' ? [] : [t(y)], changedTouches: [t(y)], bubbles: true, cancelable: true }));
+    if (dy !== null) { ev('touchstart', 100); ev('touchmove', 100 + dy / 2); ev('touchmove', 100 + dy); }
+    if (relacher) ev('touchend', 100 + (dy || 0));
+  }, { dy, relacher });
+}
+const boite = (page, sel) => page.locator(sel).evaluate(e => { const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, height: r.height }; });
+
 const texte = async (page, sel) => (await page.locator(sel).innerText()).replace(/\s+/g, ' ').trim();
 
 async function main() {
-  // 0. Les données de test ont exactement la forme du contrat
+  // 0. Les données de test ont exactement la forme de mobile/contrat.json
   const s = snapshots(Date.now());
-  for (const [cle, champs] of Object.entries(CLES_DU_CONTRAT)) {
-    ok(JSON.stringify(Object.keys(s[cle]).sort()) === JSON.stringify([...champs].sort()), `fixture ${cle} : champs du contrat`);
-  }
   const memes = (o, champs) => JSON.stringify(Object.keys(o).sort()) === JSON.stringify([...champs].sort());
-  ok(s.positions.lignes.every(l => memes(l, CHAMPS_LIGNE.position)), 'fixture positions.lignes : champs du contrat');
-  ok(s.perf_7d.bras.every(l => memes(l, CHAMPS_LIGNE.perf)) && memes(s.perf_7d.flotte, CHAMPS_LIGNE.flotte), 'fixture perf : champs du contrat');
-  ok(s.liquid.bras.every(l => memes(l, CHAMPS_LIGNE.liquid)), 'fixture liquid.bras : champs du contrat');
-  ok(s.alertes.lignes.every(l => memes(l, CHAMPS_LIGNE.alerte)), 'fixture alertes.lignes : champs du contrat');
+  const cles = chemin => (chemin.startsWith('perf.') ? ['perf_7d', 'perf_30d', 'perf_all'] : [chemin.split('.')[0]]);
+  ok(memes(s, Object.keys(CONTRAT.cles)), 'fixture : les sept clés du contrat');
+  for (const [cle, champs] of Object.entries(CONTRAT.cles)) ok(memes(s[cle], champs), `fixture ${cle} : champs du contrat`);
+  for (const [chemin, champs] of Object.entries(CONTRAT.objets)) {
+    ok(cles(chemin).every(c => memes(s[c][chemin.split('.')[1]], champs)), `fixture ${chemin} : champs du contrat`);
+  }
+  for (const [chemin, champs] of Object.entries(CONTRAT.lignes)) {
+    const champ = chemin.split('.')[1];
+    ok(cles(chemin).every(c => s[c][champ].length && s[c][champ].every(l => memes(l, champs))), `fixture ${chemin} : lignes du contrat`);
+  }
 
   const serveur = await servir();
   const base = `http://127.0.0.1:${serveur.address().port}`;
@@ -229,6 +248,17 @@ async function main() {
       ok(await page.locator('#bandeau-perime').isVisible(), 'périmé : bandeau visible sur les autres onglets');
       const couleur = await page.locator('#liste-bras > li', { hasText: 'sniper' }).locator('.montant').evaluate(e => getComputedStyle(e).color);
       ok(couleur === 'rgb(154, 166, 192)', `périmé : P&L en gris secondaire (${couleur})`);
+      const mutations = await page.evaluate(async () => {
+        let n = 0;
+        const obs = new MutationObserver(m => { n += m.length; });
+        obs.observe(document.querySelector('#bandeau-perime'), { childList: true, characterData: true, subtree: true });
+        document.querySelector('[data-fenetre="30d"]').click(); // nouveau rendu complet
+        await new Promise(r => setTimeout(r, 50));
+        obs.disconnect();
+        return n;
+      });
+      ok(mutations === 0, `périmé : bandeau (role=status) non réécrit quand son texte ne change pas (${mutations} mutation(s))`);
+      await page.click('[data-fenetre="7d"]');
       await capture(page, '8-perime-bras');
       await contexte.close();
     }
@@ -254,6 +284,34 @@ async function main() {
       ok((await texte(page, '#phrase-etat')) === "Pas encore de données : le Mac n'a rien publié.", 'aucune donnée : phrase claire');
       await page.click('nav [data-onglet="positions"]');
       ok((await texte(page, '#vue-positions')).includes("Pas encore de données : le Mac n'a rien publié."), 'aucune donnée : Positions le dit');
+      // jeton de rafraîchissement refusé : supabase-js émet SIGNED_OUT
+      await page.evaluate(() => window.__faux.declencher('SIGNED_OUT', null));
+      await page.waitForSelector('#ecran-connexion:not([hidden])', { timeout: 5000 });
+      ok((await texte(page, '#message-connexion')) === 'Session expirée : reconnecte-toi.', 'SIGNED_OUT (rafraîchissement refusé) : connexion avec message');
+      await contexte.close();
+    }
+
+    // 7. encoche simulée (zone de sécurité du haut à 59 px, comme sur un iPhone 15)
+    for (const perime of [false, true]) {
+      const lignes = lignesSupabase(snapshots(Date.now(), perime ? { ageMin: 14, cycleMin: 15 } : {}));
+      const { page, contexte } = await ouvrir(browser, base, { session: { user: { email: 'k@example.com' } }, lignes });
+      await page.waitForFunction(() => document.querySelector('#phrase-etat')?.textContent.trim().length > 0);
+      await page.addStyleTag({ content: `:root { --sait: ${ENCOCHE_PX}px; }` });
+      const nom = perime ? 'encoche + bandeau' : 'encoche';
+      const haut = perime ? (await boite(page, '#bandeau-perime')).bottom : ENCOCHE_PX;
+      if (perime) ok(haut >= ENCOCHE_PX + 20, `${nom} : le bandeau descend sous l'encoche (${haut} px)`);
+      const repos = await boite(page, '#indicateur-tirer');
+      ok(repos.height === 0, `${nom} : indicateur de tirage invisible au repos (${repos.height} px)`);
+      ok(Math.abs(repos.top - (haut + 24)) < 1, `${nom} : pas d'espace en trop en haut (contenu à ${repos.top} px, attendu ${haut + 24})`);
+      const avant = await page.evaluate(() => window.__faux.tables.length);
+      await tirer(page, 160, false);
+      const tire = await boite(page, '#indicateur-tirer');
+      ok(tire.height >= 40 && tire.top >= haut, `${nom} : en tirant, l'indicateur apparaît sous l'encoche (${tire.height} px à ${tire.top} px)`);
+      ok((await texte(page, '#indicateur-tirer')) === 'Relâcher pour actualiser', `${nom} : « Relâcher pour actualiser »`);
+      if (!perime) await capture(page, '9-tirer-encoche');
+      await tirer(page, null, true);
+      await page.waitForFunction(n => window.__faux.tables.length > n, avant, { timeout: 5000 });
+      ok((await boite(page, '#indicateur-tirer')).height === 0, `${nom} : relâché, l'indicateur se referme et l'app relit Supabase`);
       await contexte.close();
     }
   } finally {

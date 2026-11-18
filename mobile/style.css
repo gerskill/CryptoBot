@@ -13,6 +13,9 @@
   --perte: #E46B5E;
   --ambre: #E5B24F;
   --marge: 16px;
+  /* Zone de sécurité du haut, en variable pour que le test de fumée puisse simuler une encoche
+     (Chromium la donne à 0). */
+  --sait: env(safe-area-inset-top, 0px);
   --haut-onglets: 52px;
   color-scheme: dark;
 }
@@ -47,7 +50,7 @@ button { cursor: pointer; }
 /* --- Écrans plein (config absente, connexion) --- */
 .ecran-plein {
   min-height: 100vh;
-  padding: calc(env(safe-area-inset-top) + 64px) calc(env(safe-area-inset-right) + var(--marge)) 32px calc(env(safe-area-inset-left) + var(--marge));
+  padding: calc(var(--sait) + 64px) calc(env(safe-area-inset-right) + var(--marge)) 32px calc(env(safe-area-inset-left) + var(--marge));
   max-width: 480px;
 }
 .ecran-plein h1 { font-size: 30px; line-height: 36px; margin-bottom: 8px; }
@@ -68,21 +71,22 @@ input {
 
 /* --- App --- */
 #app main {
-  padding: calc(env(safe-area-inset-top) + 24px) calc(env(safe-area-inset-right) + var(--marge))
+  padding: calc(var(--sait) + 24px) calc(env(safe-area-inset-right) + var(--marge))
            calc(env(safe-area-inset-bottom) + var(--haut-onglets) + 24px) calc(env(safe-area-inset-left) + var(--marge));
 }
 
 #bandeau-perime {
   position: sticky; top: 0; z-index: 2; margin: 0;
-  padding: calc(env(safe-area-inset-top) + 10px) var(--marge) 10px;
+  padding: calc(var(--sait) + 10px) var(--marge) 10px;
   background: var(--ambre); color: var(--fond); font-size: 15px; font-weight: 600;
 }
-#bandeau-perime:not([hidden]) + #indicateur-tirer + main { padding-top: 24px; }
+#bandeau-perime:not([hidden]) + main { padding-top: 24px; } /* le bandeau couvre déjà la zone de sécurité */
 
 #indicateur-tirer {
   height: 0; overflow: hidden; text-align: center; color: var(--secondaire); font-size: 13px;
   display: flex; align-items: flex-end; justify-content: center;
-  padding-top: env(safe-area-inset-top);
+  /* Dans <main>, sous son padding (zone de sécurité ou bandeau) : aucun padding propre, sinon
+     une boîte border-box ne peut pas descendre sous ce padding et prend l'encoche au repos. */
 }
 
 /* La phrase d'état : le seul élément en grand. Sa couleur porte l'état. */

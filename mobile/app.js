@@ -117,7 +117,9 @@ function afficher() {
   const p = publieA();
   const bandeau = $('#bandeau-perime');
   bandeau.hidden = !perime;
-  if (perime) bandeau.textContent = `Aucune nouvelle depuis ${duree(ageMs(p) / 60000)} — Mac éteint, publication ou bot arrêté.`;
+  // Réécrit seulement si le texte change : role="status" ferait relire le bandeau à VoiceOver à chaque rendu.
+  const texteBandeau = perime ? `Aucune nouvelle depuis ${duree(ageMs(p) / 60000)} — Mac éteint, publication ou bot arrêté.` : '';
+  if (bandeau.textContent !== texteBandeau) bandeau.textContent = texteBandeau;
 
   afficherEtat(perime);
   afficherPositions();
@@ -278,7 +280,8 @@ async function demarrer() {
   etat.sb = sb;
   sb.auth.onAuthStateChange((evenement) => {
     // jamais d'appel Supabase directement dans ce rappel (recommandation supabase-js)
-    if (evenement === 'SIGNED_OUT') setTimeout(() => { etat.donnees = null; montrer('connexion'); }, 0);
+    // SIGNED_OUT arrive aussi quand le jeton n'a pas pu être rafraîchi : on dit pourquoi.
+    if (evenement === 'SIGNED_OUT') setTimeout(() => { etat.donnees = null; montrer('connexion'); messageConnexion('Session expirée : reconnecte-toi.'); }, 0);
   });
 
   $('#form-connexion').addEventListener('submit', async e => {

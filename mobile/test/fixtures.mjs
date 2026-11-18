@@ -1,26 +1,9 @@
-// Données de test de l'app iPhone, de la forme EXACTE du contrat
-// (docs/superpowers/plans/2026-11-18-app-iphone.md, « Contrat de données ») :
-// ce que scripts/publie_supabase.py publie dans la table `snapshots`.
+// Données de test de l'app iPhone, de la forme EXACTE de mobile/contrat.json
+// (vérifié par smoke.mjs ; le publieur, lui, est vérifié contre le même fichier
+// par tests/test_contrat_app.py).
 // Les heures sont relatives à `maintenant` pour que le test ne vieillisse pas.
 
 const iso = (maintenant, minutesAvant) => new Date(maintenant - minutesAvant * 60000).toISOString();
-
-export const CLES_DU_CONTRAT = {
-  etat: ['publie_a', 'bot', 'liquid'],
-  positions: ['publie_a', 'lignes'],
-  perf_7d: ['publie_a', 'fenetre', 'capital_par_bras', 'bras', 'flotte'],
-  perf_30d: ['publie_a', 'fenetre', 'capital_par_bras', 'bras', 'flotte'],
-  perf_all: ['publie_a', 'fenetre', 'capital_par_bras', 'bras', 'flotte'],
-  liquid: ['publie_a', 'bras'],
-  alertes: ['publie_a', 'lignes'],
-};
-export const CHAMPS_LIGNE = {
-  position: ['bras', 'symbole', 'pnl_pct', 'taille_usd', 'duree_min', 'tp1_atteint'],
-  perf: ['bras', 'trades', 'win_rate', 'ic_bas', 'ic_haut', 'profit_factor', 'pnl_usd', 'max_drawdown_pct', 'verdict'],
-  flotte: ['trades', 'win_rate', 'pnl_usd', 'profit_factor'],
-  liquid: ['bras', 'famille', 'actif', 'ouverts', 'solde_usd', 'regles', 'gagnes_net'],
-  alerte: ['quand', 'type', 'bras', 'texte'],
-};
 
 function perf(fenetre, publie_a, facteur) {
   return {
