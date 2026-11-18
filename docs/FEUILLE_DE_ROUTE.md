@@ -21,11 +21,16 @@ GitHub ni les sessions cloud. Chaque ligne dit **qui** peut la faire et
 - Skill `rentabilite-annuelle` ; aiguillage Liquid ; audit du 2026-11-17
   (`docs/AUDIT_2026-11-17.md`).
 
-## Prochain chantier choisi par Killian
+## Fait le 2026-11-18 — B1 positions zombies
 
-**B1 — positions « zombies »** (`docs/AUDIT_2026-11-17.md`) : une position sans
-prix exploitable n'a ni time stop ni détection de rug et reste hors de tous les
-chiffres. Conception courte d'abord, puis plan.
+Une position restée sans prix exploitable 30 min après son time stop est fermée
+à -100 % (`ZOMBIE (sans prix depuis le time stop)`) ; `/STOP` ferme aussi les
+positions sans prix (`PANIC_STOP (sans prix)`, après un nouvel essai de prix).
+Le journal ne coupe plus le frais d'entrée à la relecture (plancher
+-100 % − frais). **Au premier cycle après déploiement, les zombies existants
+seront fermés : baisse brute et voulue des chiffres des bras concernés.**
+Prochains candidats de l'audit : M2 (entrées perdues), B2 (verdict fragile),
+B4 (gel des paramètres par période).
 
 ## À surveiller sur le Mac après fusion
 

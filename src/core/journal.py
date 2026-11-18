@@ -31,12 +31,19 @@ MIN_PNL_PCT = -100.0
 def correct_legacy_cost(row: dict[str, Any]) -> dict[str, Any]:
     row = _correct_legacy_cost(row)
     pnl = row.get("pnl_pct")
-    if row.get("entry_price") and isinstance(pnl, (int, float)) and pnl < MIN_PNL_PCT:
+    # Le frais d'entrée déjà payé est une perte RÉELLE (il a quitté le cash) :
+    # le plancher est donc -100 % - frais, sinon la lecture l'efface et le
+    # capital reconstruit du journal dépasse le capital vivant. Le plafond ne
+    # vise que les devis de sortie absurdes. Lignes sans frais d'entrée
+    # (anciennes) : plancher inchangé à -100 %.
+    entry_fee = row.get("entry_cost_pct") if row.get("entry_cost_version") else None
+    floor = MIN_PNL_PCT - (entry_fee if isinstance(entry_fee, (int, float)) and entry_fee > 0 else 0.0)
+    if row.get("entry_price") and isinstance(pnl, (int, float)) and pnl < floor:
         usd = row.get("pnl_usd") or 0.0
         row.setdefault("pnl_pct_journal", pnl)
         row.setdefault("pnl_usd_journal", usd)
-        row["pnl_pct"] = MIN_PNL_PCT
-        row["pnl_usd"] = round(usd * MIN_PNL_PCT / pnl, 4)
+        row["pnl_pct"] = floor
+        row["pnl_usd"] = round(usd * floor / pnl, 4)
         row["pnl_floor_applied"] = True
     return row
 
