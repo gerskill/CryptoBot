@@ -10,12 +10,15 @@ GARDE-FOU CENTRAL : aucun ajustement sans `MIN_SEGMENT_SAMPLE` trades DANS LE
 SEGMENT concerné. Sans ça le bot sur-réagit au bruit.
 """
 
+import math
 import statistics
+from datetime import datetime
 from typing import Any, Callable, Optional
 
 from src.core.journal import TradeJournal
 from src.core.params import ParamsStore
 from src.core.shadow import ShadowTracker
+from src.core.stats import exit_datetime
 
 MIN_SEGMENT_SAMPLE = 10
 # Plancher ABSOLU par stratégie, indépendant des cadences. Avec 7 bras, une
@@ -139,6 +142,13 @@ BACKTEST_MIN_KEPT = 5
 # savoir ne doit pas vouloir dire « annule ».
 EXIT_BACKTEST_MIN_COVERAGE = 15
 EXIT_BACKTEST_MIN_CHANGED = 5
+
+# Part des positions (les plus anciennes) qui CHOISIT un réglage de sortie ; le
+# reste, plus récent, le CONFIRME. Choisir et juger sur les mêmes trades est la
+# fuite n°1 de `chasse-au-lookahead` : le meilleur couple a posteriori est
+# trivial et ne prédit rien. 2/3 : assez d'apprentissage pour que la grille ait
+# un sens, assez de test pour que la confirmation ne soit pas du bruit.
+HOLDOUT_TRAIN_FRACTION = 2 / 3
 
 # Repli quand l'échantillon ne permet pas encore de les mesurer.
 DEFAULT_SL_SLIPPAGE = -4.4
@@ -331,6 +341,41 @@ def segment_stats(rows: list[dict[str, Any]], key: str, buckets: list) -> dict[s
     }
 
 
+def chronological_split(
+    positions: list[dict[str, Any]],
+    train_fraction: float = HOLDOUT_TRAIN_FRACTION,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+    """Coupe les positions dans le temps : (apprentissage, test, nb_exclues).
+
+    DÉDOUBLONNE D'ABORD (fuite I10 e) : `_instrumented` empile les positions du
+    bras et celles empruntées au pool, qui peuvent être la même trajectoire.
+    Sans dédoublonnage, un doublon tombe des deux côtés de la coupe et le test
+    « hors échantillon » contient ce que l'apprentissage a déjà vu. Clé
+    `(token_address, timestamp_entry)`, ou `position_id` si l'entrée n'est pas
+    datée ; la première occurrence gagne (l'appelant met les positions propres
+    en tête). Tri par `exit_datetime` (date de clôture, la seule qui ordonne
+    l'information connue) ; sans date lisible : exclue et comptée.
+    """
+    vues: set[Any] = set()
+    datees: list[tuple[datetime, dict[str, Any]]] = []
+    exclues = 0
+    for pos in positions:
+        entree = pos.get("timestamp_entry")
+        cle = (pos.get("token_address"), entree) if entree else ("id", pos.get("position_id"))
+        if cle in vues:
+            continue
+        vues.add(cle)
+        sortie = exit_datetime(pos)
+        if sortie is None:
+            exclues += 1
+            continue
+        datees.append((sortie, pos))
+    datees.sort(key=lambda couple: couple[0])  # stable : égalité = ordre reçu
+    ordonnees = [pos for _, pos in datees]
+    coupe = math.ceil(len(ordonnees) * train_fraction)
+    return ordonnees[:coupe], ordonnees[coupe:], exclues
+
+
 class LearningEngine:
     def __init__(
         self,
@@ -407,15 +452,14 @@ class LearningEngine:
             )
         return limited
 
-    def _bounded_set(
-        self, path: str, value: float, reason: str, sample: int
-    ) -> Optional[str]:
-        """Écrit un paramètre en respectant ses bornes. None si rien ne change."""
-        blocage = self._starving(path, value)
-        if blocage:
-            print(f"🧠 {blocage}")
-            return None
+    def _plan(self, path: str, value: float) -> tuple[float, float]:
+        """Chaîne de garde-fous commune à l'écriture et à la simulation.
 
+        Retourne `(avant_bornes, final)`. Source UNIQUE de ce que
+        `_bounded_set` écrirait : un hors-échantillon (fuite I10 a) qui
+        recopierait cette chaîne à la main évaluerait un réglage que le moteur
+        n'écrira jamais (pas max, plafond du stop effectif, TP1 < TP2).
+        """
         # PETIT PAS d'abord, garde-fous ensuite : ces derniers (stop effectif,
         # TP1 < TP2, PARAM_BOUNDS) doivent toujours avoir le dernier mot.
         value = self._limit_step(path, value)
@@ -447,7 +491,30 @@ class LearningEngine:
                 value = tp2 - 1.0
 
         low, high = self.bounds.get(path, (float("-inf"), float("inf")))
-        clamped = max(low, min(high, value))
+        return value, max(low, min(high, value))
+
+    def _planned_value(self, path: str, value: float) -> float:
+        """La valeur que `_bounded_set` ÉCRIRAIT, sans rien écrire.
+
+        Si la garde anti-famine bloquerait l'écriture, c'est la valeur courante
+        qui reste en place : on la renvoie (ou `value` si le paramètre n'existe
+        pas encore, comme `_limit_step`).
+        """
+        if self._starving(path, value):
+            courante = self.params.get(path)
+            return value if courante is None else courante
+        return self._plan(path, value)[1]
+
+    def _bounded_set(
+        self, path: str, value: float, reason: str, sample: int
+    ) -> Optional[str]:
+        """Écrit un paramètre en respectant ses bornes. None si rien ne change."""
+        blocage = self._starving(path, value)
+        if blocage:
+            print(f"🧠 {blocage}")
+            return None
+
+        value, clamped = self._plan(path, value)
         current = self.params.get(path)
 
         if current is not None and abs(clamped - current) < 1e-9:
@@ -1104,19 +1171,33 @@ class LearningEngine:
         ]
         return round(statistics.median(ecarts), 2) if ecarts else DEFAULT_SL_SLIPPAGE
 
-    def measured_breakeven_rest(self, rows: list[dict[str, Any]]) -> float:
+    def measured_breakeven_rest(
+        self, rows: list[dict[str, Any]], until: Optional[datetime] = None
+    ) -> float:
         """Ce que rapporte le second lot après un TP1, mesuré.
 
         Sur les données réelles c'est -2,9%, pas 0 : le passage au breakeven
         après TP1 rend systématiquement la seconde moitié un peu en dessous du
         prix d'entrée. Supposer 0 surestimerait chaque scénario avec TP.
+
+        `until` (fuite I10 c) : lit `journal.read_all()`, donc TOUT l'historique,
+        y compris des jambes postérieures à la période d'apprentissage. Évaluer
+        un réglage sur le passé avec une médiane qui connaît le futur est du
+        regard en avant. Avec `until`, seules comptent les jambes sorties au
+        plus tard à cet instant ; une jambe sans date lisible est exclue (on ne
+        peut pas prouver qu'elle précède). Sans `until` : comportement inchangé.
         """
-        rests = [
-            leg["pnl_pct"]
-            for leg in self.journal.read_all()
-            if str(leg.get("exit_reason", "")).startswith("BREAKEVEN_STOP")
-            and leg.get("pnl_pct") is not None
-        ]
+        rests = []
+        for leg in self.journal.read_all():
+            if not str(leg.get("exit_reason", "")).startswith("BREAKEVEN_STOP"):
+                continue
+            if leg.get("pnl_pct") is None:
+                continue
+            if until is not None:
+                sortie = exit_datetime(leg)
+                if sortie is None or sortie > until:
+                    continue
+            rests.append(leg["pnl_pct"])
         return round(statistics.median(rests), 2) if rests else DEFAULT_BREAKEVEN_REST
 
     @staticmethod
@@ -1155,6 +1236,7 @@ class LearningEngine:
         positions: list[dict[str, Any]],
         exit_rules: dict[str, Any],
         ambiguity: str = "resolve",
+        until: Optional[datetime] = None,
     ) -> dict[str, Any]:
         """Rejoue les positions passées sous un jeu de règles de SORTIE.
 
@@ -1195,7 +1277,7 @@ class LearningEngine:
         f2 = exit_rules.get("partial_sell_tp2_pct", 0.5)
 
         slip = self.measured_slippage(positions)
-        rest = self.measured_breakeven_rest(positions)
+        rest = self.measured_breakeven_rest(positions, until)
 
         total_pnl = 0.0
         wins = 0
@@ -1204,6 +1286,10 @@ class LearningEngine:
         degraded = 0
         changed = 0
         by_outcome: dict[str, int] = {}
+        # P&L de chaque position évaluée (fuite I10 d) : la somme seule ne dit
+        # pas si un gain tient à une position ; l'écart apprentissage/test et
+        # l'IC95 par position en ont besoin.
+        pnl_par_position: list[float] = []
         evaluated = 0
 
         for row in positions:
@@ -1251,6 +1337,7 @@ class LearningEngine:
                 changed += 1
             by_outcome[outcome] = by_outcome.get(outcome, 0) + 1
             total_pnl += pnl_usd
+            pnl_par_position.append(pnl_usd)
             if pnl_usd > 0:
                 wins += 1
 
@@ -1270,6 +1357,7 @@ class LearningEngine:
             "by_outcome": by_outcome,
             "slippage_used": slip,
             "breakeven_rest_used": rest,
+            "pnl_par_position": pnl_par_position,
         }
 
     def exit_grid(
