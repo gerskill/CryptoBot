@@ -19,7 +19,7 @@ PARAMETRES_NON_APPLIQUES: dict[str, str] = {
     "filters.max_tax_sell": "Aucun code ne lit cette clé : la taxe de vente n'est contrôlée nulle part.",
     "entry_rules.slippage_max_pct": "Aucun code ne lit cette clé : le slippage maximal à l'entrée n'est pas plafonné ; le coût de sortie vient de exit_fees.",
     "entry_rules.entry_timing": "Aucun code ne lit cette clé : l'entrée n'attend aucun déclencheur « breakout_5m », c'est une étiquette.",
-    "entry_rules.position_size_formula": "Aucun code ne lit cette clé : la taille de position ne suit aucune formule Kelly, elle vient du capital du bras et des règles de risque.",
+    "entry_rules.position_size_formula": "Clé non lue : la taille vient toujours de PaperPortfolio.position_size (capital × risk_per_trade, majorée façon Kelly au-delà de 40 % de réussite sur 20 trades, plafonnée à 5 % du capital), quelle que soit sa valeur.",
 }
 
 # Paramètres lus sous un nom construit (f-string, boucle) : un balayage de

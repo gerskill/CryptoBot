@@ -212,8 +212,8 @@ exclus du score et leur poids est réparti sur les autres. Le score reste sur 10
 clé Helius) ne rejette pas le candidat. Sans Helius, `min_holders` n'est donc pas appliqué.
 
 **Paramètres déclarés mais non appliqués.** `entry_rules.min_liquidity_lock_days` (RugCheck
-expose `lpLockedPct`, pas une durée de lock : aucune source) et quatre autres clés de la
-config ne sont lues par aucun code. La liste exacte, avec la raison de chacune, est
+expose `lpLockedPct`, pas une durée de lock : aucune source) et les autres clés listées dans
+`PARAMETRES_NON_APPLIQUES` ne sont lues par aucun code. La liste exacte, avec la raison de chacune, est
 `PARAMETRES_NON_APPLIQUES` dans `src/core/params.py` ; `scripts/voir_bras.py` les signale
 « non appliqué » et `tests/test_parametres_appliques.py` interdit d'en ajouter une sans la
 déclarer.
