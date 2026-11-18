@@ -11,7 +11,7 @@ description: Écrire, lancer ou réparer les tests de CryptobBot et faire passer
 python -m unittest discover -s tests            # toute la suite
 python -m unittest tests.test_trading           # un module
 python -m unittest tests.test_core.TestScoring  # une classe
-cd dashboard && npm run build && npm run lint   # front (tsc + oxlint)
+cd dashboard && npm test && npm run build && npm run lint   # front (vitest + tsc + oxlint)
 ```
 
 **Ruff n'est pas un garde-fou de ce dépôt aujourd'hui.** Le cache `.ruff_cache`

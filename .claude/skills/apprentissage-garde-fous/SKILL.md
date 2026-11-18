@@ -44,13 +44,20 @@ Les familles `rugcheck` et `authority` ne sont **jamais** relâchées.
 ## Ce qu'un ajustement doit prouver
 
 - **Filtres** : `simulate_filters` puis `validate_filter_changes` sur
-  `BACKTEST_WINDOW = 20` trades, gain minimum `BACKTEST_MIN_IMPROVEMENT = 0.10`
-  et `BACKTEST_MIN_KEPT = 5` trades conservés. Un backtest qui ne garde presque
-  rien ne prouve rien.
+  `BACKTEST_WINDOW = LEARNING_CADENCE_TRADES` (50) trades, gain minimum
+  `BACKTEST_MIN_IMPROVEMENT = 0.10` et `BACKTEST_MIN_KEPT = 5` trades
+  conservés. Un backtest qui ne garde presque rien ne prouve rien. La mesure
+  « tiers récent » ajoutée au message n'est **pas** un hors-échantillon : le
+  choix a vu toutes les positions.
 - **Sorties** : `simulate_exits` / `exit_grid` sur les trades **instrumentés**
   seulement, avec `EXIT_BACKTEST_MIN_COVERAGE = 15` et
   `EXIT_BACKTEST_MIN_CHANGED = 5`. Sous ces seuils, le verdict est
   « indéterminé », et le code doit le dire au lieu d'annuler silencieusement.
+  `_search_exits` **choisit** sur les 2/3 les plus anciens
+  (`chronological_split` : tri par clôture, dédoublonnage même jeton à
+  ±300 s) et n'applique que si un bootstrap **apparié** sur le 1/3 récent a
+  une borne basse > 0, avec au moins `EXIT_BACKTEST_MIN_CHANGED` écarts
+  appariés non nuls. Issue lisible dans `last_exit_search`.
 - **Tampon de glissement** : recalibré sur le glissement mesuré
   (`measured_slippage`, défaut `DEFAULT_SL_SLIPPAGE = -4.4`), borné par
   `MAX_BUFFER_RELAX_STEP` et `SLIPPAGE_BUFFER_SLACK_PCT`.

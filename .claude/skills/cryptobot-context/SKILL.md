@@ -72,9 +72,11 @@ s'évaluent indépendamment.
 | endpoints FastAPI, composants React, types partagés | `api-dashboard` |
 | écrire/lancer des tests, lint | `tests-qualite` |
 | `scripts/`, entonnoir, IC95, rapport hebdo | `analyse-reporting` |
+| rendement annualisé, « +120 %/an », quels bras garder ou supprimer | `rentabilite-annuelle` |
 | `.env`, clés, allowlists, backup, lancement, PAPER/LIVE | `securite-exploitation` |
 | décision structurante, mise à jour de doc | `adr-documentation` |
 | bug ou tâche à consigner, état d'une issue | `issues-triage` |
+| marchés de prédiction Liquid (`src/prediction/`, bras `pm_*`, espace Liquid du site) | pas de skill : `docs/PREDICTION_LIQUID.md` puis ADR 015 à 018. Un bras ne se modifie pas en place : fork d'UNE variable par la boîte de demandes (ADR 017). **30 paris réglés par bras** avant de croire un chiffre — 20 est le seuil de l'agent d'apprentissage pour proposer un fork, pas un seuil de conclusion. Aucun ordre réel |
 | relire un diff avant commit | `revue-de-code` |
 
 ## Commandes

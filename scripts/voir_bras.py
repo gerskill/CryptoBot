@@ -34,6 +34,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src import settings  # noqa: E402
 from src.core.arm import load_manifest  # noqa: E402
 from src.core.journal import TradeJournal  # noqa: E402
+from src.core.params import PARAMETRES_NON_APPLIQUES  # noqa: E402
 from src.core.stats import window_performance  # noqa: E402
 
 SECTIONS = ("filters", "entry_rules", "exit_rules", "scoring_weights", "risk_rules")
@@ -109,6 +110,12 @@ def _resume_valeur(avant, apres) -> str:
     return f"{avant} → {apres}"
 
 
+def annotation(cle_pointee: str) -> str:
+    """Suffixe d'affichage : signale un paramètre déclaré que le code ne lit pas."""
+    raison = PARAMETRES_NON_APPLIQUES.get(cle_pointee)
+    return f"  (non appliqué : {raison})" if raison else ""
+
+
 def _afficher_liste() -> None:
     print(f"{'Bras':<16}{'Actif':<7}{'Rôle':<12}Description")
     print("─" * 78)
@@ -143,7 +150,7 @@ def _afficher_bras(nom: str, entry: dict, historique: int) -> None:
         if section != section_courante:
             print(f"\n{section} :")
             section_courante = section
-        print(f"  {cle.split('.', 1)[1]:<42}{valeur}")
+        print(f"  {cle.split('.', 1)[1]:<42}{valeur}{annotation(cle)}")
     ajustements = (document.get("learning") or {}).get("parameter_adjustment_history") or []
     print(f"\nDerniers ajustements ({min(historique, len(ajustements))} sur {len(ajustements)}) :")
     for a in list(reversed(ajustements))[:historique]:

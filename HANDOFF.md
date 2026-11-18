@@ -1,46 +1,43 @@
-# HANDOFF — 2026-11-17 (après-midi)
+# HANDOFF — 2026-11-18
 
 ## Objectif en cours
-Rangement du dépôt et outillage d'exploitation : P&L par bras visible, lecture
-d'un bras sans jeton, services qui redémarrent seuls, veille Telegram. PAPER.
+Rendre la mesure des bras digne de confiance avant toute question de
+rentabilité (« quel bras fait +120 %/an ? »). PAPER uniquement.
 
-## Décisions confirmées
-- PR #12 puis #13 fusionnées (Liquid « comme le réel », ADR 018 ; bascule
-  Helius). PR #4, #5, #8 fermées : contenu déjà dans `main` (preuves en
-  commentaire). PR #11 fermée : HANDOFF dépassé.
-- Le jeton reste obligatoire sur `/api/params` (tunnel Cloudflare = requêtes
-  depuis 127.0.0.1). Lecture locale : `scripts/voir_bras.py`.
-- Hébergement : rester sur le Mac mini, en services launchd
-  (`docs/HEBERGEMENT.md`). Le quick tunnel Cloudflare est gratuit.
-- Règles git : `docs/agents/workflow-git.md`.
-
-## Fichiers concernés
-`src/core/stats.py` (`position_stats`, `window_performance`), `api/server.py`
-(`/api/arms/performance`), `dashboard/src/components/weekly/ArmPerformance.tsx`,
-`scripts/voir_bras.py`, `scripts/veille.py`, `scripts/installe_services.sh`,
-`scripts/launchd/`, `tests/test_pont_pytest.py`, `docs/FEUILLE_DE_ROUTE.md`.
+## Décisions confirmées (Killian)
+- Audit du 2026-11-17 : `docs/AUDIT_2026-11-17.md` (constats vérifiés),
+  rapports bruts dans `docs/audits/`. Aucune conclusion de rentabilité par
+  bras n'est possible tant que B1-B4 ne sont pas réglés.
+- A2/A3/A6 faits (plan `docs/superpowers/plans/2026-11-17-…`, spec
+  `docs/superpowers/specs/2026-11-17-…`) : recherche de sorties confirmée
+  hors échantillon, paramètres non appliqués listés et verrouillés par test,
+  `npm test` dans `dashboard/`.
+- Prochain chantier : **B1 positions zombies** (conception courte d'abord).
+- Skill `rentabilite-annuelle` : pas de rendement annualisé sous 30 jours et
+  30 positions ; aucune suppression de bras hors ADR 011.
 
 ## Preuves
-- `python -m unittest discover -s tests` : 1242 OK, plus 56 tests style pytest
-  via le pont (ils affichaient « Ran 0 » avant).
-- `cd dashboard && npm run build && npm run lint` : OK, 0 avertissement.
+- `python -m unittest discover -s tests` : 1296 OK.
+- `cd dashboard && npm test && npm run build && npm run lint` : OK.
+- Chaque tâche relue par un sous-agent indépendant, revue finale de branche
+  sur le modèle le plus capable ; mutations vérifiées (retirer `until=` ou
+  inverser l'ordre de `run()` fait échouer un test).
 
-## À faire par Killian (détail : `docs/FEUILLE_DE_ROUTE.md`, K1-K6)
-1. Supprimer les branches mortes (refusé depuis la session cloud) :
-   `git push origin --delete audit-outillage claude/liquid-prediction-paper claude/bascule-helius claude/liquid-compte-reel claude/handoff-apres-bascule cursor/helius-429-5b0b cursor/position-watch-5b0b cursor/remove-narrative-arm-16ef cursor/research-journal-5b0b cursor/tp1-floor-quality-consensus-8efc`
-2. GitHub : suppression auto des branches fusionnées + protection de `main`.
-3. Mac : `git pull`, `pip install -r requirements.txt`, `cd dashboard && npm ci && npm run build`,
-   arrêter les processus manuels, `./scripts/installe_services.sh`,
-   `sudo pmset -a sleep 0 autorestart 1`.
-4. healthchecks.io → `HEALTHCHECK_PING_URL` dans `.env`.
+## À faire par Killian
+1. Sur le Mac : `git pull`, `pip install -r requirements.txt`,
+   `cd dashboard && npm ci && npm run build`, puis relancer le bot (ou
+   `./scripts/installe_services.sh`, voir `docs/HEBERGEMENT.md`).
+2. Supprimer les branches mortes (commande dans `docs/FEUILLE_DE_ROUTE.md`,
+   K1) ; protéger `main` (K2).
+3. Surveiller les lignes `🧠 recherche de sorties` par bras : si
+   « indéterminé » domine, agrandir la fenêtre de test (pas baisser le seuil).
 
 ## Questions ouvertes
-- Taille minimale réelle Liquid et frais au règlement [À VÉRIFIER] (inchangé).
-- Plafond de 5 paris ouverts par domaine : sport plein (333 refus au 16/11).
-- Écran Liquid jugé peu clair : quoi afficher en premier ?
-- Taux de remplissage réel de `entry_smart_money_buys_30m` (A1).
+- Verrou hors échantillon des filtres : à décider sur mesure.
+- `scripts/audit.py` mesure encore le reste au breakeven sur tout le journal.
+- Liquid : taille minimale et frais au règlement [À VÉRIFIER] ; plafond de
+  5 paris par domaine ; écran Liquid à clarifier.
 
 ## Prochaine action
-K1-K3 ci-dessus, puis A1 (mesure smart money) et A2 (validation hors
-échantillon dans `LearningEngine`). Aucun chiffre de bras à annoncer sans le
-juge ni sous 30 trades.
+Conception de B1 : borne de durée et sortie au pire cas pour une position
+sans prix, positions ouvertes visibles dans les chiffres.

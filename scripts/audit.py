@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src import settings  # noqa: E402
 from src.core.arm import load_manifest  # noqa: E402
 from src.core.journal import TradeJournal  # noqa: E402
-from src.core.learning import LearningEngine  # noqa: E402
+from src.core.learning import LearningEngine, chronological_split  # noqa: E402
 from src.core.params import ParamsStore  # noqa: E402
 from src.core.stats import (  # noqa: E402
     bootstrap_mean,
@@ -156,6 +156,10 @@ def section_walk_forward() -> None:
         p for p in journal.read_positions()
         if p.get("peak_pct") is not None and p.get("trough_pct") is not None
     ]
+    # Les plis du walk-forward découpent la liste telle quelle : sans tri par
+    # date de clôture, « passé » et « futur » dépendent de l'ordre du fichier.
+    # Aussi dédoublonné ; les positions sans date lisible sont écartées.
+    pos = chronological_split(pos, train_fraction=1.0)[0]
     if len(pos) < 13:
         print(f"  {len(pos)} positions instrumentées — pas assez pour trois plis.")
         return

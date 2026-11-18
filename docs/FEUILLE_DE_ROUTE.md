@@ -5,6 +5,34 @@ ADR 001-018). Versionnée exprès : `.scratch/` est gitignoré et n'atteint ni
 GitHub ni les sessions cloud. Chaque ligne dit **qui** peut la faire et
 **quand elle est finie**.
 
+## Fait le 2026-11-18 (branche `claude/eager-franklin-p2gasg`, plan `docs/superpowers/plans/2026-11-17-…`)
+
+- **A2** — la recherche de sorties choisit son couple (stop, TP1) sur les 2/3
+  les plus anciens des positions instrumentées (triées, dédoublonnées entre
+  bras à ±300 s) et ne l'applique que si un bootstrap apparié sur le tiers
+  récent a une borne basse > 0 avec au moins 5 positions au P&L changé.
+  Validation dans l'échantillon avant la recherche ; aucune mesure faite sur
+  le futur. Reste : verrou hors échantillon des **filtres** (aujourd'hui
+  mesure « tiers récent » seulement) — à décider sur mesure.
+- **A3** — `PARAMETRES_NON_APPLIQUES` (6 clés, dont `max_tax_buy`/`max_tax_sell`)
+  + test qui échoue sur tout nouveau paramètre mort ; `voir_bras.py` les signale.
+- **A6** — `npm test` (vitest) dans `dashboard/` ; le panneau « P&L par bras »
+  est verrouillé par un test de rendu.
+- Skill `rentabilite-annuelle` ; aiguillage Liquid ; audit du 2026-11-17
+  (`docs/AUDIT_2026-11-17.md`).
+
+## Prochain chantier choisi par Killian
+
+**B1 — positions « zombies »** (`docs/AUDIT_2026-11-17.md`) : une position sans
+prix exploitable n'a ni time stop ni détection de rug et reste hors de tous les
+chiffres. Conception courte d'abord, puis plan.
+
+## À surveiller sur le Mac après fusion
+
+Lignes `🧠 recherche de sorties` par bras : part de « indéterminé » avec moins
+de 5 positions changées. Si elle domine, agrandir la fenêtre de test plutôt que
+baisser le seuil de 5.
+
 ## Fait le 2026-11-17
 
 - PR #12 et #13 fusionnées ; #4, #5, #8 fermées (contenu déjà dans `main`,
@@ -33,11 +61,8 @@ GitHub ni les sessions cloud. Chaque ligne dit **qui** peut la faire et
 | # | sujet | impact | effort | skill | fini quand |
 |---|---|---|---|---|---|
 | A1 | **Mesurer le remplissage de `smart_money_buys_30m`** sur le Mac (`python scripts/feature_coverage.py --prefix entry_smart_money`, champ `entry_smart_money_buys_30m` du journal). Le champ vient de `gmgn-cli` ; il retombe à `None` si le CLI ou sa clé manque | haut (le filtre et le composant du score en dépendent) | 15 min | `pipeline-scan` | taux de remplissage chiffré dans `docs/ETAT_DU_PROJET.md` |
-| A2 | **Validation hors échantillon des ajustements** : brancher `stats.walk_forward()` / `overfit_gap()` dans la décision de `LearningEngine` (aujourd'hui rejeu sur les mêmes trades seulement) | haut — protège les 19 bras du surapprentissage | moyen | `apprentissage-garde-fous`, `chasse-au-lookahead` | un ajustement qui gagne en échantillon et perd hors échantillon est annulé, test à l'appui |
-| A3 | **`min_liquidity_lock_days` n'a aucun effet** : présent dans les paramètres, lu nulle part dans `src/`. Soit le vérifier on-chain (programmes de lock LP), soit le retirer des fichiers pour ne pas laisser croire qu'il filtre | moyen | retrait : faible ; vérification : élevé | `pipeline-scan` | paramètre appliqué avec test, ou retiré avec ADR |
 | A4 | **Préparation du LIVE — l'ADR seulement**, pas le module : conditions mesurables (critères de `live_mode_allowed()`, IC95 concluant, coût réel par jambe), périmètre minimal, coupe-circuit | élevé à terme | faible (écrit) | `adr-documentation`, `securite-exploitation` | ADR « proposé » soumis à Killian ; aucun code d'exécution écrit |
 | A5 | Coût réel (devis Jupiter) sur les jambes partielles, en échantillon, pour vérifier l'estimation de l'ADR 012 | moyen | moyen (quota Jupiter 1 req/s) | `sorties-positions` | écart estimation / devis mesuré et publié |
-| A6 | Panneau « P&L par bras » : test de rendu qui vérifie que chaque ligne affiche son bras (aujourd'hui garanti côté serveur seulement) | faible | faible | `api-dashboard` | test navigateur en place |
 
 ## Skills et MCP — ce qui apporte vraiment quelque chose
 

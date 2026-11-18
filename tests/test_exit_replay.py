@@ -13,6 +13,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -30,6 +31,18 @@ EXITS = {
     "partial_sell_tp2_pct": 0.5,
 }
 PARAMS = {"version": "test", "exit_rules": dict(EXITS), "filters": {}, "learning": {}}
+
+
+def cloture(rang):
+    """Instant de clôture croissant avec le rang.
+
+    La recherche de sorties coupe les positions dans le temps (les plus
+    anciennes choisissent, les plus récentes confirment) et exclut une
+    position sans instant de clôture : les positions qu'elle lit doivent être
+    datées.
+    """
+    debut = datetime(2026, 11, 1, tzinfo=timezone.utc)
+    return (debut + timedelta(hours=rang)).isoformat()
 
 
 def position(peak, trough, pnl_pct=-14.0, size=12.5, reason="STOP_LOSS (-14.0%)",
@@ -235,6 +248,7 @@ class TestGrilleEtRecherche(unittest.TestCase):
         for index in range(count):
             row = position(**kwargs)
             row["position_id"] = f"p{index}"
+            row["timestamp_exit"] = cloture(index)
             self.journal._append(row)
 
     def test_la_grille_couvre_toute_la_combinatoire(self):
@@ -287,6 +301,7 @@ class TestGrilleEtRecherche(unittest.TestCase):
                 minutes_to_peak=10.0, minutes_to_trough=40.0,
             )
             row["position_id"] = f"p{index}"
+            row["timestamp_exit"] = cloture(index)
             engine.journal._append(row)
 
     def test_la_grille_globale_et_le_plancher_30_restent_en_place(self):

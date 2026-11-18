@@ -9,6 +9,24 @@ from datetime import datetime, timezone
 from typing import Any
 
 
+# Paramètres présents dans la config mais lus par AUCUN code : les afficher
+# comme des règles en vigueur ferait croire à une protection inexistante.
+# Clé = chemin pointé, valeur = raison. `tests/test_parametres_appliques.py`
+# vérifie que chaque clé listée est bien absente du code (sinon la liste ment).
+PARAMETRES_NON_APPLIQUES: dict[str, str] = {
+    "entry_rules.min_liquidity_lock_days": "RugCheck expose lpLockedPct, pas une durée de verrou : aucune source.",
+    "filters.max_tax_buy": "Aucun code ne lit cette clé : la taxe d'achat n'est contrôlée nulle part (la blacklist honeypot est un autre mécanisme).",
+    "filters.max_tax_sell": "Aucun code ne lit cette clé : la taxe de vente n'est contrôlée nulle part.",
+    "entry_rules.slippage_max_pct": "Aucun code ne lit cette clé : le slippage maximal à l'entrée n'est pas plafonné ; le coût de sortie vient de exit_fees.",
+    "entry_rules.entry_timing": "Aucun code ne lit cette clé : l'entrée n'attend aucun déclencheur « breakout_5m », c'est une étiquette.",
+    "entry_rules.position_size_formula": "Clé non lue : la taille vient toujours de PaperPortfolio.position_size (capital × risk_per_trade, majorée façon Kelly au-delà de 40 % de réussite sur 20 trades, plafonnée à 5 % du capital), quelle que soit sa valeur.",
+}
+
+# Paramètres lus sous un nom construit (f-string, boucle) : un balayage de
+# littéraux ne les voit pas. Valeur = endroit du code qui les lit.
+PARAMETRES_LUS_DYNAMIQUEMENT: dict[str, str] = {}
+
+
 class ParamsStore:
     """Accès thread-safe à params.json avec historique des ajustements."""
 
