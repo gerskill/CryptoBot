@@ -155,10 +155,18 @@ class TestPetitsPas(Base):
 
     def test_search_exits_avance_par_petits_pas(self):
         # Le rejeu recommande SL -40 / TP1 150 : on ne fait qu'un pas.
-        self.engine._instrumented = lambda window=BACKTEST_WINDOW: [{}] * 20
-        self.engine.simulate_exits = lambda positions, rules, ambiguity="x": {
-            "pnl_per_trade": -5.0, "degraded": 0}
-        self.engine.exit_grid = lambda positions, current: [{
+        # Positions datées : la recherche les coupe dans le temps (les plus
+        # anciennes choisissent, les récentes confirment) et exclut les autres.
+        datees = [{"timestamp_exit": f"2026-11-01T{heure:02d}:00:00+00:00"}
+                  for heure in range(20)]
+        self.engine._instrumented = lambda window=BACKTEST_WINDOW: datees
+        # P&L par position croissant avec le TP1 : sur le tiers récent, le pas
+        # écrit (75 → 90) gagne sur chaque position, donc il est confirmé.
+        self.engine.simulate_exits = (
+            lambda positions, rules, ambiguity="x", until=None: {
+                "pnl_per_trade": -5.0, "degraded": 0, "changed": 10,
+                "pnl_par_position": [rules["take_profit_1"] / 100] * len(positions)})
+        self.engine.exit_grid = lambda positions, current, until=None: [{
             "stop_loss_pct": -40.0, "take_profit_1": 150.0, "changed": 10,
             "pnl_per_trade": 5.0, "ambiguous": 0}]
         self.engine._search_exits()

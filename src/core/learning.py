@@ -18,7 +18,7 @@ from typing import Any, Callable, Optional
 from src.core.journal import TradeJournal
 from src.core.params import ParamsStore
 from src.core.shadow import ShadowTracker
-from src.core.stats import exit_datetime
+from src.core.stats import bootstrap_mean, exit_datetime
 
 MIN_SEGMENT_SAMPLE = 10
 # Plancher ABSOLU par stratégie, indépendant des cadences. Avec 7 bras, une
@@ -142,6 +142,11 @@ BACKTEST_MIN_KEPT = 5
 # savoir ne doit pas vouloir dire « annule ».
 EXIT_BACKTEST_MIN_COVERAGE = 15
 EXIT_BACKTEST_MIN_CHANGED = 5
+# Au-delà de cette part de positions dont l'ordre pic/creux est DEVINÉ, un
+# rejeu ne sert pas à décider : ces positions ambiguës sont précisément les
+# gagnantes (voir `_tp_before_sl`). Même valeur qu'avant le hors-échantillon,
+# appliquée désormais à l'ensemble ET au tiers de test seul.
+EXIT_BACKTEST_MAX_DEGRADED_SHARE = 0.25
 
 # Part des positions (les plus anciennes) qui CHOISIT un réglage de sortie ; le
 # reste, plus récent, le CONFIRME. Choisir et juger sur les mêmes trades est la
@@ -385,6 +390,23 @@ def chronological_split(
     return ordonnees[:coupe], ordonnees[coupe:], exclues
 
 
+def _meme_valeur(a: Any, b: Any) -> bool:
+    """Deux valeurs de paramètre égales ; un paramètre absent n'égale rien."""
+    if a is None or b is None:
+        return False
+    return abs(a - b) < 1e-9
+
+
+def _origine(tranche: list[dict[str, Any]], propres: list[dict[str, Any]]) -> str:
+    """« n propres / m empruntées » : une tranche faite du pool le dit.
+
+    Comparaison par valeur : les positions propres sont celles du journal du
+    bras, relues ; une trajectoire empruntée vient d'un autre journal.
+    """
+    nombre = sum(1 for row in tranche if row in propres)
+    return f"{nombre} propres / {len(tranche) - nombre} empruntées"
+
+
 class LearningEngine:
     def __init__(
         self,
@@ -420,6 +442,10 @@ class LearningEngine:
         # Bornes par stratégie : un bras expérimental doit pouvoir explorer un
         # stop loss à -35% pendant que le bras témoin reste dans (-50, -10).
         self.bounds = {**PARAM_BOUNDS, **(bounds or {})}
+        # Verdict du dernier `_search_exits` (issue, effectifs des tranches,
+        # écart apparié...). `None` tant qu'aucune recherche n'a tourné. Les
+        # six issues se testent ainsi sans capturer la console.
+        self.last_exit_search: Optional[dict[str, Any]] = None
 
     def _stop_loss_ceiling(self, other_value: float) -> float:
         """Valeur max pour `stop_loss_pct` OU le tampon, l'autre étant fixé,
@@ -716,7 +742,7 @@ class LearningEngine:
             # Photo AVANT ajustement, comme pour les filtres : le rejeu doit
             # pouvoir revenir en arrière.
             previous_exits = self.params.get("exit_rules", {})
-            exit_changes = self._adjust_exits(learning) + self._search_exits()
+            exit_changes = self._adjust_exits(learning)
             if exit_changes:
                 verdict = self.validate_exit_changes(previous_exits)
                 if verdict and "annulées" in verdict:
@@ -725,6 +751,12 @@ class LearningEngine:
                 elif verdict:
                     print(f"🧠 BACKTEST | {verdict}")
             applied += exit_changes
+            # La recherche passe APRÈS la validation, et hors d'elle (audit
+            # I10 b). Son choix est déjà confirmé sur le tiers récent ;
+            # `validate_exit_changes` le rejugerait sur toutes les positions,
+            # y compris celles qui l'ont choisi : une mesure dans l'échantillon
+            # défaisait une preuve hors échantillon.
+            applied += self._search_exits()
         if self._due("risk", total, cadence):
             applied += self._adjust_risk(learning, max_drawdown_pct)
         return applied
@@ -1378,17 +1410,20 @@ class LearningEngine:
         positions: list[dict[str, Any]],
         exit_rules: Optional[dict[str, Any]] = None,
         ambiguity: str = "resolve",
+        until: Optional[datetime] = None,
     ) -> list[dict[str, Any]]:
         """Grille SL x TP1, triée du meilleur P&L/trade au pire.
 
-        36 évaluations sur au plus 20 positions : quelques microsecondes.
+        36 évaluations de `simulate_exits` sur au plus 100 positions.
+        `until` est transmis à `simulate_exits` : une grille évaluée sur une
+        tranche passée ne doit rien mesurer d'après cette tranche.
         """
         base = dict(exit_rules or self.params.get("exit_rules", {}))
         grid = []
         for stop_loss in SL_GRID:
             for tp1 in TP1_GRID:
                 candidate = {**base, "stop_loss_pct": stop_loss, "take_profit_1": tp1}
-                outcome = self.simulate_exits(positions, candidate, ambiguity)
+                outcome = self.simulate_exits(positions, candidate, ambiguity, until)
                 grid.append({"stop_loss_pct": stop_loss, "take_profit_1": tp1, **outcome})
         return sorted(grid, key=lambda row: row["pnl_per_trade"], reverse=True)
 
@@ -1460,67 +1495,224 @@ class LearningEngine:
         return propres + empruntes[-window:]
 
     def _search_exits(self) -> list[str]:
-        """Cherche le meilleur couple (stop loss, TP1) sur l'historique rejoué.
+        """Choisit un couple (stop loss, TP1) sur le passé, le CONFIRME sur le récent.
 
         Débloque un apprentissage qui ne pouvait rien faire : la seule règle de
         `_adjust_exits` sur le stop loss ne sait que le resserrer, et il est
         déjà collé à sa borne basse — elle retournait `None` à chaque appel,
         définitivement.
+
+        HORS ÉCHANTILLON — fuite n°1 de `chasse-au-lookahead`, audit I10.
+        Jusqu'au 2026-11-18, la grille de 36 couples choisissait le meilleur
+        sur jusqu'à 100 positions et le « validait » sur LES MÊMES : trouver le
+        meilleur réglage a posteriori est trivial, ce choix ne pouvait pas
+        échouer et ne prédisait rien. Désormais :
+
+        1. tri par instant de clôture puis coupe (`chronological_split`) : les
+           2/3 les plus anciens CHOISISSENT, le tiers le plus récent CONFIRME ;
+        2. le choix ne lit rien de postérieur à sa tranche (`until` : reste au
+           breakeven mesuré sur les seules jambes déjà closes, I10 c) ;
+        3. le test rejoue ce qui sera ÉCRIT (`_planned_value` : pas maximal,
+           plafond du stop effectif, TP1 < TP2, bornes), pas le point de
+           grille — sinon on confirmerait un réglage jamais appliqué (I10 a) ;
+        4. confirmation APPARIÉE (I10 e) : écart de P&L position par position
+           (planifié − actuel), IC95 par bootstrap, borne basse > 0. Un seuil
+           de 10 % d'une référence de quelques centimes se franchit par hasard.
+
+        Toute issue autre que « confirmé » laisse les paramètres en place : ne
+        pas savoir ne justifie pas de bouger. Verdict dans `last_exit_search`,
+        une ligne `🧠` par issue.
         """
         positions = self._instrumented()
         if len(positions) < EXIT_BACKTEST_MIN_COVERAGE:
-            return []
+            return self._fin_recherche(
+                "pas assez de données",
+                f"{len(positions)}/{EXIT_BACKTEST_MIN_COVERAGE} positions "
+                f"instrumentées, aucun verdict possible",
+            )
 
         current = self.params.get("exit_rules", {})
-        reference = self.simulate_exits(positions, current)
-
+        ensemble = self.simulate_exits(positions, current)
         # Refuser de DÉCIDER sur un rejeu majoritairement deviné. L'ordre
         # pic/creux manque sur les lignes antérieures à `minutes_to_trough`,
         # et ces positions ambiguës sont précisément les gagnantes : régler un
         # stop loss dessus reviendrait à optimiser une supposition.
-        if reference["degraded"] > len(positions) * 0.25:
-            print(
-                f"🧠 recherche de sorties suspendue — {reference['degraded']}/"
-                f"{len(positions)} positions sans horodatage du creux, l'ordre "
-                f"est deviné. Les nouveaux trades le portent."
+        if ensemble["degraded"] > len(positions) * EXIT_BACKTEST_MAX_DEGRADED_SHARE:
+            return self._fin_recherche(
+                "dégradé",
+                f"recherche suspendue — {ensemble['degraded']}/{len(positions)} "
+                f"positions sans horodatage du creux, l'ordre est deviné. Les "
+                f"nouveaux trades le portent.",
             )
-            return []
 
-        best = None
-        for row in self.exit_grid(positions, current):
+        apprentissage, test, exclues = chronological_split(positions)
+        infos: dict[str, Any] = {
+            "train_n": len(apprentissage), "test_n": len(test), "exclues": exclues,
+        }
+        # Une position sans instant de clôture ne peut être placée ni avant ni
+        # après la coupe : exclue. Si ces exclusions font retomber sous la
+        # couverture, le découpage n'a plus de quoi trancher.
+        if len(apprentissage) + len(test) < EXIT_BACKTEST_MIN_COVERAGE:
+            return self._fin_recherche(
+                "pas assez de données",
+                f"{len(apprentissage) + len(test)}/{EXIT_BACKTEST_MIN_COVERAGE} "
+                f"positions datées ({exclues} sans instant de clôture exclues)",
+                **infos,
+            )
+        fin_apprentissage = exit_datetime(apprentissage[-1])
+
+        # --- CHOIX, sur l'apprentissage seul.
+        reference = self.simulate_exits(apprentissage, current, until=fin_apprentissage)
+        # Une ligne dont le stop effectif (stop + tampon COURANT) dépasse
+        # MIN_EFFECTIVE_STOP_LOSS_PCT ne peut pas être appliquée : le plafond
+        # de `_plan` la ramènerait ailleurs. La garder, c'est choisir un
+        # réglage que le moteur n'écrira jamais (même critère que
+        # `_stop_loss_ceiling`).
+        tampon = self.params.get(STOP_LOSS_BUFFER_PATH, 0.0) or 0.0
+        plafond_stop = self._stop_loss_ceiling(tampon)
+        sl_bas, sl_haut = self.bounds.get(STOP_LOSS_PCT_PATH, (-100.0, 0.0))
+        tp_bas, tp_haut = self.bounds.get("exit_rules.take_profit_1", (0.0, 1000.0))
+        candidat = None
+        for row in self.exit_grid(apprentissage, current, until=fin_apprentissage):
+            if row["stop_loss_pct"] > plafond_stop:
+                continue
             # Un « gagnant » qui ne change presque rien ne fait que recopier le
             # résultat historique : ce n'est pas une découverte.
             if row["changed"] < EXIT_BACKTEST_MIN_CHANGED:
                 continue
-            low, high = self.bounds.get("exit_rules.stop_loss_pct", (-100.0, 0.0))
-            if not low <= row["stop_loss_pct"] <= high:
+            if not sl_bas <= row["stop_loss_pct"] <= sl_haut:
                 continue
-            low, high = self.bounds.get("exit_rules.take_profit_1", (0.0, 1000.0))
-            if not low <= row["take_profit_1"] <= high:
+            if not tp_bas <= row["take_profit_1"] <= tp_haut:
                 continue
-            best = row
+            candidat = row
             break
 
-        if best is None:
-            return []
-        gain = best["pnl_per_trade"] - reference["pnl_per_trade"]
+        if candidat is None:
+            return self._fin_recherche(
+                "rien à ajuster",
+                f"aucun couple de la grille applicable ne change au moins "
+                f"{EXIT_BACKTEST_MIN_CHANGED} des {len(apprentissage)} positions "
+                f"anciennes dans les bornes du bras",
+                **infos,
+            )
+        couple = (
+            f"SL {candidat['stop_loss_pct']:g} / TP1 {candidat['take_profit_1']:g}"
+        )
+        infos["candidat"] = {
+            "stop_loss_pct": candidat["stop_loss_pct"],
+            "take_profit_1": candidat["take_profit_1"],
+        }
+        gain = candidat["pnl_per_trade"] - reference["pnl_per_trade"]
         if gain < abs(reference["pnl_per_trade"]) * BACKTEST_MIN_IMPROVEMENT:
-            return []
+            return self._fin_recherche(
+                "rien à ajuster",
+                f"meilleur couple ({couple}) sur {len(apprentissage)} positions "
+                f"anciennes : P&L/trade {reference['pnl_per_trade']} → "
+                f"{candidat['pnl_per_trade']}, gain sous "
+                f"{BACKTEST_MIN_IMPROVEMENT:.0%}",
+                **infos,
+            )
 
-        reason = (
-            f"rejeu sur {len(positions)} positions : P&L/trade "
-            f"{reference['pnl_per_trade']} → {best['pnl_per_trade']} "
-            f"({best['ambiguous']} ambiguës)"
+        # --- Ce qui sera ÉCRIT, pas le point de grille.
+        sl_actuel = self.params.get(STOP_LOSS_PCT_PATH)
+        tp1_actuel = self.params.get("exit_rules.take_profit_1")
+        sl = self._planned_value(STOP_LOSS_PCT_PATH, candidat["stop_loss_pct"])
+        tp1 = self._planned_value("exit_rules.take_profit_1", candidat["take_profit_1"])
+        infos["planifie"] = {"stop_loss_pct": sl, "take_profit_1": tp1}
+        if _meme_valeur(sl, sl_actuel) and _meme_valeur(tp1, tp1_actuel):
+            return self._fin_recherche(
+                "rien à ajuster",
+                f"la grille vise {couple}, mais pas maximal, bornes et garde-fous "
+                f"ramènent la valeur écrite aux réglages actuels",
+                **infos,
+            )
+        planifie = {**current, "stop_loss_pct": sl, "take_profit_1": tp1}
+        ecrit = f"SL {sl:g} / TP1 {tp1:g}"
+
+        # --- CONFIRMATION, sur le tiers récent (sans borne : c'est le présent).
+        avant = self.simulate_exits(test, current)
+        apres = self.simulate_exits(test, planifie)
+        infos["pnl_test_avant"] = avant["pnl_per_trade"]
+        infos["pnl_test_apres"] = apres["pnl_per_trade"]
+        # Garde-fou des positions devinées appliqué au test SEUL : sinon la
+        # confirmation pourrait reposer sur un ordre pic/creux supposé.
+        devinees = max(avant["degraded"], apres["degraded"])
+        if devinees > len(test) * EXIT_BACKTEST_MAX_DEGRADED_SHARE:
+            return self._fin_recherche(
+                "indéterminé",
+                f"{ecrit} : {devinees}/{len(test)} positions récentes à l'ordre "
+                f"pic/creux deviné, la confirmation reposerait sur une supposition",
+                **infos,
+            )
+        if apres["changed"] < EXIT_BACKTEST_MIN_CHANGED:
+            return self._fin_recherche(
+                "indéterminé",
+                f"{ecrit} : {apres['changed']}/{len(test)} positions récentes "
+                f"changées, sous {EXIT_BACKTEST_MIN_CHANGED} — le test ne dit rien",
+                **infos,
+            )
+        # Appariement valide : même liste d'entrée, et une position n'est
+        # sautée (pic ou creux absent) que selon ses données, jamais selon les
+        # règles — les deux listes sont alignées position par position.
+        ecarts = [
+            b - a for a, b in zip(avant["pnl_par_position"], apres["pnl_par_position"])
+        ]
+        intervalle = bootstrap_mean(ecarts)
+        if intervalle is None:
+            return self._fin_recherche(
+                "indéterminé",
+                f"{ecrit} : {len(ecarts)} écart(s) apparié(s), trop peu pour un "
+                f"intervalle",
+                **infos,
+            )
+        infos.update({
+            "ecart_moyen": intervalle.value,
+            "ecart_bas": intervalle.low,
+            "ecart_haut": intervalle.high,
+        })
+        ecart = (
+            f"écart apparié {intervalle.value:+.4f} $/position IC95 "
+            f"[{intervalle.low:+.4f} .. {intervalle.high:+.4f}]"
+        )
+        if intervalle.low <= 0:
+            return self._fin_recherche(
+                "rejeté hors échantillon",
+                f"{couple} choisi sur {len(apprentissage)} positions anciennes, "
+                f"{ecrit} sur {len(test)} récentes : P&L/trade "
+                f"{avant['pnl_per_trade']} → {apres['pnl_per_trade']}, {ecart} — "
+                f"perdre ou ne rien gagner reste compatible avec les données",
+                **infos,
+            )
+
+        propres = self.journal.read_positions()[-BACKTEST_WINDOW:]
+        raison = (
+            f"hors échantillon : {couple} choisi sur {len(apprentissage)} positions "
+            f"anciennes ({_origine(apprentissage, propres)}), P&L/trade "
+            f"{reference['pnl_per_trade']} → {candidat['pnl_per_trade']} ; "
+            f"{ecrit} confirmé sur {len(test)} positions récentes "
+            f"({_origine(test, propres)}), P&L/trade {avant['pnl_per_trade']} → "
+            f"{apres['pnl_per_trade']}, {ecart} ; {exclues} sans date exclue(s)"
         )
         changes = []
-        for path, value in (
-            ("exit_rules.stop_loss_pct", best["stop_loss_pct"]),
-            ("exit_rules.take_profit_1", best["take_profit_1"]),
-        ):
-            change = self._bounded_set(path, value, reason, len(positions))
+        for path, value in ((STOP_LOSS_PCT_PATH, sl), ("exit_rules.take_profit_1", tp1)):
+            change = self._bounded_set(path, value, raison, len(apprentissage) + len(test))
             if change:
                 changes.append(change)
+        self.last_exit_search = {"issue": "confirmé", **infos}
+        print(f"🧠 recherche de sorties — confirmé : {raison}")
         return changes
+
+    def _fin_recherche(self, issue: str, detail: str, **infos: Any) -> list[str]:
+        """Clôt une recherche de sorties qui n'écrit rien : verdict et ligne 🧠.
+
+        Une ligne par issue, toutes distinctes : « pas assez de données »,
+        « rien à ajuster », « indéterminé » et « rejeté hors échantillon » ne
+        disent pas la même chose, et les confondre ferait croire que
+        l'apprentissage a jugé quand il n'a pas pu.
+        """
+        self.last_exit_search = {"issue": issue, **infos}
+        print(f"🧠 recherche de sorties — {issue} : {detail}")
+        return []
 
     def validate_exit_changes(self, previous_exits: dict[str, Any]) -> Optional[str]:
         """Annule un ajustement de sorties qui n'améliore rien sur l'historique.
