@@ -1001,6 +1001,13 @@ class AlphaLoop:
                 price = self.market.price(position.token_address) or self._current_price(
                     position.token_address, position.chain, position.pair_address
                 )
+                if not quote_is_usable(price):
+                    # Une seule lecture ratée ne doit pas booker -100 % sur une
+                    # position peut-être saine : /STOP n'a pas de délai de
+                    # grâce, donc un second essai avant de conclure « sans prix ».
+                    price = self._current_price(
+                        position.token_address, position.chain, position.pair_address
+                    )
                 if price is None or not math.isfinite(price) or price <= 0:
                     # Aucune source ne donne de prix : /STOP veut dire stop.
                     # On la compte à -100 % de la part restante plutôt que de
@@ -1500,7 +1507,12 @@ class AlphaLoop:
                     )
                 except Exception as exc:  # noqa: BLE001
                     print(f"[Monitor]{arm.label} entonnoir : sortie sans prix non notée ({exc})")
-                self._after_trade_closed(arm)
+                try:
+                    self._after_trade_closed(arm)
+                except Exception as exc:  # noqa: BLE001
+                    # La clôture est déjà bookée : une erreur d'apprentissage
+                    # ne doit pas passer pour un échec de fermeture.
+                    print(f"[Monitor]{arm.label} apprentissage après clôture : {exc}")
             return row
         except Exception as exc:  # noqa: BLE001
             print(
@@ -1534,14 +1546,15 @@ class AlphaLoop:
                 age = position.duration_minutes()
                 limite = position.max_hold_time_minutes + ZOMBIE_GRACE_MINUTES
                 if age >= limite:
-                    print(
-                        f"[Monitor]{arm.label} {position.symbol} : aucun prix depuis "
-                        f"{age:.0f} min (time stop {position.max_hold_time_minutes:.0f} "
-                        f"+ grâce {ZOMBIE_GRACE_MINUTES} min), fermée à -100 %"
-                    )
-                    self._close_worthless(
+                    row = self._close_worthless(
                         arm, position, "ZOMBIE (sans prix depuis le time stop)"
                     )
+                    if row:
+                        print(
+                            f"[Monitor]{arm.label} {position.symbol} : aucun prix depuis "
+                            f"{age:.0f} min (time stop {position.max_hold_time_minutes:.0f} "
+                            f"+ grâce {ZOMBIE_GRACE_MINUTES} min), fermée à -100 %"
+                        )
                 elif verbose:
                     print(
                         f"[Monitor]{arm.label} {position.symbol} : prix indisponible, "

@@ -221,6 +221,59 @@ class TestPositionsSansPrix(unittest.TestCase):
         self.portfolio.close_worthless = boum
         self.loop._monitor_arm(self.arm, verbose=False)  # ne doit pas lever
 
+    def _zombie_avec_frais_d_entree(self):
+        """Position à 3 % de frais d'entrée, déjà payés sur le cash vivant."""
+        position = self.portfolio.positions[self.position.id]
+        self.portfolio.positions[self.position.id] = replace(
+            position, entry_cost_version="buy-leg-v1", entry_cost_pct=3.0,
+            entry_time=time.time() - self._age_zombie() * 60,
+        )
+        self.portfolio.capital -= 3.0  # le frais a quitté le cash à l'entrée
+        self.loop._monitor_arm(self.arm, verbose=False)
+
+    def test_capital_reconstruit_du_journal_egale_le_capital_vivant_avec_frais_d_entree(self):
+        self._zombie_avec_frais_d_entree()
+        self.assertAlmostEqual(self.portfolio.capital, 897.0, places=2)
+        refait = PaperPortfolio(capital=1000.0, journal=self.journal)
+        self.assertAlmostEqual(refait.capital, self.portfolio.capital, places=2)
+
+    def test_read_positions_garde_les_frais_d_entree_du_zombie(self):
+        self._zombie_avec_frais_d_entree()
+        positions = self.journal.read_positions()
+        self.assertAlmostEqual(positions[0]["pnl_pct"], -103.0, places=1)
+        self.assertAlmostEqual(positions[0]["pnl_usd"], -103.0, places=1)
+
+    def test_ligne_ancienne_sans_frais_d_entree_reste_plafonnee_a_moins_100(self):
+        from src.core.journal import correct_legacy_cost
+
+        row = {"cost_basis": "stake", "entry_price": 1.0, "pnl_pct": -231.74,
+               "pnl_usd": -46.0846}
+        self.assertEqual(correct_legacy_cost(dict(row))["pnl_pct"], -100.0)
+
+    def test_stop_une_lecture_ratee_puis_un_prix_ferme_au_prix_normal(self):
+        lectures = iter([None, 0.8])
+        self.loop._current_price = lambda *args, **kwargs: next(lectures)
+        self.loop._panic_exit()
+        ligne = self.journal.read_all()[0]
+        self.assertEqual(ligne["exit_reason"], "PANIC_STOP")
+        self.assertAlmostEqual(ligne["pnl_pct"], -20.0, places=1)
+
+    def test_stop_avec_un_prix_a_zero_ferme_a_moins_100(self):
+        self.loop._current_price = lambda *args, **kwargs: 0.0
+        self.loop._panic_exit()
+        ligne = self.journal.read_all()[0]
+        self.assertEqual(ligne["exit_reason"], "PANIC_STOP (sans prix)")
+
+    def test_erreur_d_apprentissage_apres_cloture_ne_passe_pas_pour_un_echec(self):
+        self._vieillir(self._age_zombie())
+
+        def boum(arm):
+            raise RuntimeError("apprentissage")
+
+        self.loop._after_trade_closed = boum
+        self.loop._monitor_arm(self.arm, verbose=False)
+        self.assertNotIn(self.position.id, self.portfolio.positions)
+
 
 if __name__ == "__main__":
     unittest.main()
