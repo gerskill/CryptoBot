@@ -79,6 +79,13 @@ leur gain : mesuré sur 40 lignes réelles, 1 gagnant visible au lieu de 4
 (docstring de `src/core/journal.py::read_positions`). Dashboard, rapport hebdo,
 `/api/arms/performance` et `voir_bras.py --perf` lisent `read_positions()`.
 
+### Position zombie
+Position restée sans prix exploitable au-delà de son time stop + 30 min :
+fermée à -100 % de sa part restante, raison `ZOMBIE (sans prix depuis le
+time stop)` (ADR 020). Ne pas confondre avec un rug pull : le rug est
+détecté sur une chute de liquidité **avec** un prix ; le zombie, c'est
+l'absence de prix.
+
 ### Coût de sortie réel
 Impact de prix Jupiter (deux devis réels, achat + vente) + priority fee
 Helius, déduits du P&L **une seule fois par position, sur la jambe finale**
