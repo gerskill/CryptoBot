@@ -14,8 +14,11 @@ rentabilité (« quel bras fait +120 %/an ? »). PAPER uniquement.
   `npm test` dans `dashboard/`.
 - B1 fait : positions sans prix fermées à -100 % après le time stop + 30 min, et par `/STOP` (spec `docs/superpowers/specs/2026-11-18-positions-zombies-design.md`).
 - App iPhone faite (spec `docs/superpowers/specs/2026-11-18-app-iphone-design.md`) : PWA GitHub Pages + Supabase, lecture seule ; à mettre en route avec `docs/APP_IPHONE.md`.
-- 2026-11-21 : app iPhone reliée à Supabase + pilotage (ADR 021). Reste le
-  `.env` et `installe_services.sh publie` sur le Mac (`docs/APP_IPHONE.md`).
+- 2026-11-21 : app iPhone reliée à Supabase + pilotage (ADR 021), en service.
+  Mac sur `main` (il tournait sur `claude/liquid-compte-reel`, déjà incluse) ;
+  5 services launchd : bot, ui, prediction, veille, publie. Publication
+  vérifiée dans Supabase (toutes les ~2 min). Zombies au redémarrage : 0
+  (17 positions, toutes avec prix ; `grep ZOMBIE logs/bot.log` vide).
 - Skill `rentabilite-annuelle` : pas de rendement annualisé sous 30 jours et
   30 positions ; aucune suppression de bras hors ADR 011.
 
@@ -27,9 +30,8 @@ rentabilité (« quel bras fait +120 %/an ? »). PAPER uniquement.
   inverser l'ordre de `run()` fait échouer un test).
 
 ## À faire par Killian
-1. Sur le Mac : `git pull`, `pip install -r requirements.txt`,
-   `cd dashboard && npm ci && npm run build`, puis relancer le bot (ou
-   `./scripts/installe_services.sh`, voir `docs/HEBERGEMENT.md`).
+1. Tester une commande depuis l'onglet Pilotage (ex. désactiver puis
+   réactiver un bras Liquid) : statut attendu « appliquée ».
 2. Supprimer les branches mortes (commande dans `docs/FEUILLE_DE_ROUTE.md`,
    K1) ; protéger `main` (K2).
 3. Surveiller les lignes `🧠 recherche de sorties` par bras : si
@@ -41,7 +43,11 @@ rentabilité (« quel bras fait +120 %/an ? »). PAPER uniquement.
 - Liquid : taille minimale et frais au règlement [À VÉRIFIER] ; plafond de
   5 paris par domaine ; écran Liquid à clarifier.
 
+- Birdeye : quota mensuel épuisé le 2026-11-21 (module désactivé) ; les
+  entrées jusqu'au renouvellement ont moins de données. Helius : 429 vus.
+- Lecture du 2026-11-21 (juge : REFUSÉ puis corrigée) : flotte négative sur
+  toutes les périodes disjointes ; aucun bras démontré rentable.
+
 ## Prochaine action
-Suivre `docs/RUNBOOK_MISE_A_JOUR_MAC.md`, puis `docs/APP_IPHONE.md` (Supabase, Pages, `.env`, iPhone).
-Après fusion et `git pull` sur le Mac : vérifier les lignes « ZOMBIE » au
-premier cycle (fermetures attendues). Puis choisir M2, B2 ou B4.
+Relire le 7 j dans une semaine (fenêtre disjointe, pas emboîtée). Puis
+choisir M2, B2 ou B4.
