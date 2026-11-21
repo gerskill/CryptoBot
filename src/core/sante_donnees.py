@@ -44,7 +44,7 @@ CHAMPS_ENTREE = (
     ("insiders", "entry_insider_rate"),
     ("snipers", "entry_sniper_count"),
     ("entrapment", "entry_entrapment_ratio"),
-    ("smart money", "entry_smart_money_buys_30m"),
+    ("smart_money", "entry_smart_money_buys_30m"),
 )
 # Signaux de manipulation fournis par GMGN en un seul appel de découverte.
 SIGNAUX_GMGN = ("bundlers", "insiders", "snipers", "entrapment")

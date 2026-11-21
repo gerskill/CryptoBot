@@ -130,7 +130,8 @@ achète le favori ou l'outsider dans une fourchette de prix. Voir ADR 016.
    sur la recherche d'une nouvelle entrée.
 3. **Une donnée absente ne rejette pas.** Un filtre dont la donnée manque
    (holders sans clé Birdeye) laisse passer le candidat. Le pipeline dégrade,
-   il ne bloque pas.
+   il ne bloque pas. Seule exception : l'option `filters.require_data` d'un bras
+   (ADR 022), **désactivée partout** ; l'activer demande l'ADR et Killian.
 4. **Les poids de score sont redistribués.** Un composant indisponible est
    exclu et son poids réparti sur les autres ; le score reste sur 100.
    `sub_scores._weights_used` dit quelle fraction est réellement couverte.

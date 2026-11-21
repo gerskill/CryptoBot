@@ -226,6 +226,20 @@ def discovery_envelope(filter_sets: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+# Données qu'un bras peut EXIGER (`filters.require_data`, ADR 022) : nom affiché → attribut de
+# `Candidate`. Ce sont les mêmes noms que ceux mesurés par `src/core/sante_donnees.py`.
+DONNEES_EXIGIBLES = {
+    "holders": "holders",
+    "bundlers": "bundler_rate",
+    "insiders": "insider_rate",
+    "snipers": "sniper_count",
+    "entrapment": "entrapment_ratio",
+    "smart_money": "smart_money_buys_30m",
+}
+# Noms inconnus déjà signalés : une faute de frappe dans une config ne doit pas inonder le journal.
+_DONNEES_INCONNUES_SIGNALEES: set[str] = set()
+
+
 class ScanPipeline:
     def __init__(
         self,
@@ -967,6 +981,31 @@ class ScanPipeline:
         return self._manipulation_reason(c, f) or self._context_reason(c, f)
 
     @staticmethod
+    def _donnee_requise_reason(c: Candidate, f: dict) -> Optional[str]:
+        """EXCEPTION OPT-IN à « une donnée absente ne rejette jamais » (ADR 022).
+
+        `filters.require_data` : liste de noms de `DONNEES_EXIGIBLES`. Absent ou vide (cas de
+        TOUS les bras aujourd'hui), cette fonction ne fait rien. Quand un bras la demande, une
+        donnée `None` rejette avec « donnée manquante : <nom> » (famille `donnee_requise`, jamais
+        relâchée). 0 est une valeur présente. Une config illisible ne fait jamais lever : la boucle
+        ne meurt pas, le nom inconnu est ignoré et signalé une fois."""
+        exigees = f.get("require_data")
+        if not isinstance(exigees, (list, tuple)):
+            return None
+        for nom in exigees:
+            attribut = DONNEES_EXIGIBLES.get(nom) if isinstance(nom, str) else None
+            if attribut is None:
+                cle = str(nom)
+                if cle not in _DONNEES_INCONNUES_SIGNALEES:
+                    _DONNEES_INCONNUES_SIGNALEES.add(cle)
+                    print(f"[Pipeline] require_data : « {cle} » inconnu, ignoré "
+                          f"(valeurs : {', '.join(DONNEES_EXIGIBLES)})")
+                continue
+            if getattr(c, attribut, None) is None:
+                return f"donnée manquante : {nom}"
+        return None
+
+    @staticmethod
     def _manipulation_reason(c: Candidate, f: dict) -> Optional[str]:
         """Signaux de manipulation, tous rendus par l'appel de découverte.
 
@@ -974,6 +1013,10 @@ class ScanPipeline:
         qualité/prix du pipeline. Chaque seuil est facultatif — absent du
         document d'un bras, il ne s'applique pas.
         """
+        manquante = ScanPipeline._donnee_requise_reason(c, f)
+        if manquante:
+            return manquante
+
         if f.get("reject_wash_trading") and c.is_wash_trading:
             return "wash trading détecté"
 

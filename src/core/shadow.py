@@ -90,6 +90,11 @@ def reason_family(reason: str) -> str:
     # exposition corrélée, pas d'un seuil mal calé.
     if "concentration meta" in text:
         return "sector"
+    # Option `require_data` (ADR 022) : « donnée manquante : holders » contient « holders » et
+    # serait rangé dans la famille relâchable du même nom ; l'apprentissage baisserait alors
+    # `min_holders` pour un rejet qui n'a rien à voir avec ce seuil. Famille à part, jamais relâchée.
+    if text.startswith("donnée manquante"):
+        return "donnee_requise"
     if "liquidité" in text or "liquidity" in text:
         return "liquidity"
     if "holders" in text:

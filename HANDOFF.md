@@ -25,6 +25,12 @@ rentabilité (« quel bras fait +120 %/an ? »). PAPER uniquement.
   « Bootstrap failed: 5 » laissait ui/prediction arrêtés). Consigne de
   Killian : faire commit, push, PR et fusion sans redemander, et proposer des
   idées en plus.
+- 2026-11-21 (nuit) : #24 alerte « sans prix depuis 2 h » (Telegram + app),
+  #25 « Santé des données » (app + veille Telegram si une source est COUPÉE),
+  et l'option `filters.require_data` (exiger la donnée, ADR 022) : mécanisme
+  seulement, **désactivée partout** (un test l'impose) ; la mesure qui décidera
+  est `python -m scripts.analyse_donnees_manquantes`. Invariant « une donnée
+  absente ne rejette jamais » inchangé par défaut.
 - Constat 2026-11-21 (journal du Mac) : OGTA est resté 31 h 47 ouvert sans que
   le stop -25 % joue (sortie à -100,9 %, ancien code) = le cas B1. Contrôles
   on-chain en `error` depuis au moins le 19/11 (Helius), Birdeye à court de
@@ -61,5 +67,7 @@ rentabilité (« quel bras fait +120 %/an ? »). PAPER uniquement.
   toutes les périodes disjointes ; aucun bras démontré rentable.
 
 ## Prochaine action
-Relire le 7 j dans une semaine (fenêtre disjointe, pas emboîtée). Puis
-choisir M2, B2 ou B4.
+Sur le Mac : `git pull`, redémarrer le bot (alerte sans prix, santé des
+données), puis lancer `python -m scripts.analyse_donnees_manquantes` après
+quelques jours de données. Relire le 7 j dans une semaine (fenêtre disjointe,
+pas emboîtée). Puis choisir M2, B2 ou B4.
