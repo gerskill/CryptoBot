@@ -31,6 +31,15 @@ rentabilité (« quel bras fait +120 %/an ? »). PAPER uniquement.
   seulement, **désactivée partout** (un test l'impose) ; la mesure qui décidera
   est `python -m scripts.analyse_donnees_manquantes`. Invariant « une donnée
   absente ne rejette jamais » inchangé par défaut.
+- 2026-11-21 (fin) : #28 signaux de manipulation GMGN (greffés à la fusion
+  DexScreener+GMGN au lieu d'être jetés ; repli `gmgn token info` ≤ 10/cycle,
+  source dans `entry_manipulation_source`, correspondance [À VÉRIFIER]) ;
+  #29 règles de sortie au journal + `python -m scripts.explique_position <id>`
+  (OGTA : TP1 actuel +150 % > pic +105 % → « règle, pas bug » probable) ;
+  #30 `python scripts/veille.py --test` + procédure de panne du site.
+- Helius : l'observateur on-chain appelle Helius en direct, sans le repli
+  Chainstack → RPC public que `src/core/rpc_endpoint.py` offre déjà aux autres
+  modules. Pas de seconde clé : diagnostic HTTP d'abord, puis repli à décider.
 - Constat 2026-11-21 (journal du Mac) : OGTA est resté 31 h 47 ouvert sans que
   le stop -25 % joue (sortie à -100,9 %, ancien code) = le cas B1. Contrôles
   on-chain en `error` depuis au moins le 19/11 (Helius), Birdeye à court de
