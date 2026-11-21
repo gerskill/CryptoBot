@@ -501,6 +501,7 @@ def bootstrap_arms(
                 learning=(
                     LearningEngine(
                         params, journal, shadow=shadow, bounds=bounds,
+                        label=f"[{name}]",
                         # Le flux se lit dans l'entonnoir. Sans lui, resserrer
                         # un filtre paraît toujours prudent — même quand il ne
                         # reste plus rien à filtrer.

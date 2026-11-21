@@ -485,7 +485,11 @@ class LearningEngine:
         inactivity: Optional[Callable[[], tuple[Optional[int], Optional[str]]]] = None,
         frozen: bool = False,
         pool: Optional[Callable[[], list[dict[str, Any]]]] = None,
+        label: str = "",
     ):
+        # Nom du bras dans les lignes 🧠 : sur 19 bras, « recherche de sorties — rien à ajuster »
+        # sans nom ne dit pas QUEL bras a été jugé (constaté sur le Mac le 2026-11-21).
+        self.label = label
         self.params = params
         self.journal = journal
         self.shadow = shadow
@@ -1805,7 +1809,7 @@ class LearningEngine:
             if change:
                 changes.append(change)
         self.last_exit_search = {"issue": "confirmé", **infos}
-        print(f"🧠 recherche de sorties — confirmé : {raison}")
+        print(f"🧠{getattr(self, 'label', '')} recherche de sorties — confirmé : {raison}")
         return changes
 
     def _fin_recherche(self, issue: str, detail: str, **infos: Any) -> list[str]:
@@ -1817,7 +1821,7 @@ class LearningEngine:
         l'apprentissage a jugé quand il n'a pas pu.
         """
         self.last_exit_search = {"issue": issue, **infos}
-        print(f"🧠 recherche de sorties — {issue} : {detail}")
+        print(f"🧠{getattr(self, 'label', '')} recherche de sorties — {issue} : {detail}")
         return []
 
     def validate_exit_changes(self, previous_exits: dict[str, Any]) -> Optional[str]:
