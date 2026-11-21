@@ -53,6 +53,15 @@ window.supabase = { createClient(url, cle, options) {
     },
     from(table) {
       f.tables.push(table);
+      if (table === 'commandes') {
+        f.inserts = f.inserts || []; f.commandes = f.commandes || [];
+        const resultat = () => Promise.resolve(f.erreur ? { data: null, error: f.erreur } : { data: f.commandes, error: null });
+        const chaine = { order: () => chaine, limit: () => resultat(), then: (a, b) => resultat().then(a, b) };
+        return {
+          select: () => chaine,
+          insert: async ligne => { f.inserts.push(ligne); f.commandes = [{ id: f.inserts.length, statut: 'en attente', cree_a: new Date().toISOString(), detail: null, ...ligne }, ...f.commandes]; return { error: null }; },
+        };
+      }
       return { select: async colonnes => f.erreur ? { data: null, error: f.erreur } : { data: f.lignes, error: null } };
     },
   };
@@ -74,7 +83,7 @@ function servir() {
   return new Promise(r => serveur.listen(0, '127.0.0.1', () => r(serveur)));
 }
 
-async function ouvrir(browser, base, faux, { vraieConfig = false } = {}) {
+async function ouvrir(browser, base, faux, { vraieConfig = false, configVide = false } = {}) {
   const contexte = await browser.newContext({ ...APPAREIL, serviceWorkers: 'block', locale: 'fr-FR', timezoneId: 'Europe/Paris' });
   const page = await contexte.newPage();
   const horsApp = [];
@@ -83,7 +92,11 @@ async function ouvrir(browser, base, faux, { vraieConfig = false } = {}) {
   page.on('pageerror', e => erreursJs.push(String(e)));
   await page.addInitScript(f => { window.__faux = { tables: [], ...f }; }, faux);
   await page.route('**/vendor/supabase.js', r => r.fulfill({ contentType: 'text/javascript', body: FAUX_CLIENT }));
-  if (!vraieConfig) {
+  if (configVide) {
+    await page.route('**/config.js', r => r.fulfill({
+      contentType: 'text/javascript', body: "window.CRYPTOBOT_CONFIG = { supabaseUrl: '', supabaseAnonKey: '' };",
+    }));
+  } else if (!vraieConfig) {
     await page.route('**/config.js', r => r.fulfill({
       contentType: 'text/javascript',
       body: "window.CRYPTOBOT_CONFIG = { supabaseUrl: 'https://faux.supabase.co', supabaseAnonKey: 'cle-anon-factice' };",
@@ -132,9 +145,9 @@ async function main() {
   const base = `http://127.0.0.1:${serveur.address().port}`;
   const browser = await chromium.launch();
   try {
-    // 1. config.js vide (le vrai fichier du dépôt)
+    // 1. config.js vide (le modèle avant liaison ; le vrai fichier est désormais rempli)
     {
-      const { page, contexte, horsApp, erreursJs } = await ouvrir(browser, base, { session: null, lignes: [] }, { vraieConfig: true });
+      const { page, contexte, horsApp, erreursJs } = await ouvrir(browser, base, { session: null, lignes: [] }, { configVide: true });
       await page.waitForSelector('#ecran-config:not([hidden])', { timeout: 5000 });
       ok((await texte(page, '#ecran-config')).includes("L'app n'est pas encore reliée à Supabase : voir docs/APP_IPHONE.md."), 'config vide : message clair');
       ok(await page.locator('#ecran-connexion').isHidden(), 'config vide : pas d\'écran de connexion');
@@ -170,7 +183,8 @@ async function main() {
       const { page, contexte, horsApp, erreursJs } = await ouvrir(browser, base, { session: { user: { email: 'k@example.com' } }, lignes });
       await page.waitForSelector('#app:not([hidden])', { timeout: 5000 });
       await page.waitForFunction(() => document.querySelector('#phrase-etat')?.textContent.trim().length > 0);
-      ok(await page.evaluate(() => window.__faux.tables.every(t => t === 'snapshots')), 'lit uniquement la table snapshots');
+      ok(await page.evaluate(() => window.__faux.tables.every(t => t === 'snapshots' || t === 'commandes')), 'lit uniquement les tables snapshots et commandes');
+      ok(await page.evaluate(() => (window.__faux.inserts || []).length === 0), "aucune écriture sans action de l'utilisateur");
       ok(await page.locator('#bandeau-perime').isHidden(), 'données fraîches : pas de bandeau');
       ok((await texte(page, '#phrase-etat')) === 'Le bot tourne. Dernier cycle il y a 1 min.', `État : phrase (${await texte(page, '#phrase-etat')})`);
       const etat = await texte(page, '#vue-etat');
@@ -222,6 +236,41 @@ async function main() {
       ok((await lignesLiq.filter({ hasText: 'pm_meteo' }).innerText()).includes('désactivé'), 'Liquid : bras inactif signalé');
       ok((await texte(page, '#vue-liquid')).includes('flotte (somme)'), 'Liquid : somme dite « flotte (somme) »');
       await capture(page, '4-liquid');
+
+      // Pilotage (ADR 021) : la seule écriture est une ligne « commandes », après confirmation.
+      await page.click('nav [data-onglet="pilotage"]');
+      ok(await page.locator('#vue-pilotage').isVisible(), 'Pilotage : onglet affiché');
+      ok((await page.locator('#pilotage-liquid > li').count()) === 3, 'Pilotage : 3 bras Liquid avec un bouton');
+      page.once('dialog', d => d.dismiss());
+      await page.click('#bouton-stop');
+      await page.waitForTimeout(200);
+      ok(await page.evaluate(() => (window.__faux.inserts || []).length === 0), 'Pilotage : arrêt annulé = rien envoyé');
+      page.once('dialog', d => d.accept());
+      await page.click('#bouton-stop');
+      await page.waitForFunction(() => (window.__faux.inserts || []).length === 1, null, { timeout: 5000 });
+      ok(await page.evaluate(() => window.__faux.inserts[0].action === 'stop'), 'Pilotage : arrêt confirmé = une commande « stop »');
+      ok((await texte(page, '#liste-commandes')).includes('en attente'), 'Pilotage : la commande apparaît « en attente »');
+      page.once('dialog', d => d.accept());
+      await page.click('#pilotage-liquid [data-bras="pm_meteo"]');
+      await page.waitForFunction(() => window.__faux.inserts.length === 2, null, { timeout: 5000 });
+      ok(await page.evaluate(() => JSON.stringify(window.__faux.inserts[1]) === JSON.stringify({ action: 'pm_toggle', payload: { arm: 'pm_meteo', enabled: true } })),
+        'Pilotage : activer pm_meteo = pm_toggle enabled true');
+      await page.selectOption('#fork-parent', 'pm_meteo');
+      await page.selectOption('#fork-variable', 'edge_min');
+      await page.fill('#fork-nombre', '0,5');
+      await page.fill('#fork-nom', 'pm_meteo_large');
+      await page.click('#bouton-fork');
+      ok((await texte(page, '#message-pilotage')).includes('hors bornes'), 'Pilotage : fork hors bornes bloqué dans l\'app');
+      await page.fill('#fork-nombre', '0,10');
+      page.once('dialog', d => d.accept());
+      await page.click('#bouton-fork');
+      await page.waitForFunction(() => window.__faux.inserts.length === 3, null, { timeout: 5000 });
+      ok(await page.evaluate(() => { const i = window.__faux.inserts[2]; return i.action === 'pm_fork' && i.payload.value === 0.1 && i.payload.name === 'pm_meteo_large' && i.payload.parent === 'pm_meteo'; }),
+        'Pilotage : fork valide envoyé (virgule lue comme décimale)');
+      const petitsPilotage = await page.evaluate(() => [...document.querySelectorAll('#vue-pilotage button, #vue-pilotage select, #vue-pilotage input')]
+        .map(b => b.getBoundingClientRect()).filter(r => r.width > 0 && r.height < 44).length);
+      ok(petitsPilotage === 0, 'Pilotage : zones tactiles >= 44 px');
+      await capture(page, '5-pilotage');
 
       // zones tactiles
       const petites = await page.evaluate(() => [...document.querySelectorAll('nav button, [data-fenetre], #bouton-actualiser')]

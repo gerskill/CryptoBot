@@ -6,6 +6,8 @@ data/*.jsonl
 # Journaux par bras : meme nature que data/*.jsonl, un niveau plus bas.
 # Sans cette ligne, `git add -A` versionne la memoire du bot.
 data/arms/
+# Boîte de commandes iPhone -> boucle (ADR 021).
+data/commandes_bot/
 # Suivi apparié sans BE : mesure locale, même nature que data/arms.
 data/shadow_nobe/
 # Journal de recherche : observation, pas la mémoire de trading.

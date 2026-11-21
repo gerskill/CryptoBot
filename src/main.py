@@ -12,6 +12,7 @@ Arrêt     : Ctrl-C, ou /STOP depuis Telegram (ferme toutes les positions).
 """
 
 import math
+import os
 import signal
 import threading
 import time
@@ -96,6 +97,7 @@ from src.core.pricefeed import (
     CycleMarketCache,
     effective_monitor_interval,
 )
+from src.core import commandes as bot_commands
 from src.core.shadow import ShadowTracker
 from src.core.state import StateWriter, candidate_to_dict, position_to_dict
 from src.core.wallets import WalletRegistry
@@ -971,7 +973,13 @@ class AlphaLoop:
             )
 
     def _handle_commands(self) -> None:
-        for command in self.telegram.poll_commands():
+        # Telegram puis l'iPhone (boîte `data/commandes_bot/`, ADR 021) : mêmes
+        # commandes, même traitement.
+        commands = list(self.telegram.poll_commands())
+        from_phone = bot_commands.lire_et_vider(os.path.join(settings.BASE_DIR, "data"))
+        if from_phone:
+            self.telegram.send("📱 Commande reçue depuis l'iPhone : " + ", ".join(from_phone))
+        for command in commands + from_phone:
             if command == "/STOP":
                 self._panic_exit()
             elif command == "/RESUME":

@@ -79,8 +79,16 @@ class DonneesTestCase(unittest.TestCase):
         settings.ARMS_DATA_DIR = os.path.join(self.tmp, "arms_data")
         settings.PREDICTION_DATA_DIR = os.path.join(self.tmp, "prediction")
         pub.VEILLE_ETAT_PATH = os.path.join(self.tmp, "veille_etat.json")
+        self._boite = pub.COMMANDES_DATA_DIR
+        pub.COMMANDES_DATA_DIR = self.tmp
+        # Lecture des commandes : aucune en attente, sauf si un test dit autre chose.
+        self.requete = mock.MagicMock(return_value=Reponse(200, []))
+        patch = mock.patch.object(pub.requests, "request", self.requete)
+        patch.start()
+        self.addCleanup(patch.stop)
 
     def tearDown(self):
+        pub.COMMANDES_DATA_DIR = self._boite
         for cle, valeur in self._sauve.items():
             setattr(settings, cle, valeur)
         pub.VEILLE_ETAT_PATH = self._veille
@@ -153,7 +161,7 @@ class TestContrat(DonneesTestCase):
         self._trades("baseline", [self._sortie("a", "TAKE_PROFIT_1", MAINTENANT - timedelta(days=1), pnl=10)])
         self._trades("sniper", [self._sortie("b", "STOP_LOSS", MAINTENANT - timedelta(days=2), pnl=-4)])
         arm_liquid = {
-            "arm": "pm_temoin", "famille": "transverse", "enabled": True, "ouverts": 2,
+            "arm": "pm_temoin", "role": "temoin", "famille": "transverse", "enabled": True, "ouverts": 2,
             "compte": {"solde": 41.5, "capital": 46.0},
             "stats": {"paris_regles": 5, "gagnes_net": 3, "pnl_net": -1.0},
             "reglages": {"prix_min": 0.5}, "variables_forkables": ["x"], "apprentissage": {"a": 1},
@@ -169,7 +177,8 @@ class TestContrat(DonneesTestCase):
     def test_etat_a_exactement_les_champs_du_contrat(self):
         etat = self._jeu_complet()["etat"]
         self.assertEqual(set(etat), {"publie_a", "bot", "liquid"})
-        self.assertEqual(set(etat["bot"]), {"dernier_cycle", "mode"})
+        self.assertEqual(set(etat["bot"]), {"dernier_cycle", "mode", "en_pause"})
+        self.assertIs(etat["bot"]["en_pause"], False)
         self.assertEqual(set(etat["liquid"]), {"dernier_cycle"})
         self.assertEqual(etat["bot"]["dernier_cycle"],
                          datetime.fromtimestamp(MAINTENANT.timestamp() - 30, tz=timezone.utc).isoformat())
@@ -205,7 +214,8 @@ class TestContrat(DonneesTestCase):
         self.assertEqual(set(liquid), {"publie_a", "bras"})
         self.assertEqual(len(liquid["bras"]), 1)
         bras = liquid["bras"][0]
-        self.assertEqual(set(bras), {"bras", "famille", "actif", "ouverts", "solde_usd", "regles", "gagnes_net"})
+        self.assertEqual(set(bras), {"bras", "famille", "role", "actif", "ouverts", "solde_usd", "regles", "gagnes_net"})
+        self.assertEqual(bras["role"], "temoin")
         self.assertEqual((bras["bras"], bras["solde_usd"], bras["regles"], bras["gagnes_net"], bras["ouverts"]),
                          ("pm_temoin", 41.5, 5, 3, 2))
 
@@ -537,6 +547,170 @@ class TestDurcissement(DonneesTestCase):
         self.assertEqual(lignes[0]["type"], "PANNE")
 
 
+class TestCommandes(DonneesTestCase):
+    """Commandes iPhone (ADR 021) : validées comme sur le site, jamais d'ordre réel,
+    une vieille commande n'est pas appliquée, et un échec ne bloque pas la publication."""
+
+    def setUp(self):
+        super().setUp()
+        self._ancien = pub.SESSION_PATH
+        pub.SESSION_PATH = os.path.join(self.tmp, "supabase_session.json")
+
+    def tearDown(self):
+        pub.SESSION_PATH = self._ancien
+        super().tearDown()
+
+    def _ligne(self, action, payload=None, minutes=1, ident=7):
+        return {"id": ident, "action": action, "payload": payload or {},
+                "cree_a": (MAINTENANT - timedelta(minutes=minutes)).isoformat()}
+
+    def _prediction(self):
+        config = {"capital_fictif_usd": 46, "min_paris_verdict": 30, "arms": [
+            {"name": "pm_temoin", "role": "temoin", "enabled": True},
+            {"name": "pm_vol_edge", "role": "parieur", "enabled": True, "edge_min": 0.05,
+             "estimateur": "empirique"}]}
+        os.makedirs(settings.PREDICTION_DATA_DIR, exist_ok=True)
+        return mock.patch.object(pub.server, "_prediction_config", return_value=config)
+
+    def _demandes(self):
+        chemin = os.path.join(settings.PREDICTION_DATA_DIR, "requests.jsonl")
+        if not os.path.exists(chemin):
+            return []
+        with open(chemin, encoding="utf-8") as fh:
+            return [json.loads(l) for l in fh if l.strip()]
+
+    def test_stop_est_depose_dans_la_boite_de_la_boucle(self):
+        statut, _ = pub.appliquer_commande(self._ligne("stop"), MAINTENANT)
+        self.assertEqual(statut, "appliquée")
+        self.assertEqual(pub.boite_bot.lire_et_vider(self.tmp), ["/STOP"])
+        self.assertEqual(pub.boite_bot.lire_et_vider(self.tmp), [], "une commande ne s'applique qu'une fois")
+
+    def test_resume_devient_resume(self):
+        pub.appliquer_commande(self._ligne("resume"), MAINTENANT)
+        self.assertEqual(pub.boite_bot.lire_et_vider(self.tmp), ["/RESUME"])
+
+    def test_commande_de_plus_de_15_min_refusee_sans_effet(self):
+        statut, detail = pub.appliquer_commande(self._ligne("stop", minutes=16), MAINTENANT)
+        self.assertEqual(statut, "refusée")
+        self.assertIn("expirée", detail)
+        self.assertEqual(pub.boite_bot.lire_et_vider(self.tmp), [])
+
+    def test_date_illisible_refusee(self):
+        ligne = self._ligne("stop")
+        ligne["cree_a"] = "pas une date"
+        self.assertEqual(pub.appliquer_commande(ligne, MAINTENANT)[0], "refusée")
+        self.assertEqual(pub.boite_bot.lire_et_vider(self.tmp), [])
+
+    def test_action_inconnue_refusee(self):
+        for action in ("buy", "trade", "order", "swap"):
+            self.assertEqual(pub.appliquer_commande(self._ligne(action), MAINTENANT),
+                             ("refusée", "action inconnue"))
+        self.assertEqual(pub.boite_bot.lire_et_vider(self.tmp), [])
+
+    def test_toggle_liquid_depose_la_meme_demande_que_le_site(self):
+        with self._prediction():
+            statut, _ = pub.appliquer_commande(
+                self._ligne("pm_toggle", {"arm": "pm_temoin", "enabled": False}), MAINTENANT)
+        self.assertEqual(statut, "appliquée")
+        demande = self._demandes()[-1]
+        self.assertEqual((demande["action"], demande["arm"], demande["enabled"]), ("toggle", "pm_temoin", False))
+
+    def test_fork_hors_bornes_refuse_avec_la_raison_du_site(self):
+        with self._prediction():
+            statut, detail = pub.appliquer_commande(self._ligne("pm_fork", {
+                "parent": "pm_vol_edge", "name": "pm_vol_edge_large", "variable": "edge_min", "value": 0.9}),
+                MAINTENANT)
+        self.assertEqual((statut, detail), ("refusée", "edge_min_hors_bornes"))
+        self.assertEqual(self._demandes(), [])
+
+    def test_fork_valide_depose(self):
+        with self._prediction():
+            statut, _ = pub.appliquer_commande(self._ligne("pm_fork", {
+                "parent": "pm_vol_edge", "name": "pm_vol_edge_10", "variable": "edge_min", "value": 0.10}),
+                MAINTENANT)
+        self.assertEqual(statut, "appliquée")
+        self.assertEqual(self._demandes()[-1]["name"], "pm_vol_edge_10")
+
+    def test_le_payload_ne_peut_pas_changer_l_action(self):
+        with self._prediction():
+            pub.appliquer_commande(self._ligne("pm_toggle", {"action": "fork", "arm": "pm_temoin",
+                                                             "enabled": True}), MAINTENANT)
+        self.assertEqual(self._demandes()[-1]["action"], "toggle")
+
+    def _main(self, post):
+        sortie, erreur = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ, ENV_COMPLET, clear=True), \
+                mock.patch.object(pub.requests, "post", post), \
+                redirect_stdout(sortie), redirect_stderr(erreur):
+            code = pub.main([])
+        return code, sortie.getvalue() + erreur.getvalue()
+
+    @staticmethod
+    def _post(url, **kw):
+        if "/auth/v1/token" in url:
+            return Reponse(200, {"access_token": "acces-1", "refresh_token": "r"})
+        return Reponse(201)
+
+    def test_main_traite_puis_marque_la_commande(self):
+        lignes = [dict(self._ligne("stop"), cree_a=(datetime.now(timezone.utc)).isoformat())]
+        self.requete.side_effect = lambda methode, url, **kw: Reponse(200, lignes) if methode == "GET" else Reponse(204)
+        code, _ = self._main(self._post)
+        self.assertEqual(code, 0)
+        get = self.requete.call_args_list[0]
+        self.assertEqual(get.args[0], "GET")
+        self.assertEqual(get.kwargs["params"]["statut"], "eq.en attente")
+        self.assertEqual(get.kwargs["headers"]["Authorization"], "Bearer acces-1")
+        patch_ = self.requete.call_args_list[1]
+        self.assertEqual(patch_.args[0], "PATCH")
+        self.assertEqual(patch_.kwargs["params"], {"id": "eq.7", "statut": "eq.en attente"})
+        self.assertEqual(patch_.kwargs["json"]["statut"], "appliquée")
+        self.assertEqual(pub.boite_bot.lire_et_vider(self.tmp), ["/STOP"])
+
+    def test_lecture_des_commandes_en_panne_n_empeche_pas_la_publication(self):
+        self.requete.side_effect = pub.requests.exceptions.ConnectionError("https://secret " + MOT_DE_PASSE)
+        envois = []
+
+        def post(url, **kw):
+            envois.append(url)
+            return self._post(url, **kw)
+
+        code, texte = self._main(post)
+        self.assertEqual(code, 0)
+        self.assertTrue(any("/rest/v1/snapshots" in u for u in envois))
+        self.assertIn("Commandes iPhone non traitées", texte)
+        self.assertNotIn(MOT_DE_PASSE, texte)
+
+
+class TestBoiteBot(unittest.TestCase):
+    """La boîte de la boucle : ordre de dépôt, une seule application, rien d'autre que stop/resume."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        from src.core import commandes
+        self.boite = commandes
+
+    def test_ordre_de_depot(self):
+        self.boite.deposer(self.tmp, "resume", "0000000000002-2")
+        self.boite.deposer(self.tmp, "stop", "0000000000001-1")
+        self.assertEqual(self.boite.lire_et_vider(self.tmp), ["/STOP", "/RESUME"])
+
+    def test_action_inconnue_et_identifiant_dangereux_refuses(self):
+        with self.assertRaises(ValueError):
+            self.boite.deposer(self.tmp, "buy", "1")
+        with self.assertRaises(ValueError):
+            self.boite.deposer(self.tmp, "stop", "../../etc/x")
+
+    def test_fichier_inconnu_supprime_sans_effet(self):
+        os.makedirs(self.boite.dossier(self.tmp))
+        with open(os.path.join(self.boite.dossier(self.tmp), "1.json"), "w") as fh:
+            fh.write('{"action": "buy"}')
+        self.assertEqual(self.boite.lire_et_vider(self.tmp), [])
+        self.assertEqual(os.listdir(self.boite.dossier(self.tmp)), [])
+
+    def test_dossier_absent(self):
+        self.assertEqual(self.boite.lire_et_vider(os.path.join(self.tmp, "rien")), [])
+
+
 class TestSchemaSql(unittest.TestCase):
     """Le schéma est relançable et ferme l'accès anonyme."""
 
@@ -555,6 +729,12 @@ class TestSchemaSql(unittest.TestCase):
     def test_pas_de_suppression_ni_de_service_role(self):
         self.assertNotIn("service_role", self.sql)
         self.assertNotIn("for delete", self.sql)
+
+    def test_table_commandes_fermee_aux_anonymes_et_naissant_en_attente(self):
+        self.assertIn("create table if not exists public.commandes", self.sql)
+        self.assertIn("revoke all on public.commandes from anon", self.sql)
+        self.assertIn("statut = 'en attente' and detail is null and traite_a is null", self.sql)
+        self.assertIn("check (action in ('stop', 'resume', 'pm_toggle', 'pm_fork'))", self.sql)
 
     def test_politiques_relancables(self):
         self.assertEqual(self.sql.count("drop policy if exists"), self.sql.count("create policy"))
