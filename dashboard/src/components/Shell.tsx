@@ -112,7 +112,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-full">
       <header className="sticky top-0 z-20 border-b border-edge/60 bg-void/80 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-[1800px] items-center justify-between gap-3 px-5 pt-3">
+        <div className="mx-auto flex max-w-[1800px] flex-wrap items-center justify-between gap-x-3 gap-y-2 px-5 pt-3">
           <SpaceSwitch />
           <AlertCenter />
         </div>

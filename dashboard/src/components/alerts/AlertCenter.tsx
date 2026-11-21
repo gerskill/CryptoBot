@@ -27,11 +27,11 @@ export function AlertCenter() {
         aria-expanded={open}
         aria-label={`Alertes, ${unread} non lue${unread > 1 ? 's' : ''}`}
         aria-controls={panelId}
-        className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg px-3 text-[12px] text-muted ring-1 ring-edge/60 hover:text-ink"
+        className="flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 text-[12px] text-muted ring-1 ring-edge/60 hover:text-ink"
       >
         <BellIcon />
-        <span>Alertes</span>
-        <span className="font-mono text-[11px] text-dim">{enabled ? '· actives' : '· off'}</span>
+        <span data-testid="alert-label" className="hidden sm:inline">Alertes</span>
+        <span className="hidden font-mono text-[11px] text-dim sm:inline">{enabled ? '· actives' : '· off'}</span>
         {unread > 0 && (
           <span className="rounded bg-warn/15 px-1.5 font-mono text-[11px] font-semibold text-warn">
             {unread}

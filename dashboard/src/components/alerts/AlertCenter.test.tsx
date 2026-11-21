@@ -72,6 +72,13 @@ describe('AlertCenter', () => {
     expect(input.value).toBe('0.5')
   })
 
+  it('à 320 px le libellé visible est masqué (icône + compteur), le nom complet reste en aria-label', () => {
+    render(<AlertCenter />)
+    const button = screen.getByRole('button', { name: /Alertes, 0 non lue/ })
+    expect(screen.getByTestId('alert-label').className).toContain('hidden')
+    expect(button.className).toContain('min-h-11')
+  })
+
   it('le son est désactivé par défaut', () => {
     render(<AlertCenter />)
     fireEvent.click(screen.getByRole('button', { name: /Alertes/ }))
