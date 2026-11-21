@@ -1,6 +1,6 @@
 """Publication Supabase pour l'app iPhone (scripts/publie_supabase.py).
 
-CONTEXTE. Le Mac publie toutes les 2 min sept résumés en lecture seule dans la
+CONTEXTE. Le Mac publie toutes les 2 min huit résumés en lecture seule dans la
 table `snapshots` ; l'app iPhone ne lit que ça. Ce qui peut mal tourner ici n'est
 pas le calcul (il réutilise api.server) mais ce qui SORT : un paramètre de
 stratégie, une adresse de token, un mot de passe dans un message d'erreur, ou un
@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src import settings  # noqa: E402
 from scripts import publie_supabase as pub  # noqa: E402
 
-CLES = {"etat", "positions", "perf_7d", "perf_30d", "perf_all", "liquid", "alertes"}
+CLES = {"etat", "positions", "perf_7d", "perf_30d", "perf_all", "liquid", "alertes", "donnees"}
 MOT_DE_PASSE = "mdp-ultra-secret-123"
 ENV_COMPLET = {
     "SUPABASE_URL": "https://exemple.supabase.co",
@@ -119,7 +119,7 @@ class DonneesTestCase(unittest.TestCase):
 class TestDonneesAbsentes(DonneesTestCase):
     """`data/` vide (bot jamais lancé) : un état « aucune donnée », pas une exception."""
 
-    def test_data_vide_donne_les_sept_cles_sans_exception(self):
+    def test_data_vide_donne_les_huit_cles_sans_exception(self):
         snaps = pub.construire_snapshots(MAINTENANT)
         self.assertEqual(set(snaps), CLES)
 
@@ -287,6 +287,93 @@ class TestAlertes(DonneesTestCase):
         self._ecrire("veille_etat.json", {"ui": {"ok": False, "depuis": depuis}})
         types = [ligne["type"] for ligne in pub.construire_snapshots(MAINTENANT)["alertes"]["lignes"]]
         self.assertEqual(types, ["PANNE", "ZOMBIE"])
+
+
+class TestAlerteSansPrix(DonneesTestCase):
+    """Une position ouverte sans prix depuis 2 h ou plus devient une alerte SANS_PRIX (OGTA :
+    31 h ouverte, stop muet, personne prévenu)."""
+
+    def _etat(self, positions):
+        self._ecrire("state.json", {"updated_at": MAINTENANT.timestamp(), "positions": positions})
+
+    def test_une_position_sans_prix_depuis_deux_heures_est_une_alerte(self):
+        self._etat([
+            {"id": "a", "arm": "baseline", "symbol": "OGTA", "sans_prix_depuis_min": 130.4},
+            {"id": "b", "arm": "sniper", "symbol": "PEPE", "sans_prix_depuis_min": 45.0},
+            {"id": "c", "arm": "sniper", "symbol": "BONK", "sans_prix_depuis_min": None},
+        ])
+        lignes = pub.construire_snapshots(MAINTENANT)["alertes"]["lignes"]
+        self.assertEqual([ligne["type"] for ligne in lignes], ["SANS_PRIX"])
+        self.assertEqual(lignes[0]["bras"], "baseline")
+        self.assertIn("OGTA", lignes[0]["texte"])
+        self.assertIn("130 min", lignes[0]["texte"])
+
+    def test_l_alerte_date_du_debut_de_la_coupure(self):
+        self._etat([{"id": "a", "arm": "baseline", "symbol": "OGTA", "sans_prix_depuis_min": 150}])
+        ligne = pub.construire_snapshots(MAINTENANT)["alertes"]["lignes"][0]
+        attendu = (MAINTENANT - timedelta(minutes=150)).isoformat()
+        self.assertEqual(ligne["quand"], attendu)
+
+    def test_un_state_sans_le_champ_ne_donne_pas_d_alerte(self):
+        # Un state.json écrit par l'ancien code n'a pas `sans_prix_depuis_min`.
+        self._etat([{"id": "a", "arm": "baseline", "symbol": "OGTA"}])
+        self.assertEqual(pub.construire_snapshots(MAINTENANT)["alertes"]["lignes"], [])
+
+    def test_l_adresse_du_token_ne_sort_pas(self):
+        self._etat([{"id": "a", "arm": "baseline", "symbol": "OGTA", "token_address": "HXT1Upm",
+                     "sans_prix_depuis_min": 200}])
+        texte = json.dumps(pub.construire_snapshots(MAINTENANT)["alertes"])
+        self.assertNotIn("HXT1Upm", texte)
+
+
+class TestDonnees(DonneesTestCase):
+    """Santé des données (src/core/sante_donnees.py) publiée pour l'app : sources en direct du
+    state.json + entrées des 24 h lues dans les journaux des bras ACTIFS."""
+
+    def _entrees(self, arm, n, **champs):
+        lignes = []
+        for i in range(n):
+            ligne = self._sortie(f"{arm}-{i}", "TIME_STOP", MAINTENANT - timedelta(hours=1))
+            ligne.update(timestamp_entry=(MAINTENANT - timedelta(hours=3)).isoformat(), **champs)
+            lignes.append(ligne)
+        self._trades(arm, lignes)
+
+    def test_onchain_en_erreur_sur_les_entrees_des_24h_est_publie_coupe(self):
+        self._manifeste("baseline")
+        self._entrees("baseline", 12, onchain_status="error")
+        donnees = pub.construire_snapshots(MAINTENANT)["donnees"]
+        onchain = next(s for s in donnees["sources"] if "on-chain" in s["nom"])
+        self.assertEqual(onchain["etat"], "coupe")
+        self.assertEqual(donnees["entrees"], 12)
+
+    def test_les_capacites_du_state_sont_publiees(self):
+        self._manifeste("baseline")
+        self._ecrire("state.json", {"updated_at": MAINTENANT.timestamp(), "capabilities": [
+            {"capability": "holders", "using": "gmgn", "degraded": True, "available": ["gmgn"],
+             "down": ["birdeye"], "blind": False}]})
+        donnees = pub.construire_snapshots(MAINTENANT)["donnees"]
+        holders = next(s for s in donnees["sources"] if s["nom"] == "holders")
+        self.assertEqual(holders["etat"], "degrade")
+
+    def test_un_bras_desactive_n_entre_pas_dans_la_mesure(self):
+        self._ecrire("strategies.json", {"arms": [
+            {"name": "baseline", "role": "voter", "capital_pct": 0.1},
+            {"name": "eteint", "role": "voter", "capital_pct": 0.1, "enabled": False}]})
+        self._entrees("baseline", 2, onchain_status="ok")
+        self._entrees("eteint", 30, onchain_status="error")
+        self.assertEqual(pub.construire_snapshots(MAINTENANT)["donnees"]["entrees"], 2)
+
+    def test_data_vide_donne_des_sources_inconnues_pas_une_exception(self):
+        donnees = pub.construire_snapshots(MAINTENANT)["donnees"]
+        self.assertEqual(donnees["entrees"], 0)
+        self.assertEqual({s["etat"] for s in donnees["sources"]}, {"inconnu"})
+
+    def test_aucun_reglage_ni_adresse_ne_sort(self):
+        self._manifeste("baseline")
+        self._entrees("baseline", 12, onchain_status="error", token_address="HXT1Upm", stop_loss_pct=-25)
+        texte = json.dumps(pub.construire_snapshots(MAINTENANT)["donnees"])
+        for interdit in ("HXT1Upm", "stop_loss", "token_address"):
+            self.assertNotIn(interdit, texte)
 
 
 class TestLiquid(DonneesTestCase):

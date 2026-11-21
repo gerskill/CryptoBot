@@ -37,7 +37,8 @@ s'évaluent indépendamment.
    peuvent pas faire tomber le trading.
 2. **Le monitoring passe avant le scan.** Une position ouverte prime.
 3. **Une donnée absente ne rejette jamais.** `None` passe, partout : pipeline,
-   agents, rejeu. Le pipeline dégrade, il ne bloque pas.
+   agents, rejeu. Le pipeline dégrade, il ne bloque pas. Seule exception, opt-in
+   et désactivée partout : `filters.require_data` d'un bras (ADR 022).
 4. **Les poids de score sont redistribués** ; le score reste sur 100.
 5. **Écritures atomiques** (tmp + rename) pour `params.json`, `token_cache.json`,
    `state.json`.

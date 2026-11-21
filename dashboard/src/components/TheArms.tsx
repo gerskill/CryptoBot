@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '../lib/store'
 import { EMPTY_ARRAY } from '../lib/empty'
@@ -220,7 +219,8 @@ function Confluence() {
 
 export function TheArms() {
   const arms = useStore((s) => s.state.arms ?? EMPTY_ARRAY)
-  const [open, setOpen] = useState<string | null>(null)
+  const open = useStore((s) => s.panel)
+  const setOpen = useStore((s) => s.setPanel)
 
   if (!arms.length) {
     return (

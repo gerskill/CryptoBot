@@ -41,8 +41,10 @@ deux cas on regarde. Et l'entonnoir seul désigne souvent le mauvais coupable :
 le motif dominant est celui qui coupe **en dernier**, pas nécessairement celui
 qui coûte le plus.
 
-**Rappeler l'optimisme résiduel du P&L papier.** Le coût de sortie n'est déduit
-que sur la jambe finale ; les jambes partielles restent au prix nu. Sur 20 K de
+**Rappeler l'optimisme résiduel du P&L papier.** Le coût de sortie est mesuré
+(devis Jupiter) sur la jambe finale et seulement ESTIMÉ sur les jambes partielles
+(ADR 012, depuis le 2026-08-31 : avant, elles restaient au prix nu, ce qui flatte
+les fenêtres « tout »). Sur 20 K de
 liquidité, l'aller-retour coûte plusieurs pour cent en réel (médiane 3,06 %).
 Un rapport qui annonce un P&L sans cette réserve est trompeur.
 

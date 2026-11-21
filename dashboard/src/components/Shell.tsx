@@ -4,6 +4,7 @@ import { useStore } from '../lib/store'
 import { usd, pct, pnlColor } from '../lib/format'
 import { usePulse } from '../lib/useLiveState'
 import { NavBar, SpaceSwitch } from './NavBar'
+import { NavTools } from './NavTools'
 import { LiquidHero } from './liquid/LiquidHero'
 import { AlertCenter } from './alerts/AlertCenter'
 import { AlertBanner } from './alerts/AlertBanner'
@@ -114,7 +115,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <header className="sticky top-0 z-20 border-b border-edge/60 bg-void/80 backdrop-blur-xl">
         <div className="mx-auto flex max-w-[1800px] flex-wrap items-center justify-between gap-x-3 gap-y-2 px-5 pt-3">
           <SpaceSwitch />
-          <AlertCenter />
+          <div className="flex items-center gap-2">
+            <NavTools />
+            <AlertCenter />
+          </div>
         </div>
         {space === 'liquid' ? <LiquidHero /> : (
         <div className="mx-auto flex max-w-[1800px] flex-wrap items-end justify-between gap-4 px-5 py-3">

@@ -1,29 +1,37 @@
-/* CryptoBot — app iPhone. Direction : .superpowers/sdd/2026-11-18-app-iphone/direction-visuelle.md
-   Contrastes (WCAG, calculés) sur le fond #17233B : texte 13,2 ; secondaire 6,4 ;
-   gain 6,4 ; perte 4,9 ; ambre 8,1. Sur la surface #20304E : texte 11,1 ; secondaire 5,4.
-   La couleur perte (4,1 sur la surface) n'est jamais posée sur la surface. */
+/* CryptoBot — app iPhone, charte Alpha Loop (la même que le dashboard du Mac : dashboard/src/index.css).
+   Palette : void, surface, raised, edge, ink, muted, toxic (gain), blood (perte), warn, gem (accent).
+   Pas de bleu, pas de dégradé, pas d'ombre : des cartes à filet fin, des chiffres en monospace.
+   Contrastes (WCAG, calculés) — texte sur fond #08080c / surface #101017 / raised #16161f :
+   ink 17,2 / 16,3 / 15,5 ; muted 6,1 / 5,8 / 5,5 ; toxic 11,9 / 11,3 / 10,7 ;
+   blood 6,1 / 5,8 / 5,5 ; warn 10,6 / 10,0 / 9,5 ; gem 5,2 / 4,9 / 4,7.
+   La couleur « dim » du dashboard (3,0) est trop faible pour du texte : elle n'est pas reprise ici. */
 
 :root {
-  --fond: #17233B;
-  --surface: #20304E;
-  --filet: #2E4066;
-  --texte: #E8ECF4;
-  --secondaire: #9AA6C0;
-  --gain: #45B98F;
-  --perte: #E46B5E;
-  --ambre: #E5B24F;
+  --fond: #08080c;
+  --surface: #101017;
+  --releve: #16161f;
+  --filet: #23232f;
+  --filet-fort: #32323f;
+  --texte: #edeef2;
+  --secondaire: #8b8d9b;
+  --gain: #2ee56b;
+  --perte: #ff4a6e;
+  --ambre: #ffab2e;
+  --accent: #7c6cff;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  --rayon: 10px;
   --marge: 16px;
   /* Zone de sécurité du haut, en variable pour que le test de fumée puisse simuler une encoche
      (Chromium la donne à 0). */
   --sait: env(safe-area-inset-top, 0px);
-  --haut-onglets: 52px;
+  --haut-onglets: 56px;
   color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; background: var(--fond); }
 body {
   margin: 0;
   background: var(--fond);
@@ -34,8 +42,12 @@ body {
   overscroll-behavior-y: contain;
 }
 
-h1, h2 { font-size: 20px; line-height: 1.25; font-weight: 600; margin: 0 0 12px; }
-h2 { margin-top: 32px; }
+h1 { font-size: 20px; line-height: 1.25; font-weight: 600; margin: 0 0 12px; }
+/* Titres de section : étiquettes discrètes, comme les titres de panneaux du dashboard. */
+h2 {
+  margin: 32px 0 10px; font-family: var(--mono); font-size: 12px; line-height: 1.3; font-weight: 500;
+  text-transform: uppercase; letter-spacing: .14em; color: var(--secondaire);
+}
 p { margin: 0 0 8px; }
 .secondaire { color: var(--secondaire); font-size: 13px; }
 .masque {
@@ -45,7 +57,7 @@ p { margin: 0 0 8px; }
 
 button, input { font: inherit; color: inherit; }
 button { cursor: pointer; }
-:focus-visible { outline: 2px solid var(--texte); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* --- Écrans plein (config absente, connexion) --- */
 .ecran-plein {
@@ -53,19 +65,20 @@ button { cursor: pointer; }
   padding: calc(var(--sait) + 64px) calc(env(safe-area-inset-right) + var(--marge)) 32px calc(env(safe-area-inset-left) + var(--marge));
   max-width: 480px;
 }
-.ecran-plein h1 { font-size: 30px; line-height: 36px; margin-bottom: 8px; }
+.ecran-plein h1 { font-size: 30px; line-height: 36px; margin-bottom: 8px; letter-spacing: -0.01em; }
 #ecran-config p { font-size: 20px; line-height: 1.35; color: var(--ambre); margin-top: 16px; }
 
 form { margin-top: 32px; display: flex; flex-direction: column; }
 label { font-size: 13px; color: var(--secondaire); margin: 16px 0 6px; }
 input {
   min-height: 48px; padding: 0 12px; font-size: 16px; /* 16 px : pas de zoom auto sur iPhone */
-  background: var(--surface); border: 1px solid var(--secondaire); border-radius: 10px;
+  background: var(--surface); border: 1px solid var(--filet-fort); border-radius: var(--rayon);
 }
+input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 #message-connexion { margin: 16px 0 0; color: var(--ambre); }
 #bouton-connexion {
-  margin-top: 24px; min-height: 48px; border: 0; border-radius: 10px;
-  background: var(--texte); color: var(--fond); font-weight: 600;
+  margin-top: 24px; min-height: 48px; border: 1px solid var(--accent); border-radius: var(--rayon);
+  background: var(--releve); color: var(--texte); font-weight: 600;
 }
 #bouton-connexion:disabled { opacity: .6; }
 
@@ -89,37 +102,48 @@ input {
      une boîte border-box ne peut pas descendre sous ce padding et prend l'encoche au repos. */
 }
 
-/* La phrase d'état : le seul élément en grand. Sa couleur porte l'état. */
-.phrase { font-size: 30px; line-height: 36px; font-weight: 600; margin: 8px 0 16px; letter-spacing: -0.01em; }
+/* La phrase d'état : le seul élément en grand. Sa couleur porte l'état : vert = tourne, ambre = périmé, rouge = arrêté. */
+.phrase { font-size: 30px; line-height: 36px; font-weight: 600; margin: 8px 0 16px; letter-spacing: -0.01em; color: var(--gain); }
 .phrase[data-etat="perime"] { color: var(--ambre); }
 .phrase[data-etat="panne"] { color: var(--perte); }
 #ligne-liquid[data-etat="panne"] { color: var(--perte); }
 
-/* Listes en lignes séparées par un filet */
-.liste { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--filet); }
-.liste > li { padding: 12px 0; border-bottom: 1px solid var(--filet); }
+/* Listes : une carte à filet fin, lignes séparées par un filet (grammaire des panneaux du dashboard). */
+.liste {
+  list-style: none; margin: 0; padding: 0;
+  background: var(--surface); border: 1px solid var(--filet); border-radius: var(--rayon); overflow: hidden;
+}
+.liste > li { padding: 12px 14px; border-bottom: 1px solid var(--filet); }
+.liste > li:last-child { border-bottom: 0; }
 .ligne-principale { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .nom { font-weight: 600; overflow-wrap: anywhere; }
 .liste .secondaire { margin: 2px 0 0; }
-.vide { color: var(--secondaire); padding: 12px 0; margin: 0; }
+.vide { color: var(--secondaire); padding: 12px 14px; margin: 0; }
 .inactif .nom, .inactif .montant { color: var(--secondaire); }
 
-.montant { font-weight: 600; white-space: nowrap; }
+/* Les chiffres en monospace, comme dans le dashboard. */
+.montant { font-family: var(--mono); font-weight: 600; white-space: nowrap; }
 .gain { color: var(--gain); }
 .perte { color: var(--perte); }
+.ambre { color: var(--ambre); }
+/* État d'une source de données : libellé en monospace, comme les montants. */
+.etat-source { font-family: var(--mono); font-weight: 600; font-size: 13px; white-space: nowrap; }
 
-.flotte { color: var(--secondaire); font-size: 13px; margin-top: 16px; }
+.flotte { color: var(--secondaire); font-family: var(--mono); font-size: 13px; margin-top: 16px; }
 
 /* Données périmées : chiffres grisés */
 body.perime .montant, body.perime .liste .nom, body.perime #ligne-liquid { color: var(--secondaire); }
 
 /* Contrôle segmenté 7 j / 30 j / tout */
-.segmente { display: flex; background: var(--surface); border-radius: 10px; padding: 2px; margin: 0 0 12px; }
+.segmente {
+  display: flex; background: var(--surface); border: 1px solid var(--filet); border-radius: var(--rayon);
+  padding: 2px; margin: 0 0 12px;
+}
 .segmente button {
   flex: 1; min-height: 44px; border: 0; border-radius: 8px; background: transparent;
   color: var(--secondaire); font-size: 15px;
 }
-.segmente button[aria-pressed="true"] { background: var(--filet); color: var(--texte); font-weight: 600; }
+.segmente button[aria-pressed="true"] { background: var(--releve); color: var(--texte); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
 
 #publication { margin-top: 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 #bouton-actualiser {
@@ -127,7 +151,7 @@ body.perime .montant, body.perime .liste .nom, body.perime #ligne-liquid { color
   color: var(--texte); font-size: 13px; text-decoration: underline; text-underline-offset: 3px;
 }
 
-/* Onglets en bas, au-dessus de la zone de sécurité */
+/* Onglets en bas, au-dessus de la zone de sécurité : étiquettes monospace en capitales, onglet actif souligné en gem. */
 nav {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 3;
   display: flex; background: var(--surface); border-top: 1px solid var(--filet);
@@ -135,9 +159,9 @@ nav {
 }
 nav button {
   flex: 1; min-height: var(--haut-onglets); border: 0; background: transparent;
-  color: var(--secondaire); font-size: 13px;
+  color: var(--secondaire); font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
 }
-nav button[aria-current="page"] { color: var(--texte); font-weight: 600; }
+nav button[aria-current="page"] { color: var(--texte); font-weight: 600; box-shadow: inset 0 2px 0 var(--accent); }
 
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
@@ -146,17 +170,18 @@ nav button[aria-current="page"] { color: var(--texte); font-weight: 600; }
 /* Pilotage (ADR 021) */
 .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
 .actions button, #form-fork button, .bouton-bras {
-  min-height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--filet);
+  min-height: 44px; padding: 0 16px; border-radius: var(--rayon); border: 1px solid var(--filet-fort);
   background: var(--surface); color: var(--texte); font: inherit; font-weight: 600;
 }
-button.danger { background: var(--perte); border-color: var(--perte); color: #10131c; }
+/* Action dangereuse : filet et texte rouges, pas d'aplat (la charte bannit les boutons pleins). */
+button.danger { background: var(--surface); border-color: var(--perte); color: var(--perte); }
 button:disabled { opacity: .5; }
 #form-fork label { display: block; margin: 12px 0 4px; color: var(--secondaire); font-size: 13px; }
 #form-fork select, #form-fork input {
-  width: 100%; min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--filet);
+  width: 100%; min-height: 44px; padding: 0 12px; border-radius: var(--rayon); border: 1px solid var(--filet-fort);
   background: var(--surface); color: var(--texte); font: inherit;
 }
 #form-fork button { margin-top: 16px; width: 100%; }
-#message-pilotage { margin-top: 16px; padding: 12px; border-radius: 10px; background: var(--surface); }
+#message-pilotage { margin-top: 16px; padding: 12px; border-radius: var(--rayon); background: var(--surface); border: 1px solid var(--filet); }
 .statut-appliquée { color: var(--gain); }
 .statut-refusée { color: var(--ambre); }

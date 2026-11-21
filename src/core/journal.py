@@ -134,6 +134,15 @@ class TradeJournal:
             "price_change_5m_at_entry": position.price_change_5m_at_entry,
             "stop_loss_target_pct": position.stop_loss_pct,
             "stop_loss_trigger_pct": position.effective_stop_loss_pct,
+            # Règles de SORTIE figées à l'entrée (2026-11-21). Sans elles, impossible de dire après
+            # coup si un pic à +105 % sans prise de profit était un bug (TP1 franchi sans jouer) ou
+            # un TP1 placé plus loin (+150 %) : l'apprentissage a pu changer la config depuis.
+            "take_profit_1_pct": getattr(position, "take_profit_1", None),
+            "take_profit_2_pct": getattr(position, "take_profit_2", None),
+            "breakeven_trigger_pct": getattr(position, "breakeven_trigger", None),
+            "trailing_activation_pct": getattr(position, "trailing_stop_activation", None),
+            "max_hold_minutes": getattr(position, "max_hold_time_minutes", None),
+            "exit_ladder": [list(r) for r in getattr(position, "ladder", ()) or ()] or None,
             # Coût réel déduit à la sortie (impact de prix + priority fee),
             # voir `src/core/exit_fees.py`. `None` = non mesuré à ce moment,
             # distinct de « mesuré et nul » — même invariant que le reste.

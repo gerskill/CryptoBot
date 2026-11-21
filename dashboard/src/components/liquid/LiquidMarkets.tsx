@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useFilter } from '../../lib/useFilter'
 import { Panel, Empty } from '../Panel'
 import { usePolled } from '../../lib/usePrediction'
 import type { Catalogue, CatalogueMarket } from '../../lib/predictionTypes'
@@ -40,8 +40,9 @@ function group(markets: CatalogueMarket[]): Row[] {
 }
 
 export function LiquidMarkets({ demo }: { demo: boolean }) {
-  const [famille, setFamille] = useState<string>('prix')
-  const [query, setQuery] = useState('')
+  const [familleRaw, setFamille] = useFilter('famille', 'prix')
+  const [query, setQuery] = useFilter('q', '')
+  const famille = (MARKET_FAMILLES as readonly string[]).includes(familleRaw) ? familleRaw : 'prix'
   const { data, error } = usePolled<Catalogue>(`/api/prediction/markets${demo ? '?demo=true' : ''}`, 30_000)
 
   if (!data) return <Empty>{error ? `Catalogue illisible (${error}).` : 'Chargement…'}</Empty>
