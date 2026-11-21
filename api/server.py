@@ -442,7 +442,9 @@ def get_params(
 # `scripts/prediction_demo.py` : chaque réponse porte alors
 # `exemple_fictif: true`, et l'interface l'affiche sous un bandeau.
 
-PREDICTION_STALE_SECONDS = 300
+# Un cycle dure ~100 s + 60 s d'attente (mesuré le 2026-11-21) et l'app ne voit
+# qu'une publication toutes les 2 min : 300 s déclarait la boucle arrêtée à tort.
+PREDICTION_STALE_SECONDS = 600
 _COIN_PATTERN = re.compile(r"^#?(\d{1,12})$")
 
 
