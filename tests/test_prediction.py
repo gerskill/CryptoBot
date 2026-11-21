@@ -625,6 +625,35 @@ class TestCompteReel(PredictionTestCase):
         # Il ne restait que 5 parts à 0,50 : les 15 autres à 0,52.
         self.assertAlmostEqual(second["entry_price"], (5 * 0.5 + 15 * 0.52) / 20)
 
+    def test_le_carnet_d_une_piece_n_est_lu_qu_une_fois_par_cycle_meme_avec_plusieurs_bras(self):
+        # Mesuré le 2026-11-21 : 252 lectures de carnet par cycle (120 s sur
+        # 146 s), car chaque bras relisait le même carnet.
+        meta, mids, _ = self._marches(1, ask=0.5)
+        books = {"#1000": {"bids": [(0.49, 500)], "asks": [(0.5, 25), (0.52, 500)]}}
+        autres = [dict(TEMOIN, name=f"pm_temoin_{i}") for i in range(3)]
+        api = FakeApi(meta, mids, books)
+        runner = self.runner(api, [TEMOIN, *autres])
+        runner.cycle()
+        self.assertEqual(api.book_calls, 1)
+        # Le cycle suivant repart de zéro : un carnet périmé ne survit pas au
+        # cycle. Un 2e marché apparaît ; seul SON carnet est lu, l'ancien est oublié.
+        meta2, mids2, books2 = self._marches(2, ask=0.5)
+        api.meta, api.mids, api.books = meta2, mids2, books2
+        self.clock[0] += timedelta(seconds=60)
+        runner.cycle()
+        self.assertEqual(api.book_calls, 2)
+        self.assertEqual(set(runner._books), {"#1010"})
+
+    def test_un_carnet_absent_n_est_pas_redemande_dans_le_meme_cycle(self):
+        # Une lecture qui échoue coûte 3 essais et jusqu'à 7 s d'attente : la
+        # refaire pour chaque bras multipliait la perte.
+        meta, mids, _ = self._marches(1, ask=0.5)
+        autres = [dict(TEMOIN, name=f"pm_temoin_{i}") for i in range(3)]
+        api = FakeApi(meta, mids, {})
+        result = self.runner(api, [TEMOIN, *autres]).cycle()
+        self.assertEqual(api.book_calls, 1)
+        self.assertEqual(result["raisons"]["pm_temoin_2:carnet_absent"], 1)
+
     def test_le_temoin_n_achete_pas_un_favori_que_le_carnet_vend_hors_de_sa_fourchette(self):
         # Cas réel du 2026-11-17 (pm_temoin-382601) : affiché 0,555, vendu 0,24.
         meta, mids, _ = self._marches(1, ask=0.555)
