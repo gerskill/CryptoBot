@@ -39,3 +39,14 @@ l'absolu, pas relativement à ses voisins de scan.
   propriété : ajouter des concurrents ne doit pas changer le score absolu.
 - Le seuil de 75 devient interprétable dans le temps — un score de 80
   aujourd'hui vaut un score de 80 la semaine prochaine.
+
+## Amendement 2026-11-21 (audit M2)
+
+La boucle d'entrée (`AlphaLoop._try_entries`) parcourait les candidats dans
+l'ordre du score de **classement** et s'arrêtait (`break`) au premier candidat
+sous le seuil **absolu**. Les deux scores n'ont pas le même ordre : un candidat
+éligible placé plus bas dans le classement n'était jamais tenté. La sélection
+passe maintenant par `candidats_au_seuil()` : on saute le candidat sous le seuil,
+on garde l'ordre du classement comme priorité. Effet attendu : un peu plus
+d'entrées sur les bras dont le classement et le score absolu divergent ; aucune
+entrée n'est prise sous le seuil absolu. Test : `tests/test_entrees_perdues_m2.py`.

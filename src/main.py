@@ -165,6 +165,20 @@ def _handle_sigint(*_: object) -> None:
     _running = False
 
 
+def candidats_au_seuil(candidates, threshold: float):
+    """Candidats dont le score ABSOLU atteint le seuil, dans l'ordre du score de CLASSEMENT.
+
+    Le seuil porte sur le score absolu : le score classant contient 40 % de rang dans le lot, et le
+    meilleur d'un lot médiocre le franchirait mécaniquement (ADR 003). Mais la liste est TRIÉE par
+    le score classant : jusqu'au 2026-11-21 la boucle s'arrêtait (`break`) au premier candidat
+    sous le seuil absolu, et un candidat éligible placé plus bas n'était jamais tenté (audit M2).
+    On saute le candidat sous le seuil au lieu de s'arrêter ; l'ordre de priorité ne change pas.
+    """
+    for candidate in candidates:
+        if candidate.alpha_score_absolute >= threshold:
+            yield candidate
+
+
 def _etat_onchain(observateur) -> Optional[dict]:
     """État public de l'observateur on-chain, ou None : l'écriture du state ne doit jamais tomber."""
     try:
@@ -1817,13 +1831,7 @@ class AlphaLoop:
         threshold = arm.entry_threshold
         max_positions = arm.max_positions
 
-        for candidate in evaluation.result.candidates:
-            # Le seuil porte sur le score ABSOLU : le score classant contient
-            # 40% de rang dans le batch, et le meilleur d'un lot médiocre le
-            # franchirait mécaniquement.
-            if candidate.alpha_score_absolute < threshold:
-                break
-
+        for candidate in candidats_au_seuil(evaluation.result.candidates, threshold):
             trace = (arm.name, candidate.token_address, candidate.symbol)
 
             # SCORE V2 (opt-in, 2026-10-10) : filtre anti-pump APRÈS le seuil
