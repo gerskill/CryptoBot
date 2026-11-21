@@ -99,6 +99,10 @@ class Candidate:
     price_change_1m: Optional[float] = None
     # Promotion payée sur DexScreener : signal d'intention, pas de qualité.
     dexscreener_paid: Optional[bool] = None
+    # D'où viennent bundlers/insiders/snipers/entrapment : `gmgn_trending` (appel de découverte,
+    # gratuit) ou `gmgn_token_info` (repli payant, 1 appel par token). None = aucun signal.
+    # Sert à vérifier que les deux sources disent la même chose avant de leur faire confiance.
+    manipulation_source: Optional[str] = None
 
     # --- Scoring ---
     alpha_score: float = 0.0  # 60% absolu + 40% rang dans le batch -> CLASSEMENT

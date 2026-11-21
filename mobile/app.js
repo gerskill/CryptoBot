@@ -21,7 +21,9 @@ const LIQUID_ARRETE_APRES_MS = 600 * 1000;    // comme le dashboard (PREDICTION_
 const RAFRAICHIR_MS = 60 * 1000;
 const TIRER_SEUIL_PX = 70;
 const PAS_DE_DONNEES = "Pas encore de données : le Mac n'a rien publié.";
-const TYPES_ALERTE = { ZOMBIE: 'Zombie', PANIC_STOP: "Arrêt d'urgence", PANNE: 'Panne' };
+// Santé des données : le libellé porte l'état (la couleur ne vient qu'en plus).
+const ETATS_SOURCE = { ok: ['OK', 'gain'], degrade: ['Dégradé', 'ambre'], coupe: ['Coupé', 'perte'], inconnu: ['À juger', 'secondaire'] };
+const TYPES_ALERTE = { ZOMBIE: 'Zombie', PANIC_STOP: "Arrêt d'urgence", PANNE: 'Panne', SANS_PRIX: 'Sans prix' };
 // Variables qu'un fork peut changer selon le rôle du parent : copie de
 // src/prediction/overlay.py (VARIABLES, BOUNDS). Le Mac revalide de toute façon.
 const VARIABLES_FORK = {
@@ -217,6 +219,26 @@ function afficherEtat(perime) {
           <div class="ligne-principale"><span class="nom">${echapper(TYPES_ALERTE[a.type] || a.type)}</span>
           <span class="secondaire">${echapper(ilYa(a.quand))}</span></div>
           <p class="secondaire">${a.bras ? `bras ${echapper(a.bras)}, ` : ''}${echapper(a.texte)}</p></li>`).join('');
+  afficherSante();
+}
+
+function afficherSante() {
+  const d = etat.donnees?.donnees;
+  const sources = Array.isArray(d?.sources) ? d.sources : [];
+  $('#liste-sources').innerHTML = !d
+    ? `<li class="vide">${PAS_DE_DONNEES}</li>`
+    : !sources.length
+      ? '<li class="vide">Aucune source à afficher.</li>'
+      : sources.map(s => {
+        const [libelle, classe] = ETATS_SOURCE[s.etat] || [String(s.etat), 'secondaire'];
+        return `<li><div class="ligne-principale"><span class="nom">${echapper(s.nom)}</span>
+          <span class="etat-source ${classe}">${echapper(libelle)}</span></div>
+          <p class="secondaire">${echapper(s.detail)}</p></li>`;
+      }).join('');
+  const vides = Array.isArray(d?.champs_vides) ? d.champs_vides : [];
+  $('#champs-vides').textContent = vides.length
+    ? `Champs vides à l'entrée (${pluriel(d.entrees, 'entrée', 'entrées')} en ${d.fenetre_h} h) : ${vides.map(c => `${c.champ} ${fmt(c.vide_pct, 0)} %`).join(', ')}.`
+    : '';
 }
 
 function afficherPositions() {

@@ -79,6 +79,21 @@ et mettre son adresse dans `.env` :
 HEALTHCHECK_PING_URL=https://hc-ping.com/<uuid>
 ```
 
+**Vérifier que les alertes arrivent sur le téléphone** (à refaire après chaque
+changement de `.env`) :
+
+1. Message de test, sans rien casser :
+   `python scripts/veille.py --test`. Un message « test de la veille » doit
+   arriver sur Telegram ; sinon la commande dit quelle variable manque.
+2. Vraie panne, sur le site seulement (le bot n'est pas touché) :
+   `launchctl bootout gui/$(id -u)/com.cryptobbot.ui`. Dans les 5 min :
+   « 🔴 ui : EN PANNE » sur Telegram, et une alerte « Panne » dans l'app.
+3. Remise en route : `./scripts/installe_services.sh ui`. Au passage suivant :
+   « ✅ ui : rétabli après N min ».
+
+La veille vérifie aussi la **santé des données** (`donnees`) : une source
+coupée envoie un message, un simple repli non (voir `src/core/sante_donnees.py`).
+
 ### 4. Accès depuis le téléphone
 
 - **Tailscale** (gratuit, recommandé) : le téléphone rejoint le réseau privé

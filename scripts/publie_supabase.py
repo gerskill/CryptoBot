@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Publication Supabase : les résumés du bot pour l'app iPhone, et ses commandes.
 
-CE QUE ÇA FAIT. Toutes les 2 minutes (launchd), construit sept résumés à partir
+CE QUE ÇA FAIT. Toutes les 2 minutes (launchd), construit huit résumés à partir
 des fonctions existantes de `api/server.py` (appelées directement, sans HTTP) et
 les enregistre dans la table `snapshots` de Supabase. L'app iPhone lit cette table.
 
@@ -46,7 +46,10 @@ import requests  # noqa: E402
 
 from contextlib import redirect_stdout  # noqa: E402
 
-from src import settings  # noqa: E402
+from src import settings
+from src.core import sante_donnees  # noqa: E402
+from src.core.arm import load_manifest  # noqa: E402
+from src.core.sans_prix import SANS_PRIX_ALERTE_MINUTES  # noqa: E402
 from src.core import commandes as boite_bot  # noqa: E402
 
 # api/server.py affiche un avertissement à l'import (jeton du site absent) :
@@ -199,11 +202,33 @@ def _alertes(maintenant: datetime) -> dict:
             "bras": None,
             "texte": f"{nom} en panne depuis {minutes} min",
         }))
+    # Positions ouvertes sans prix depuis 2 h ou plus : une panne en cours, pas une sortie.
+    # `sans_prix_depuis_min` est écrit par le bot (src/core/sans_prix.py) ; absent = pas d'alerte.
+    for p in server._state().get("positions") or []:
+        minutes = p.get("sans_prix_depuis_min")
+        if not isinstance(minutes, (int, float)) or minutes < SANS_PRIX_ALERTE_MINUTES:
+            continue
+        depuis = maintenant - timedelta(minutes=minutes)
+        pannes.append((depuis, {
+            "quand": depuis.astimezone(timezone.utc).isoformat(),
+            "type": "SANS_PRIX",
+            "bras": p.get("arm"),
+            "texte": f"{p.get('symbol') or '?'} : aucun prix depuis {int(minutes)} min",
+        }))
     # Les pannes EN COURS d'abord : vingt sorties récentes ne doivent pas
     # chasser du haut de la liste un service toujours à l'arrêt.
     pannes.sort(key=lambda t: t[0], reverse=True)
     lignes.sort(key=lambda t: t[0], reverse=True)
     return {"lignes": [ligne for _, ligne in (pannes + lignes)[:ALERTES_MAX]]}
+
+
+def _donnees(maintenant: datetime) -> dict:
+    """Santé des données : sources en direct (state.json) + entrées des 24 h (journaux).
+    Voir src/core/sante_donnees.py ; rien de stratégique n'en sort."""
+    bras = [e["name"] for e in load_manifest() if e.get("enabled", True)]
+    entrees = sante_donnees.charger_entrees(
+        maintenant, bras, lambda nom: settings.arm_paths(nom)["trades"])
+    return sante_donnees.resume(server._state(), entrees)
 
 
 def _vide(cle: str) -> dict:
@@ -215,13 +240,15 @@ def _vide(cle: str) -> dict:
         return {"lignes": []}
     if cle == "liquid":
         return {"bras": []}
+    if cle == "donnees":
+        return {"fenetre_h": sante_donnees.FENETRE_HEURES, "entrees": 0, "sources": [], "champs_vides": []}
     fenetre = dict(FENETRES)[cle]
     return {"fenetre": fenetre, "capital_par_bras": None, "bras": [],
             "flotte": {"trades": 0, "win_rate": None, "pnl_usd": None, "profit_factor": None}}
 
 
 def construire_snapshots(maintenant: datetime) -> dict:
-    """Les sept résumés du contrat. Un constructeur qui échoue donne son résumé
+    """Les huit résumés du contrat. Un constructeur qui échoue donne son résumé
     vide sans faire tomber les autres : `data/` vide = « aucune donnée »."""
     maintenant = maintenant.astimezone(timezone.utc)
     resume_liquid = _resume_liquid()
@@ -230,6 +257,7 @@ def construire_snapshots(maintenant: datetime) -> dict:
         "positions": _positions,
         "liquid": lambda: _liquid(resume_liquid),
         "alertes": lambda: _alertes(maintenant),
+        "donnees": lambda: _donnees(maintenant),
     }
     for cle, fenetre in FENETRES:
         constructeurs[cle] = (lambda f=fenetre: _perf(f))

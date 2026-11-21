@@ -3,7 +3,10 @@ import { Panel, Empty } from '../Panel'
 import { usePolled } from '../../lib/usePrediction'
 import type { PredictionArm, PredictionRequest } from '../../lib/predictionTypes'
 import { utc } from '../../lib/format'
-import { REASON_LABEL, sendRequest } from './liquidRequests'
+import { REASON_LABEL } from './liquidRequests'
+import { sendLiquidAction } from '../../lib/pilotage'
+import { usePilotageStore } from '../../lib/pilotageStore'
+import { PilotageJournal } from '../pilotage/PilotageJournal'
 
 type Requests = { total: number; requests: PredictionRequest[]; bornes: Record<string, [number, number]>; max_forks: number }
 
@@ -30,6 +33,7 @@ function ForkForm({ arms, token, onSent }: { arms: PredictionArm[]; token: strin
   const [high, setHigh] = useState('')
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  const record = usePilotageStore((st) => st.record)
 
   if (!parent) return <Empty>Aucun bras ne peut être forké.</Empty>
   const current = parent.reglages
@@ -48,11 +52,12 @@ function ForkForm({ arms, token, onSent }: { arms: PredictionArm[]; token: strin
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
     setBusy(true)
-    const error = await sendRequest({ action: 'fork', parent: parent.arm, name, variable, value: value() }, token)
+    const outcome = await sendLiquidAction({ action: 'fork', parent: parent.arm, name, variable, value: value() }, token)
     setBusy(false)
-    setMessage(error ? { ok: false, text: `Refusé : ${error}` }
+    record({ label: `Fork ${name} ← ${parent.arm}`, kind: 'liquid', ok: outcome.ok, detail: outcome.detail })
+    setMessage(!outcome.ok ? { ok: false, text: outcome.detail }
       : { ok: true, text: `Demande déposée. ${name} apparaîtra au prochain cycle de la simulation.` })
-    if (!error) { setName(''); onSent() }
+    if (outcome.ok) { setName(''); onSent() }
   }
 
   return (
@@ -97,7 +102,7 @@ function ForkForm({ arms, token, onSent }: { arms: PredictionArm[]; token: strin
           className="rounded-md bg-tide/15 px-4 py-2 font-mono text-[11px] uppercase tracking-wider text-tide ring-1 ring-tide/40 transition-colors hover:bg-tide/25 disabled:opacity-50">
           Créer le fork
         </button>
-        {message && <span className={`text-[11px] ${message.ok ? 'text-toxic' : 'text-blood'}`}>{message.text}</span>}
+        {message && <span role={message.ok ? 'status' : 'alert'} className={`text-[11px] ${message.ok ? 'text-ink' : 'text-warn'}`}>{message.text}</span>}
       </div>
     </form>
   )
@@ -138,6 +143,7 @@ export function LiquidActions({ arms, token, setToken, reloadKey, onSent }: {
           </ul>
         )}
       </Panel>
+      <div className="xl:col-span-2"><PilotageJournal /></div>
     </div>
   )
 }

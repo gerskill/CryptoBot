@@ -33,6 +33,13 @@ def _cles(chemin_logique: str) -> list[str]:
 
 class TestContratApp(DonneesTestCase):
 
+    def _entree_recente(self, pid):
+        """Une sortie finale entrée il y a 3 h, pour que `donnees.champs_vides` ne soit pas vide."""
+        ligne = self._sortie(pid, "TIME_STOP", MAINTENANT - timedelta(hours=1))
+        ligne.update(timestamp_entry=(MAINTENANT - timedelta(hours=3)).isoformat(),
+                     onchain_status="error", holders_at_entry=None, entry_bundler_rate=None)
+        return ligne
+
     def setUp(self):
         super().setUp()
         with open(CONTRAT_PATH, encoding="utf-8") as fh:
@@ -43,7 +50,8 @@ class TestContratApp(DonneesTestCase):
             "positions": [{"arm": "sniper", "symbol": "PEPE", "pnl_pct": 12.5, "size_usd": 50.0,
                            "duration_min": 14.2, "tp1_hit": True}],
         })
-        self._trades("baseline", [self._sortie("a", "TAKE_PROFIT_1", MAINTENANT - timedelta(days=1), pnl=10)])
+        self._trades("baseline", [self._sortie("a", "TAKE_PROFIT_1", MAINTENANT - timedelta(days=1), pnl=10),
+                                  self._entree_recente("c")])
         self._trades("sniper", [self._sortie("b", "ZOMBIE (sans prix)", MAINTENANT - timedelta(hours=2), pnl=-4)])
         self._ecrire("veille_etat.json", {"liquid_runner": {"ok": False, "depuis": (MAINTENANT - timedelta(minutes=30)).isoformat()}})
         patch = mock.patch.object(pub.server, "get_prediction_summary", return_value={
@@ -54,7 +62,7 @@ class TestContratApp(DonneesTestCase):
         self.addCleanup(patch.stop)
         self.snaps = pub.construire_snapshots(MAINTENANT)
 
-    def test_les_sept_cles_et_leurs_champs_sont_ceux_que_l_app_lit(self):
+    def test_les_huit_cles_et_leurs_champs_sont_ceux_que_l_app_lit(self):
         self.assertEqual(set(self.snaps), set(self.contrat["cles"]))
         for cle, champs in self.contrat["cles"].items():
             self.assertEqual(set(self.snaps[cle]), set(champs), cle)

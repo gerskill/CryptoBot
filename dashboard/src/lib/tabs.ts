@@ -12,6 +12,7 @@ export const MEME_TABS: { id: View; label: string }[] = [
   { id: 'weekly', label: 'Weekly' },
   { id: 'config', label: 'Config' },
   { id: 'backtester', label: 'Backtester' },
+  { id: 'pilotage', label: 'Pilotage' },
 ]
 
 export const LIQUID_TABS: { id: LiquidView; label: string }[] = [

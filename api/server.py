@@ -21,9 +21,11 @@ from typing import Any, Optional
 
 from fastapi import Body, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import PlainTextResponse
 
 from src import settings
+from src.core import commandes as boite_bot
 from src.core.arm import load_manifest
 from src.core.journal import TradeJournal
 from src.monitoring.metrics import generate_metrics_text
@@ -69,7 +71,7 @@ def _require_token(token: Optional[str] = None, authorization: Optional[str] = N
     if API_TOKEN is None:
         return
     candidate = _extract_bearer(authorization) or token
-    if candidate is None or not secrets.compare_digest(candidate, API_TOKEN):
+    if candidate is None or not secrets.compare_digest(candidate.encode(), API_TOKEN.encode()):
         raise HTTPException(status_code=401, detail="jeton invalide ou absent")
 
 
@@ -92,7 +94,28 @@ STALE_AFTER_SECONDS = 180
 
 app = FastAPI(title="Alpha Loop Meme API", version="3.0")
 
+LOCAL_HOSTS = ("localhost", "127.0.0.1")
+
+
+def parse_allowed_hosts(raw: Optional[str]) -> list[str]:
+    """Hôtes acceptés dans l'en-tête Host : local, plus `DASHBOARD_ALLOWED_HOSTS`
+    (séparés par des virgules, pour le domaine d'un tunnel). Pas de joker : un
+    `*` rouvrirait le rebinding DNS qu'on ferme ici."""
+    extra = [h.strip().lower() for h in (raw or "").split(",")]
+    return list(LOCAL_HOSTS) + [h for h in extra if h and "*" not in h and h not in LOCAL_HOSTS]
+
+
+def _hote_local(host: Optional[str]) -> bool:
+    """Vrai si l'en-tête Host désigne cette machine (port ignoré), exactement."""
+    if not host:
+        return False
+    return host.split(":")[0].lower() in LOCAL_HOSTS
+
+
 # Le dashboard tourne sur un autre port en dev (Vite sur 5173).
+# Rebinding DNS : une page tierce dont le nom pointe vers 127.0.0.1 enverrait
+# des requêtes « même origine » avec SON Host. On refuse tout Host inconnu.
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=parse_allowed_hosts(os.getenv("DASHBOARD_ALLOWED_HOSTS")))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -605,6 +628,65 @@ def deposer_demande_prediction(payload: dict[str, Any]) -> dict[str, Any]:
     _append_jsonl(prediction_overlay.requests_path(settings.PREDICTION_DATA_DIR), request)
     return {"ok": True, "id": request["id"], "statut": "en attente",
             "note": "appliquée au prochain cycle de la simulation"}
+
+
+# ---------------------------------------------------------------------------
+# Pilotage depuis le site : arrêt d'urgence et reprise (ADR 021)
+# ---------------------------------------------------------------------------
+# Même boîte, mêmes deux actions que l'iPhone (`scripts/publie_supabase.py`) et
+# que Telegram (/STOP, /RESUME). Le site ne PILOTE pas la boucle : il dépose un
+# fichier, la boucle (seule propriétaire de son état) le lit au cycle suivant.
+# Rien ici n'ouvre une position ni n'accepte un ordre.
+
+def _data_dir_bot() -> str:
+    return os.path.join(settings.BASE_DIR, "data")
+
+
+@app.get("/api/bot/commandes")
+def get_bot_commandes(authorization: Optional[str] = Header(default=None)) -> dict[str, Any]:
+    """Commandes déposées que la boucle n'a pas encore lues, et le délai de péremption.
+    Jeton par `Authorization` seulement : jamais dans l'URL."""
+    _require_token(None, authorization)
+    return {"en_attente": boite_bot.en_attente(_data_dir_bot()),
+            "expire_apres_s": boite_bot.EXPIRE_S, "actions": sorted(boite_bot.COMMANDES)}
+
+
+@app.post("/api/bot/commandes")
+def post_bot_commande(
+    payload: dict[str, Any] = Body(...),
+    authorization: Optional[str] = Header(default=None),
+    x_cryptobbot: Optional[str] = Header(default=None),
+    content_type: Optional[str] = Header(default=None),
+    host: Optional[str] = Header(default=None),
+) -> dict[str, Any]:
+    """Dépose UNE commande `stop` ou `resume` dans la boîte de la boucle.
+
+    Mêmes garde-fous que la boîte de demandes Liquid : jeton `DASHBOARD_TOKEN`
+    (si défini), en-tête `X-CryptobBot` et type JSON (un navigateur tiers doit
+    passer par un preflight que le CORS refuse). Liste d'actions fermée.
+    """
+    _require_token(None, authorization)
+    if API_TOKEN is None and not _hote_local(host):
+        # Sans jeton, seul l'accès local est admis : un tunnel sans jeton ne pilote pas le bot.
+        raise HTTPException(status_code=403, detail="sans DASHBOARD_TOKEN, commande refusée hors accès local")
+    if x_cryptobbot != "1" or not (content_type or "").lower().startswith("application/json"):
+        raise HTTPException(status_code=400, detail="en-tête X-CryptobBot ou type JSON manquant")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="commande illisible")
+    action = payload.get("action")
+    if not isinstance(action, str) or action not in boite_bot.COMMANDES:
+        raise HTTPException(status_code=422, detail="action inconnue : stop ou resume seulement")
+    # Pas de plafond global (il pourrait bloquer un `stop`) : un doublon valide
+    # est simplement signalé. Au plus deux commandes valides en attente (stop, resume).
+    existante = boite_bot.deja_en_attente(_data_dir_bot(), action)
+    if existante:
+        return {"ok": True, "id": existante, "statut": "en attente",
+                "note": "déjà en attente : la boucle la lira à son prochain cycle"}
+    ident = f"{int(time.time() * 1000):013d}-site{secrets.token_hex(3)}"
+    boite_bot.deposer(_data_dir_bot(), action, ident)
+    quoi = "arrêt d'urgence" if action == "stop" else "reprise des entrées"
+    return {"ok": True, "id": ident, "statut": "en attente",
+            "note": f"{quoi} transmis à la boucle (prochain cycle, périmé après 15 min)"}
 
 
 @app.get("/api/prediction/markets")
