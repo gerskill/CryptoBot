@@ -33,14 +33,17 @@ export function useGlobalShortcuts(): void {
     let timer: ReturnType<typeof setTimeout> | undefined
 
     const onKey = (ev: KeyboardEvent) => {
+      if (ev.repeat) return
       const st = useStore.getState()
+      // « g » en attente ne survit jamais à une autre frappe, même ignorée.
+      const waitingG = pendingG
+      pendingG = false
+      clearTimeout(timer)
       if (!st.shortcutsEnabled || ev.defaultPrevented || ev.isComposing) return
       if (st.paletteOpen || st.helpOpen) return
       if (isEditableTarget(ev.target) && !(ev.ctrlKey || ev.metaKey)) return
 
-      const action = resolveKey(ev, { space: st.space, pendingG })
-      pendingG = false
-      clearTimeout(timer)
+      const action = resolveKey(ev, { space: st.space, pendingG: waitingG })
       if (!action) return
       ev.preventDefault()
 

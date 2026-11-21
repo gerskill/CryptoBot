@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { useStore } from '../lib/store'
 import { SHORTCUT_DOCS } from '../lib/shortcuts'
@@ -10,7 +10,10 @@ function HelpDialog({ onClose }: { onClose: () => void }) {
   const setEnabled = useStore((s) => s.setShortcutsEnabled)
   const announce = useStore((s) => s.announce)
   const ref = useRef<HTMLDivElement>(null)
+  const closeRef = useRef<HTMLButtonElement>(null)
   useFocusTrap(ref, onClose)
+  // Après useFocusTrap : l'élément à restaurer est déjà mémorisé.
+  useEffect(() => { closeRef.current?.focus() }, [])
 
   const toggle = (value: boolean) => {
     setEnabled(value)
@@ -33,7 +36,7 @@ function HelpDialog({ onClose }: { onClose: () => void }) {
           <h2 id="help-title" className="text-[11px] font-semibold uppercase tracking-[0.2em] text-dim">
             Raccourcis clavier
           </h2>
-          <button type="button" onClick={onClose} autoFocus
+          <button type="button" ref={closeRef} onClick={onClose}
             className="h-11 min-w-11 rounded-md px-2 font-mono text-[11px] uppercase tracking-wider text-muted ring-1 ring-edge hover:text-ink">
             Fermer
           </button>

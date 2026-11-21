@@ -1,13 +1,17 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import type { RefObject } from 'react'
 
-const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), [href], select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), [href], select:not([disabled]), textarea:not([disabled]), [contenteditable]:not([contenteditable="false"]), [tabindex]:not([tabindex="-1"])'
 
 /**
  * Piège le focus dans une boîte de dialogue : Tab/Maj+Tab bouclent, Échap
  * ferme, et le focus revient à l'élément qui avait la main avant l'ouverture.
  */
 export function useFocusTrap(ref: RefObject<HTMLElement | null>, onClose: () => void): void {
+  // Dans un ref : un callback inline ne doit pas relancer l'effet (et le focus).
+  const closeRef = useRef(onClose)
+  useEffect(() => { closeRef.current = onClose })
+
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
     const node = ref.current
@@ -17,7 +21,7 @@ export function useFocusTrap(ref: RefObject<HTMLElement | null>, onClose: () => 
       if (ev.key === 'Escape') {
         ev.preventDefault()
         ev.stopPropagation()
-        onClose()
+        closeRef.current()
         return
       }
       if (ev.key !== 'Tab') return
@@ -39,5 +43,5 @@ export function useFocusTrap(ref: RefObject<HTMLElement | null>, onClose: () => 
       node.removeEventListener('keydown', onKey)
       previous?.focus?.()
     }
-  }, [ref, onClose])
+  }, [ref])
 }

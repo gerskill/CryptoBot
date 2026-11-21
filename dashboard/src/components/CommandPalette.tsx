@@ -20,6 +20,17 @@ function buildRows(query: string, all: Destination[], recents: string[]): Row[] 
   ]
 }
 
+/** Regroupe les lignes consécutives de même groupe, en gardant l'index global. */
+function groupRows(rows: Row[]): { name: string; index: number; rows: { row: Row; i: number }[] }[] {
+  const out: { name: string; index: number; rows: { row: Row; i: number }[] }[] = []
+  rows.forEach((row, i) => {
+    const last = out[out.length - 1]
+    if (last && last.name === row.group) last.rows.push({ row, i })
+    else out.push({ name: row.group, index: out.length, rows: [{ row, i }] })
+  })
+  return out
+}
+
 function PaletteDialog({ onClose }: { onClose: () => void }) {
   const arms = useStore((s) => s.state.arms)
   const positions = useStore((s) => s.state.positions)
@@ -29,6 +40,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   const dialogRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listId = useId()
+  const keyboardNav = useRef(false)
   useFocusTrap(dialogRef, onClose)
 
   const all = useMemo(() => buildDestinations({
@@ -40,7 +52,10 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   const optionId = (i: number) => `${listId}-opt-${i}`
 
   useEffect(() => { inputRef.current?.focus() }, [])
+  // Défilement seulement quand la sélection vient du clavier (pas de la souris).
   useEffect(() => {
+    if (!keyboardNav.current) return
+    keyboardNav.current = false
     document.getElementById(optionId(current))?.scrollIntoView?.({ block: 'nearest' })
   }, [current]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -54,6 +69,9 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   }
 
   const onKeyDown = (ev: React.KeyboardEvent) => {
+    // IME : Entrée/flèches valident la composition, pas la palette.
+    if (ev.nativeEvent.isComposing || ev.keyCode === 229) return
+    keyboardNav.current = true
     if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
       ev.preventDefault()
       if (!rows.length) return
@@ -65,7 +83,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     }
   }
 
-  let lastGroup = ''
+  const groups = groupRows(rows)
   return (
     <motion.div
       className="fixed inset-0 z-50 flex items-start justify-center bg-void/80 px-4 pt-[10vh]"
@@ -95,29 +113,28 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
           </button>
         </div>
         <ul id={listId} role="listbox" aria-label="Destinations" className="max-h-[60vh] overflow-y-auto py-1">
-          {rows.map((row, i) => {
-            const header = row.group !== lastGroup ? row.group : null
-            lastGroup = row.group
-            return (
-              <li key={`${row.group}-${row.dest.id}`} role="presentation">
-                {header && (
-                  <div role="presentation" className="px-4 pb-1 pt-2 text-[11px] uppercase tracking-[0.15em] text-dim">
-                    {header}
+          {groups.map((g) => (
+            <li key={g.name} role="presentation">
+              <div id={`${listId}-g-${g.index}`} role="presentation" className="px-4 pb-1 pt-2 text-[11px] uppercase tracking-[0.15em] text-dim">
+                {g.name}
+              </div>
+              <div role="group" aria-labelledby={`${listId}-g-${g.index}`}>
+                {g.rows.map(({ row, i }) => (
+                  <div
+                    key={`${g.name}-${row.dest.id}`}
+                    id={optionId(i)} role="option" aria-selected={i === current}
+                    onClick={() => choose(row)} onMouseMove={() => { keyboardNav.current = false; setActive(i) }}
+                    className={`flex min-h-11 cursor-pointer items-center justify-between gap-3 px-4 py-2 text-sm ${
+                      i === current ? 'bg-raised text-ink' : 'text-muted'
+                    }`}
+                  >
+                    <span className="truncate">{row.dest.label}</span>
+                    {row.dest.hint && <span className="shrink-0 text-[11px] text-dim">{row.dest.hint}</span>}
                   </div>
-                )}
-                <div
-                  id={optionId(i)} role="option" aria-selected={i === current}
-                  onClick={() => choose(row)} onMouseMove={() => setActive(i)}
-                  className={`flex min-h-11 cursor-pointer items-center justify-between gap-3 px-4 py-2 text-sm ${
-                    i === current ? 'bg-raised text-ink' : 'text-muted'
-                  }`}
-                >
-                  <span className="truncate">{row.dest.label}</span>
-                  {row.dest.hint && <span className="shrink-0 text-[11px] text-dim">{row.dest.hint}</span>}
-                </div>
-              </li>
-            )
-          })}
+                ))}
+              </div>
+            </li>
+          ))}
         </ul>
         <div role="status" className="sr-only">
           {rows.length ? `${rows.length} destinations` : 'Aucun résultat'}

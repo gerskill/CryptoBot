@@ -29,6 +29,12 @@ describe('resolveKey', () => {
     expect(resolveKey(key('m'), { space: 'liquid', pendingG: true })).toEqual({ type: 'tab', index: 2 })
     expect(resolveKey(key('z'), { ...ctx, pendingG: true })).toBeNull()
   })
+  it('reconnaît les chiffres AZERTY par la position physique', () => {
+    expect(resolveKey(key('&', { code: 'Digit1' }), ctx)).toEqual({ type: 'tab', index: 0 })
+    expect(resolveKey(key('é', { code: 'Digit2' }), ctx)).toEqual({ type: 'tab', index: 1 })
+    expect(resolveKey(key('1', { code: 'Digit1', shiftKey: true }), ctx)).toEqual({ type: 'tab', index: 0 })
+    expect(resolveKey(key('!', { code: 'Digit1', shiftKey: true }), ctx)).toBeNull()
+  })
   it('ne masque jamais les raccourcis du navigateur', () => {
     expect(resolveKey(key('1', { ctrlKey: true }), ctx)).toBeNull()
     expect(resolveKey(key('1', { metaKey: true }), ctx)).toBeNull()
@@ -45,6 +51,13 @@ describe('isEditableTarget', () => {
     const div = document.createElement('div')
     div.setAttribute('contenteditable', 'true')
     expect(isEditableTarget(div)).toBe(true)
+  })
+  it('reconnaît searchbox et spinbutton', () => {
+    for (const role of ['searchbox', 'spinbutton']) {
+      const div = document.createElement('div')
+      div.setAttribute('role', role)
+      expect(isEditableTarget(div)).toBe(true)
+    }
   })
   it('laisse passer le reste', () => {
     expect(isEditableTarget(document.createElement('button'))).toBe(false)

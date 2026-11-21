@@ -5,7 +5,12 @@ import type { UrlState } from './urlState'
 /** Applique une cible de navigation et l'annonce aux lecteurs d'écran. */
 export function navigateTo(target: Partial<UrlState>, label: string): void {
   const st = useStore.getState()
-  st.applyUrlState(target)
+  const moves =
+    (target.view !== undefined && target.view !== st.view) ||
+    (target.liquidView !== undefined && target.liquidView !== st.liquidView) ||
+    (target.space !== undefined && target.space !== st.space)
+  // Nouvelle vue : le panneau et les filtres repartent de zéro, sauf cible explicite.
+  st.applyUrlState(moves ? { panel: null, filters: {}, ...target } : target)
   st.announce(`Navigation : ${label}`)
 }
 

@@ -44,6 +44,15 @@ describe('CommandPalette', () => {
     expect(useStore.getState().announcement).toContain('Weekly')
   })
 
+  it('ignore Entrée pendant une composition (IME)', () => {
+    render(<CommandPalette />)
+    ouvrir()
+    const input = screen.getByRole('combobox')
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })
+    expect(useStore.getState().paletteOpen).toBe(true)
+  })
+
   it('se déplace avec les flèches (circulaire)', () => {
     render(<CommandPalette />)
     ouvrir()
@@ -86,6 +95,14 @@ describe('CommandPalette', () => {
     render(<CommandPalette />)
     ouvrir()
     expect(screen.getAllByRole('option')[0].textContent).toContain('Config')
+  })
+
+  it('nomme les groupes d’options', () => {
+    render(<CommandPalette />)
+    ouvrir()
+    const groupes = screen.getAllByRole('group')
+    expect(groupes.length).toBeGreaterThan(2)
+    for (const g of groupes) expect(g.getAttribute('aria-labelledby')).toBeTruthy()
   })
 
   it('annonce l’absence de résultat', () => {

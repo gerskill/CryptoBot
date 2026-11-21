@@ -94,8 +94,10 @@ export const useStore = create<Store>((set) => ({
   setEquitySeries: (equitySeries) => set({ equitySeries }),
   setShadow: (shadow) => set({ shadow }),
   setConnected: (connected) => set({ connected }),
-  setView: (view) => set({ view }),
-  setSpace: (space) => set({ space }),
-  setLiquidView: (liquidView) => set({ liquidView }),
+  // Changer d'onglet ou d'espace efface le contexte local (panneau, filtres) :
+  // il n'a de sens que dans la vue où il a été posé.
+  setView: (view) => set((s) => (s.view === view ? {} : { view, panel: null, filters: {} })),
+  setSpace: (space) => set((s) => (s.space === space ? {} : { space, panel: null, filters: {} })),
+  setLiquidView: (liquidView) => set((s) => (s.liquidView === liquidView ? {} : { liquidView, panel: null, filters: {} })),
   setLiquidDemo: (liquidDemo) => set({ liquidDemo }),
 }))

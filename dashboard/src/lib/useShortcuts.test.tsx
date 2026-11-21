@@ -52,6 +52,21 @@ describe('useGlobalShortcuts', () => {
     expect(useStore.getState().view).toBe('dashboard')
   })
 
+  it('ignore la répétition automatique', () => {
+    renderHook(() => useGlobalShortcuts())
+    fireEvent.keyDown(window, { key: 's' })
+    fireEvent.keyDown(window, { key: 's', repeat: true })
+    expect(useStore.getState().space).toBe('liquid')
+  })
+
+  it('annule « g » quand une autre touche arrive', () => {
+    renderHook(() => useGlobalShortcuts())
+    fireEvent.keyDown(window, { key: 'g' })
+    fireEvent.keyDown(window, { key: 'Shift' })
+    fireEvent.keyDown(window, { key: 'c' })
+    expect(useStore.getState().view).toBe('dashboard')
+  })
+
   it('est désactivable', () => {
     localStorage.setItem('cryptobot.shortcuts.enabled', 'off')
     renderHook(() => useGlobalShortcuts())

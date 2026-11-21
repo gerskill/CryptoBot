@@ -154,9 +154,10 @@ export function LiquidBets({ summary, bets, demo }: {
 
   // Plus récents en premier : c'est ce qu'on vient regarder.
   const [statut, setStatut] = useFilter('statut', 'tous')
-  const [domaine, setDomaine] = useFilter('domaine', 'tous')
+  const [domaineRaw, setDomaine] = useFilter('domaine', 'tous')
   const allArmBets = bets.filter((b) => b.arm === armName).slice().reverse()
   const armDomains = [...new Set(allArmBets.map((b) => b.domain))]
+  const domaine = armDomains.includes(domaineRaw) ? domaineRaw : 'tous'
   const armBets = allArmBets.filter((b) =>
     (statut === 'tous' || b.status === statut) && (domaine === 'tous' || b.domain === domaine))
   const bet = armBets.find((b) => b.id === betChoice) ?? armBets[0] ?? null
@@ -171,7 +172,7 @@ export function LiquidBets({ summary, bets, demo }: {
       <div className="grid min-w-0 grid-cols-1 gap-4">
         <Panel title="Bras de prédiction" count={arms.length}
           hint="Clique un bras : les chiffres, les paris et le graphique de la page le suivent.">
-          <ArmTable arms={arms} selected={armName} onSelect={(name) => { setArmChoice(name); setBetChoice(null) }} />
+          <ArmTable arms={arms} selected={armName} onSelect={(name) => { setArmChoice(name); setBetChoice(null); setStatut('tous'); setDomaine('tous') }} />
         </Panel>
 
         <Panel title={`Chiffres du bras ${armName ?? '—'}`}
@@ -244,7 +245,7 @@ export function LiquidBets({ summary, bets, demo }: {
               </select>
             </label>
             <label className="flex items-center gap-1.5">Domaine
-              <select value={armDomains.includes(domaine) ? domaine : 'tous'} onChange={(e) => setDomaine(e.target.value)}
+              <select value={domaine} onChange={(e) => setDomaine(e.target.value)}
                 className="rounded bg-void px-1.5 py-1 font-mono text-[11px] normal-case text-ink ring-1 ring-edge/60">
                 <option value="tous">tous</option>
                 {armDomains.map((d) => <option key={d} value={d}>{DOMAIN_LABEL[d] ?? d}</option>)}
