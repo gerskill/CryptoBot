@@ -181,6 +181,10 @@ def gmgn_to_candidate(
         history_highest_market_cap=_opt_float(row.get("history_highest_market_cap")),
         price_change_1m=_opt_float(row.get("price_change_percent1m")),
         dexscreener_paid=bool(row.get("dexscr_ad") or row.get("dexscr_boost_fee")),
+        manipulation_source="gmgn_trending" if any(
+            row.get(k) is not None
+            for k in ("bundler_rate", "insider_rate", "sniper_count", "entrapment_ratio")
+        ) else None,
         raw=row,
     )
 
@@ -224,6 +228,63 @@ def discovery_envelope(filter_sets: list[dict[str, Any]]) -> dict[str, Any]:
             else None
         ),
     }
+
+
+# Champs que GMGN connaît et que DexScreener ne donne pas : sur un doublon, `_merge` les greffe sur la
+# fiche DexScreener. Avant le 2026-11-21 seuls holders/concentration/smart money l'étaient, et les
+# signaux de manipulation, déjà payés par l'appel de découverte, étaient jetés.
+CHAMPS_GMGN_GREFFES = (
+    "holders", "holders_is_exact", "top10_holder_pct",
+    "mint_authority_revoked", "freeze_authority_revoked", "smart_money_buys_30m",
+    "swaps", "sniper_count", "bot_degen_count", "renowned_count", "bundler_rate",
+    "insider_rate", "entrapment_ratio", "rug_ratio", "is_wash_trading", "bluechip_owner_pct",
+    "burn_ratio", "dev_token_burn_ratio", "creator_token_status", "twitter_rename_count",
+    "twitter_create_token_count", "launchpad", "initial_liquidity",
+    "history_highest_market_cap", "price_change_1m", "manipulation_source",
+)
+# Signaux de manipulation : un candidat qui n'en a AUCUN passe les filtres correspondants sans contrôle.
+SIGNAUX_MANIPULATION = ("bundler_rate", "insider_rate", "sniper_count", "entrapment_ratio")
+# Repli `gmgn token info` : 1 appel par token (cache 120 s). GMGN tient ~60 appels/min et sert
+# déjà la découverte, le smart money et la concentration : 10 par cycle de 90 s laisse de la marge.
+REPLI_MANIPULATION_MAX_PAR_CYCLE = 10
+
+
+def manipulation_depuis_token_info(info: Any) -> dict[str, Any]:
+    """Champs de `gmgn token info` qui correspondent aux signaux du classement `market trending`.
+
+    Correspondance d'après la documentation GMGN (skill gmgn-token) : `stat.top_bundler_trader_percentage`
+    ↔ `bundler_rate`, `stat.top_rat_trader_percentage` ↔ `insider_rate`,
+    `stat.top_entrapment_trader_percentage` ↔ `entrapment_ratio`, `wallet_tags_stat.sniper_wallets`
+    ↔ `sniper_count`. Même échelle 0-1 annoncée [À VÉRIFIER sur données réelles : la colonne
+    `entry_manipulation_source` du journal permet de comparer les deux sources]. Réponse illisible :
+    `{}`, jamais d'exception."""
+    if not isinstance(info, dict):
+        return {}
+    stat = info.get("stat") if isinstance(info.get("stat"), dict) else {}
+    tags = info.get("wallet_tags_stat") if isinstance(info.get("wallet_tags_stat"), dict) else {}
+    brut = {
+        "bundler_rate": _opt_float(stat.get("top_bundler_trader_percentage")),
+        "insider_rate": _opt_float(stat.get("top_rat_trader_percentage")),
+        "entrapment_ratio": _opt_float(stat.get("top_entrapment_trader_percentage")),
+        "sniper_count": _opt_int(tags.get("sniper_wallets")),
+        "bot_degen_count": _opt_int(stat.get("bot_degen_count")),
+        "holders": _opt_int(info.get("holder_count", stat.get("holder_count"))),
+    }
+    return {k: v for k, v in brut.items() if v is not None}
+
+
+# Données qu'un bras peut EXIGER (`filters.require_data`, ADR 022) : nom affiché → attribut de
+# `Candidate`. Ce sont les mêmes noms que ceux mesurés par `src/core/sante_donnees.py`.
+DONNEES_EXIGIBLES = {
+    "holders": "holders",
+    "bundlers": "bundler_rate",
+    "insiders": "insider_rate",
+    "snipers": "sniper_count",
+    "entrapment": "entrapment_ratio",
+    "smart_money": "smart_money_buys_30m",
+}
+# Noms inconnus déjà signalés : une faute de frappe dans une config ne doit pas inonder le journal.
+_DONNEES_INCONNUES_SIGNALEES: set[str] = set()
 
 
 class ScanPipeline:
@@ -291,7 +352,7 @@ class ScanPipeline:
         raw = self._trim(raw, watched, scan_cfg.get("max_candidates_enriched", 25))
 
         enriched = self._enrich_wallet_reliability(
-            self._enrich_smart_money(self._enrich_all(raw, envelope))
+            self._enrich_smart_money(self._repli_manipulation(self._enrich_all(raw, envelope)))
         )
 
         # Historique de prix sur TOUS les enrichis, pas seulement les retenus :
@@ -610,11 +671,7 @@ class ScanPipeline:
                 continue
             updates = {
                 field: getattr(candidate, field)
-                for field in (
-                    "holders", "holders_is_exact", "top10_holder_pct",
-                    "mint_authority_revoked", "freeze_authority_revoked",
-                    "smart_money_buys_30m",
-                )
+                for field in CHAMPS_GMGN_GREFFES
                 if getattr(existing, field) is None
                 and getattr(candidate, field) is not None
             }
@@ -769,6 +826,47 @@ class ScanPipeline:
 
         self._audit_cache[candidate.token_address] = (time.time(), updates)
         return candidate.with_fields(**updates)
+
+    def _repli_manipulation(self, candidates: list[Candidate]) -> list[Candidate]:
+        """Signaux de manipulation pour les candidats qui n'en ont AUCUN (vus par DexScreener, absents
+        du classement GMGN — qui filtre justement côté serveur sur `max_bundler_rate`).
+
+        Sans ça, un tel candidat passait `max_bundler_rate`, `max_insider_rate`, `max_sniper_count` et
+        `max_entrapment_ratio` sans contrôle (donnée absente = pas de rejet). Un appel `gmgn token info`
+        par token, plafonné à `REPLI_MANIPULATION_MAX_PAR_CYCLE`, séquentiel ; rien si GMGN est coupé ou
+        en pause de quota, ni pour un candidat déjà rejeté. Une valeur déjà connue n'est jamais
+        écrasée. Une erreur du CLI laisse le candidat tel quel : le cycle continue."""
+        gmgn = getattr(self, "gmgn", None)
+        if not (gmgn and gmgn.enabled) or not candidates:
+            return candidates
+        try:
+            if gmgn.blocked_seconds_remaining() > 0:
+                return candidates
+        except Exception:  # noqa: BLE001 — une sonde de quota ne doit pas casser la collecte
+            return candidates
+        restant = REPLI_MANIPULATION_MAX_PAR_CYCLE
+        sortie = []
+        for c in candidates:
+            if (
+                restant <= 0
+                or c.rejected_reason
+                or any(getattr(c, champ) is not None for champ in SIGNAUX_MANIPULATION)
+            ):
+                sortie.append(c)
+                continue
+            restant -= 1
+            try:
+                champs = manipulation_depuis_token_info(gmgn.token_info(c.token_address))
+            except Exception as exc:  # noqa: BLE001
+                print(f"[Pipeline] repli GMGN token info {c.symbol} : {type(exc).__name__}")
+                champs = {}
+            mises_a_jour = {k: v for k, v in champs.items() if getattr(c, k) is None}
+            if "holders" in mises_a_jour:
+                mises_a_jour["holders_is_exact"] = True
+            if any(k in mises_a_jour for k in SIGNAUX_MANIPULATION):
+                mises_a_jour["manipulation_source"] = "gmgn_token_info"
+            sortie.append(c.with_fields(**mises_a_jour) if mises_a_jour else c)
+        return sortie
 
     def _enrich_smart_money(self, candidates: list[Candidate]) -> list[Candidate]:
         """Achats smart money par token — UN seul appel couvre tout le lot.
@@ -967,6 +1065,31 @@ class ScanPipeline:
         return self._manipulation_reason(c, f) or self._context_reason(c, f)
 
     @staticmethod
+    def _donnee_requise_reason(c: Candidate, f: dict) -> Optional[str]:
+        """EXCEPTION OPT-IN à « une donnée absente ne rejette jamais » (ADR 022).
+
+        `filters.require_data` : liste de noms de `DONNEES_EXIGIBLES`. Absent ou vide (cas de
+        TOUS les bras aujourd'hui), cette fonction ne fait rien. Quand un bras la demande, une
+        donnée `None` rejette avec « donnée manquante : <nom> » (famille `donnee_requise`, jamais
+        relâchée). 0 est une valeur présente. Une config illisible ne fait jamais lever : la boucle
+        ne meurt pas, le nom inconnu est ignoré et signalé une fois."""
+        exigees = f.get("require_data")
+        if not isinstance(exigees, (list, tuple)):
+            return None
+        for nom in exigees:
+            attribut = DONNEES_EXIGIBLES.get(nom) if isinstance(nom, str) else None
+            if attribut is None:
+                cle = str(nom)
+                if cle not in _DONNEES_INCONNUES_SIGNALEES:
+                    _DONNEES_INCONNUES_SIGNALEES.add(cle)
+                    print(f"[Pipeline] require_data : « {cle} » inconnu, ignoré "
+                          f"(valeurs : {', '.join(DONNEES_EXIGIBLES)})")
+                continue
+            if getattr(c, attribut, None) is None:
+                return f"donnée manquante : {nom}"
+        return None
+
+    @staticmethod
     def _manipulation_reason(c: Candidate, f: dict) -> Optional[str]:
         """Signaux de manipulation, tous rendus par l'appel de découverte.
 
@@ -974,6 +1097,10 @@ class ScanPipeline:
         qualité/prix du pipeline. Chaque seuil est facultatif — absent du
         document d'un bras, il ne s'applique pas.
         """
+        manquante = ScanPipeline._donnee_requise_reason(c, f)
+        if manquante:
+            return manquante
+
         if f.get("reject_wash_trading") and c.is_wash_trading:
             return "wash trading détecté"
 

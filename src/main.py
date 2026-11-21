@@ -53,6 +53,7 @@ from src.apis.jupiter import SOL_MINT, JupiterAPI
 from src.core import correlation, economics
 from src.core.risk import is_soft_reject, pre_trade_check
 from src.core.budget import load_budgets
+from src.core.sans_prix import SuiviSansPrix
 from src.core.dev_watchdog import DevWatchdog
 from src.core.capabilities import build_registry
 from src.core.economics import size_for_cost
@@ -743,7 +744,13 @@ class AlphaLoop:
                         price = self._last_prices.get(position.token_address)
                         payload = position_to_dict(position, price)
                         payload["arm"] = arm.name
+                        # Minutes sans prix (None si elle en a un) : l'app et l'alerte lisent ça.
+                        sans_prix = self._suivi_sans_prix().minutes(position.id)
+                        payload["sans_prix_depuis_min"] = (
+                            None if sans_prix is None else round(sans_prix, 1)
+                        )
                         positions.append(payload)
+                self._suivi_sans_prix().purge(p["id"] for p in positions)
                 book_stats = self.portfolio.stats()
                 book_aggregate = self._aggregate_stats()
                 book_exposure = self._fleet_exposure().as_dict()
@@ -976,7 +983,12 @@ class AlphaLoop:
         # Telegram puis l'iPhone (boîte `data/commandes_bot/`, ADR 021) : mêmes
         # commandes, même traitement.
         commands = list(self.telegram.poll_commands())
-        from_phone = bot_commands.lire_et_vider(os.path.join(settings.BASE_DIR, "data"))
+        lecture = bot_commands.lire(os.path.join(settings.BASE_DIR, "data"))
+        from_phone = lecture.commandes
+        for command in lecture.perimees:
+            # Jamais en silence : un /STOP ignoré, l'utilisateur doit le savoir.
+            print(f"⚠️ commande {command} périmée ignorée (> 15 min)")
+            self.telegram.send(f"⚠️ commande {command} périmée ignorée (> 15 min) : renvoyez-la si besoin.")
         if from_phone:
             self.telegram.send("📱 Commande reçue depuis l'iPhone : " + ", ".join(from_phone))
         for command in commands + from_phone:
@@ -1529,6 +1541,14 @@ class AlphaLoop:
             )
             return None
 
+    def _suivi_sans_prix(self) -> SuiviSansPrix:
+        """Suivi « depuis quand cette position n'a plus de prix », créé à la demande (les bancs
+        de test construisent la boucle sans `__init__`)."""
+        suivi = getattr(self, "_sans_prix", None)
+        if suivi is None:
+            suivi = self._sans_prix = SuiviSansPrix()
+        return suivi
+
     def _monitor_arm(self, arm, verbose: bool = True) -> None:
         portfolio = arm.portfolio
         with _books_lock(self):
@@ -1547,6 +1567,16 @@ class AlphaLoop:
             # Python). <= 0 non plus n'est pas un prix. On ne reprend pas
             # `_last_prices` : c'est l'affichage, pas un prix exécutable.
             if not quote_is_usable(price):
+                # Sans prix, aucune règle de sortie ne peut jouer (OGTA : 31 h ouverte, stop à
+                # -25 % muet). On prévient UNE fois après 2 h, avant la fermeture zombie.
+                minutes_sans_prix = self._suivi_sans_prix().prix_absent(position.id)
+                if minutes_sans_prix is not None:
+                    self.telegram.send(
+                        f"⚠️ <b>Position sans prix</b> — {arm.label} {position.symbol} : "
+                        f"aucun prix depuis {minutes_sans_prix:.0f} min. Aucune règle de sortie "
+                        f"ne peut jouer ; fermée à -100 % au time stop "
+                        f"+ {ZOMBIE_GRACE_MINUTES} min si le prix ne revient pas."
+                    )
                 # Avec un prix, le time stop l'aurait déjà fermée : encore
                 # ouverte au-delà du délai de grâce, elle est bloquée sans
                 # prix. La règle ne lit que `entry_time` (persisté), donc elle
@@ -1569,6 +1599,7 @@ class AlphaLoop:
                         f"position gardée"
                     )
                 continue
+            self._suivi_sans_prix().prix_present(position.id)
 
             drop = self.history.liquidity_drop_pct(
                 position.token_address,

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { LiquidMarkets } from './LiquidMarkets'
+import { useStore } from '../../lib/store'
 import type { Catalogue, CatalogueMarket } from '../../lib/predictionTypes'
 
 function marche(outcome: number, title: string, mid: number, over: Partial<CatalogueMarket> = {}): CatalogueMarket {
@@ -26,6 +27,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(Response.json(CATALOGUE))))
 })
 afterEach(() => {
+  useStore.setState({ filters: {} })
   cleanup()
   vi.unstubAllGlobals()
 })
@@ -61,5 +63,16 @@ describe('marchés Liquid : explorer', () => {
     fireEvent.click(within(th).getByRole('button'))
     expect(th.getAttribute('aria-sort')).toBe('ascending')
     expect(titres().map((t) => t?.slice(0, 3))).toEqual(['ETH', 'SOL', 'BTC'])
+  })
+
+  it('famille et requête viennent de l’URL ; une famille inconnue retombe sur prix', async () => {
+    useStore.setState({ filters: { famille: 'sport', q: 'arsenal' } })
+    render(<LiquidMarkets demo={false} />)
+    await screen.findByText('1 sur 1')
+    expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('arsenal')
+    cleanup()
+    useStore.setState({ filters: { famille: 'bidon' } })
+    render(<LiquidMarkets demo={false} />)
+    await screen.findByText('3 sur 3')
   })
 })

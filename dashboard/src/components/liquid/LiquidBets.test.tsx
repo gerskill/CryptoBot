@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { LiquidBets } from './LiquidBets'
+import { useStore } from '../../lib/store'
 import type { PredictionArm, PredictionBet, PredictionSummary } from '../../lib/predictionTypes'
 
 function bet(id: string, title: string, over: Partial<PredictionBet> = {}): PredictionBet {
@@ -46,6 +47,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(Response.json({ points: [] }))))
 })
 afterEach(() => {
+  useStore.setState({ filters: {} })
   cleanup()
   vi.unstubAllGlobals()
 })
@@ -101,5 +103,19 @@ describe('paris : explorer', () => {
   it('la ligne d’un bras se sélectionne au clavier', () => {
     render(<LiquidBets summary={SUMMARY} bets={BETS} demo={false} />)
     expect(screen.getByRole('button', { name: /^alpha/ }).getAttribute('aria-current')).toBe('true')
+  })
+
+  it('un filtre statut venu de l’URL est appliqué, et le sélecteur l’affiche', () => {
+    useStore.setState({ filters: { statut: 'ouvert' } })
+    render(<LiquidBets summary={SUMMARY} bets={BETS} demo={false} />)
+    expect(screen.getByText('1 sur 3')).toBeTruthy()
+    expect(titres()).toEqual(['ETH au-dessus de 5k'])
+    expect((screen.getByRole('combobox', { name: 'Statut' }) as HTMLSelectElement).value).toBe('ouvert')
+  })
+
+  it('changer le statut écrit dans l’URL (store)', () => {
+    render(<LiquidBets summary={SUMMARY} bets={BETS} demo={false} />)
+    fireEvent.change(screen.getByRole('combobox', { name: 'Statut' }), { target: { value: 'regle' } })
+    expect(useStore.getState().filters.statut).toBe('regle')
   })
 })

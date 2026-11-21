@@ -3,13 +3,15 @@ import { motion } from 'framer-motion'
 import { useStore } from '../lib/store'
 import { EMPTY_ARRAY } from '../lib/empty'
 import { Panel } from './Panel'
+import { ExportCsvButton } from './ExportCsvButton'
+import { ARM_COLUMNS } from '../lib/csvExports'
 import { usd, pnlColor } from '../lib/format'
 import { useExplore } from '../lib/useExplore'
 import { ExploreBar, NoResults } from './explore/ExploreBar'
 import { SortBar } from './explore/SortControls'
 import { Drawer } from './explore/Drawer'
 import { ArmDetail } from './explore/ArmDetail'
-import { useDrawer } from './explore/useDrawer'
+import { useDrawer, type OpenEvent } from './explore/useDrawer'
 import type { Arm } from '../lib/types'
 
 /**
@@ -211,8 +213,20 @@ export function TheArms() {
     filterActive: statut !== 'tous',
     onReset: () => setStatut('tous'),
   })
+  // `panel` (store, relié à l'URL) désigne le bras ouvert : la palette Cmd+K
+  // l'écrit (« Bras X »), et le tiroir le met à jour à l'ouverture/fermeture.
+  const panel = useStore((s) => s.panel)
+  const setPanel = useStore((s) => s.setPanel)
   const drawer = useDrawer<string>()
-  const selected = arms.find((a) => a.name === drawer.item) ?? null
+  const selected = arms.find((a) => a.name === panel) ?? null
+  const openArm = (name: string) => (event: OpenEvent) => {
+    drawer.openFrom(name)(event)
+    setPanel(name)
+  }
+  const closeArm = () => {
+    drawer.close()
+    if (selected) setPanel(null)
+  }
 
   if (!arms.length) {
     return (
@@ -271,7 +285,7 @@ export function TheArms() {
       ) : (
         <div>
           {explore.visible.map((arm) => (
-            <ArmRow key={arm.name} arm={arm} onOpen={drawer.openFrom(arm.name)} />
+            <ArmRow key={arm.name} arm={arm} onOpen={openArm(arm.name)} />
           ))}
         </div>
       )}
@@ -281,12 +295,16 @@ export function TheArms() {
         l'information&nbsp;— un bras qui ne qualifie rien a un filtre à revoir.
       </p>
 
+      <div className="mt-2">
+        <ExportCsvButton rows={arms} columns={ARM_COLUMNS} kind="bras" label="Exporter les bras" />
+      </div>
+
       <h3 className="mb-1 mt-4 text-[11px] uppercase tracking-wide text-dim">Confluence</h3>
       <Confluence />
 
       <Drawer
         open={selected !== null}
-        onClose={drawer.close}
+        onClose={closeArm}
         title={selected?.name ?? ''}
         subtitle={selected ? (selected.enabled ? 'stratégie' : 'stratégie désactivée') : undefined}
       >

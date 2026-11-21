@@ -13,6 +13,9 @@ import type { OpenEvent } from './explore/useDrawer'
 import { keepOrder } from '../lib/explore'
 import { price, usd, pct, multiple, duration, compact, pnlColor } from '../lib/format'
 import { usePulse } from '../lib/useLiveState'
+import { isNearStop, isNearTp1 } from '../lib/positionSignals'
+import { ExportCsvButton } from './ExportCsvButton'
+import { POSITION_COLUMNS } from '../lib/csvExports'
 import type { Position } from '../lib/types'
 
 type OpenHandler = (event: OpenEvent) => void
@@ -72,11 +75,6 @@ function RiskBar({ position }: { position: Position }) {
   )
 }
 
-// Au-delà de cette fraction de la distance entrée -> SL déjà parcourue, la
-// position est en danger réel : bordure pulsante. Symétrique côté TP1 avec
-// PROXIMITE_TP1 — « à moins de 30 % du TP1 » = 70 % de la distance couverte.
-const DANGER_SL_RATIO = 0.5
-const PROXIMITE_TP1_RATIO = 0.7
 // Sous ce seuil de temps restant, le compte à rebours du time stop s'affiche.
 // Au-dessus, c'est du bruit permanent — la barre suffit.
 const TIME_STOP_ALERT_RATIO = 0.8
@@ -91,13 +89,9 @@ function PositionCard({ position, onOpen, animateLayout }: {
   const timeRatio = Math.min(1, position.duration_min / position.max_hold_time_minutes)
   const timeRemaining = Math.max(0, position.max_hold_time_minutes - position.duration_min)
 
-  // `stop_loss_pct` est DÉJÀ `effective_stop_loss_pct` côté API (tampon de
-  // glissement inclus) : l'alerte se déclenche sur le seuil RÉEL, pas sur la
-  // règle nominale — sinon la bordure resterait calme alors que le stop est
-  // sur le point de se déclencher pour de vrai.
-  const enDanger = position.pnl_pct <= position.stop_loss_pct * DANGER_SL_RATIO
-  const presDuTp1 =
-    !enDanger && position.pnl_pct >= position.take_profit_1 * PROXIMITE_TP1_RATIO
+  // Seuils partagés avec les alertes navigateur : voir `lib/positionSignals.ts`.
+  const enDanger = isNearStop(position)
+  const presDuTp1 = isNearTp1(position)
   const pulseClass = enDanger ? 'pulse-danger' : presDuTp1 ? 'pulse-target' : ''
 
   return (
@@ -274,6 +268,10 @@ export function ActivePositions() {
           La position {drawer.gone.symbol}{drawer.gone.arm ? ` (${drawer.gone.arm})` : ''} est clôturée.
         </p>
       )}
+
+      <div className="mb-2">
+        <ExportCsvButton rows={positions} columns={POSITION_COLUMNS} kind="positions" label="Exporter les positions" />
+      </div>
 
       {positions.length === 0 ? (
         <Empty>

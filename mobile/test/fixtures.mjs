@@ -44,10 +44,27 @@ export function snapshots(maintenant, { ageMin = 1, cycleMin = 1 } = {}) {
         { bras: 'pm_meteo', famille: 'meteo', role: 'parieur', actif: false, ouverts: 0, solde_usd: 46.0, regles: 0, gagnes_net: 0 },
       ],
     },
+    donnees: {
+      publie_a,
+      fenetre_h: 24,
+      entrees: 38,
+      sources: [
+        { nom: 'analyse on-chain (Helius)', etat: 'coupe', detail: '36/38 entrées sans lecture on-chain (erreur 36, absente 0, quota 0)' },
+        { nom: 'holders', etat: 'degrade', detail: 'source : gmgn ; morte : birdeye' },
+        { nom: 'prix', etat: 'ok', detail: 'source : jupiter' },
+        { nom: 'signaux de manipulation (GMGN)', etat: 'inconnu', detail: 'aucune entrée mesurée' },
+      ],
+      champs_vides: [
+        { champ: 'bundlers', vide_pct: 100.0 },
+        { champ: 'holders', vide_pct: 61.5 },
+        { champ: 'smart_money', vide_pct: 0.0 },
+      ],
+    },
     alertes: {
       publie_a,
       lignes: [
         { quand: iso(maintenant, 35), type: 'PANNE', bras: null, texte: 'liquid_runner en panne depuis 35 min' },
+        { quand: iso(maintenant, 130), type: 'SANS_PRIX', bras: 'sniper', texte: 'OGTA : aucun prix depuis 130 min' },
         { quand: iso(maintenant, 190), type: 'ZOMBIE', bras: 'runner', texte: 'MOODENG : sortie ZOMBIE_NO_PRICE' },
         { quand: iso(maintenant, 600), type: 'PANIC_STOP', bras: 'sniper', texte: 'GOAT : sortie PANIC_STOP' },
       ],

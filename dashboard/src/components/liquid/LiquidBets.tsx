@@ -49,7 +49,7 @@ export function LiquidBets({ summary, bets, demo }: {
       <div className="grid min-w-0 grid-cols-1 gap-4">
         <Panel title="Bras de prédiction" count={summary.arms.length}
           hint="Clique un bras : les chiffres, les paris et le graphique de la page le suivent.">
-          <ArmTable arms={summary.arms} selected={armName} onSelect={(name) => { setArmChoice(name); setBetChoice(null) }} />
+          <ArmTable arms={summary.arms} selected={armName} onSelect={(name) => { setArmChoice(name); setBetChoice(null); model.setStatut('tous'); model.setDomaine('tous') }} />
         </Panel>
         <ArmStatsPanel arm={arm} armName={armName} cfg={summary.config} />
       </div>

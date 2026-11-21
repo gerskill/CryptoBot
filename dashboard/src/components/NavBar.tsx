@@ -1,26 +1,6 @@
 import { useStore } from '../lib/store'
-import type { LiquidView, Space, View } from '../lib/store'
+import { LIQUID_TABS, MEME_TABS, SPACES } from '../lib/tabs'
 
-const SPACES: { id: Space; label: string; sub: string }[] = [
-  { id: 'memecoins', label: 'Memecoins', sub: 'Solana · bot Alpha Loop' },
-  { id: 'liquid', label: 'Liquid', sub: 'marchés · prédictions' },
-]
-
-const MEME_TABS: { id: View; label: string }[] = [
-  { id: 'dashboard', label: 'Dashboard' },
-  { id: 'live', label: 'Live Prices' },
-  { id: 'weekly', label: 'Weekly' },
-  { id: 'config', label: 'Config' },
-  { id: 'backtester', label: 'Backtester' },
-]
-
-const LIQUID_TABS: { id: LiquidView; label: string }[] = [
-  { id: 'apercu', label: 'Aperçu et bras' },
-  { id: 'predictions', label: 'Prédictions' },
-  { id: 'marches', label: 'Marchés' },
-  { id: 'paris', label: 'Paris et graphique' },
-  { id: 'incoherences', label: 'Incohérences' },
-]
 
 function Tabs<T extends string>({ tabs, current, onPick, accent }: {
   tabs: { id: T; label: string }[]; current: T; onPick: (id: T) => void; accent: string

@@ -112,13 +112,45 @@ if [ "$BLOQUE" -eq 1 ]; then
 	exit 1
 fi
 
+# `launchctl bootout` rend la main avant que le service soit vraiment déchargé : relancer
+# aussitôt donne « Bootstrap failed: 5: Input/output error » et laisse le service arrêté
+# (vu le 2026-11-21 sur ui puis prediction). On attend donc la fin du déchargement, puis
+# on retente quelques fois ; un service qui échoue n'arrête pas les autres.
+attend_decharge() {
+	n=0
+	while launchctl print "$DOMAINE/com.cryptobbot.$1" >/dev/null 2>&1; do
+		n=$((n + 1))
+		[ "$n" -le 30 ] || return 1
+		sleep 1
+	done
+}
+
+charge() {
+	essai=1
+	while ! launchctl bootstrap "$DOMAINE" "$1" 2>/dev/null; do
+		[ "$essai" -lt 4 ] || return 1
+		essai=$((essai + 1))
+		sleep 2
+	done
+}
+
 mkdir -p "$AGENTS" "$PROJET/logs"
+ECHECS=""
 for s in $SERVICES; do
 	cible="$AGENTS/com.cryptobbot.$s.plist"
 	genere "$s" "$cible"
 	plutil -lint "$cible" >/dev/null
 	launchctl bootout "$DOMAINE/com.cryptobbot.$s" 2>/dev/null || true
-	launchctl bootstrap "$DOMAINE" "$cible"
-	echo "démarré : $s  (journal : logs/$s.log)"
+	attend_decharge "$s" || echo "⚠ $s met du temps à se décharger, j'essaie quand même." >&2
+	if charge "$cible"; then
+		echo "démarré : $s  (journal : logs/$s.log)"
+	else
+		echo "✗ $s n'a pas démarré (launchctl bootstrap a échoué 4 fois)." >&2
+		ECHECS="$ECHECS $s"
+	fi
 done
 echo "État : launchctl list | grep cryptobbot"
+if [ -n "$ECHECS" ]; then
+	echo "Services à relancer :$ECHECS" >&2
+	exit 1
+fi

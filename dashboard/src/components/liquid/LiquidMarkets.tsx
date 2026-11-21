@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
+import { useFilter } from '../../lib/useFilter'
 import { Panel, Empty } from '../Panel'
 import { EMPTY_ARRAY } from '../../lib/empty'
 import { useExplore } from '../../lib/useExplore'
@@ -125,7 +126,10 @@ function FamilleTabs({ markets, famille, onChange }: {
 }
 
 export function LiquidMarkets({ demo }: { demo: boolean }) {
-  const [famille, setFamille] = useState<string>(DEFAULT_FAMILLE)
+  const [familleRaw, setFamille] = useFilter('famille', DEFAULT_FAMILLE)
+  const [query, setQuery] = useFilter('q', '')
+  // Une URL bricolée ne doit pas produire une famille inconnue.
+  const famille = (MARKET_FAMILLES as readonly string[]).includes(familleRaw) ? familleRaw : DEFAULT_FAMILLE
   const { data, error } = usePolled<Catalogue>(`/api/prediction/markets${demo ? '?demo=true' : ''}`, 30_000)
   const inFamille = useMemo(
     () => (data?.markets ?? EMPTY_ARRAY).filter((m) => m.famille === famille).sort(byDate),
@@ -138,6 +142,8 @@ export function LiquidMarkets({ demo }: { demo: boolean }) {
     filterActive: famille !== DEFAULT_FAMILLE,
     onReset: () => setFamille(DEFAULT_FAMILLE),
     descFirst: DESC_FIRST,
+    query,
+    onQuery: setQuery,
   })
 
   if (!data) return <Empty>{error ? `Catalogue illisible (${error}).` : 'Chargement…'}</Empty>

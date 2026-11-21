@@ -28,7 +28,9 @@ qui remet une requête réseau dans `evaluate()` détruit cette propriété.
 
 ## La règle qui casse le plus souvent
 
-**Une donnée absente ne rejette JAMAIS.** Un filtre dont la donnée manque
+**Une donnée absente ne rejette JAMAIS** (sauf l'option `filters.require_data` d'un bras,
+opt-in et désactivée partout : ADR 022, mesure `scripts/analyse_donnees_manquantes.py`).
+Un filtre dont la donnée manque
 (holders sans clé Birdeye, `smart_money_buys_30m` toujours `None`) laisse
 passer le candidat. Écrire `if c.holders < seuil` sur un `None` lève, et
 `if not c.holders` rejette un `0` légitime **et** un `None` : les deux sont des
@@ -55,6 +57,7 @@ mesure — ce sont des gardes de sécurité, pas des seuils de performance.
 | source | rôle | limite |
 |---|---|---|
 | GMGN `market trending` | découverte principale, filtrage **serveur**, 30 champs en 1 appel | ~60/min |
+| GMGN `token info` | repli des signaux de manipulation pour un token vu par DexScreener seulement (`_repli_manipulation`, ≤ 10/cycle, source notée `entry_manipulation_source`) | même quota GMGN |
 | Jupiter | prix par lot (50 mints), devis, coût A/R, honeypot | **1 req/s** |
 | DexScreener | découverte secondaire, `pair_address` | 270/min |
 | RugCheck | sécurité | 60/min |

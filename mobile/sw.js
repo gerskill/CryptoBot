@@ -9,7 +9,7 @@
  * Réseau d'abord, cache en secours hors ligne : une mise à jour de l'app est
  * prise dès qu'il y a du réseau. Changer CACHE à chaque modification de la liste.
  */
-const CACHE = 'cryptobot-coquille-v2';
+const CACHE = 'cryptobot-coquille-v3';
 const COQUILLE = [
   './', './index.html', './style.css', './app.js', './config.js', './manifest.webmanifest',
   './vendor/supabase.js',

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { TheArms } from './TheArms'
 import { useStore } from '../lib/store'
 import type { Arm, Stats } from '../lib/types'
@@ -33,7 +33,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   cleanup()
-  useStore.setState({ state: { bot_online: false } })
+  useStore.setState({ state: { bot_online: false }, panel: null })
 })
 
 const noms = () => screen.getAllByRole('button', { name: /^Détail de / }).map((b) => /^Détail de (sniper|runner|consensus)/.exec(b.textContent ?? '')?.[1])
@@ -69,5 +69,21 @@ describe('stratégies : explorer', () => {
     const dialog = screen.getByRole('dialog', { name: 'sniper' })
     expect(within(dialog).getByText('entre tôt')).toBeTruthy()
     expect(within(dialog).getByText('Seuil alpha')).toBeTruthy()
+  })
+
+  it('panel (palette Cmd+K) ouvre le tiroir du bras ; fermer remet panel à null', async () => {
+    useStore.setState({ panel: 'runner' })
+    render(<TheArms />)
+    const dialog = await screen.findByRole('dialog', { name: 'runner' })
+    expect(dialog).toBeTruthy()
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(useStore.getState().panel).toBeNull()
+  })
+
+  it('un clic sur un bras écrit panel', () => {
+    render(<TheArms />)
+    fireEvent.click(screen.getByRole('button', { name: /^Détail de sniper/ }))
+    expect(useStore.getState().panel).toBe('sniper')
   })
 })

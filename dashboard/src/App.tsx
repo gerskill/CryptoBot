@@ -1,4 +1,5 @@
 import { useLiveState } from './lib/useLiveState'
+import { useAlertMonitor } from './lib/useAlertMonitor'
 import { useStore } from './lib/store'
 import { Shell } from './components/Shell'
 import { TheHunt } from './components/TheHunt'
@@ -9,7 +10,13 @@ import { LivePrices } from './components/live/LivePrices'
 import { WeeklyReport } from './components/weekly/WeeklyReport'
 import { ConfigEditor } from './components/config/ConfigEditor'
 import { Backtester } from './components/backtester/Backtester'
+import { PilotageView } from './components/pilotage/PilotageView'
 import { LiquidDashboard } from './components/liquid/LiquidDashboard'
+import { CommandPalette } from './components/CommandPalette'
+import { ShortcutsHelp } from './components/ShortcutsHelp'
+import { Announcer } from './components/Announcer'
+import { useUrlSync } from './lib/useUrlSync'
+import { useGlobalShortcuts } from './lib/useShortcuts'
 
 /** Bandeau d'alerte quand le bot ne tourne pas — un dashboard figé doit le dire. */
 function OfflineBanner() {
@@ -48,6 +55,9 @@ function DashboardView() {
 
 export default function App() {
   useLiveState()
+  useAlertMonitor()
+  useUrlSync()
+  useGlobalShortcuts()
   const view = useStore((s) => s.view)
   const space = useStore((s) => s.space)
 
@@ -59,6 +69,10 @@ export default function App() {
       {space === 'memecoins' && view === 'weekly' && <WeeklyReport />}
       {space === 'memecoins' && view === 'config' && <ConfigEditor />}
       {space === 'memecoins' && view === 'backtester' && <Backtester />}
+      {space === 'memecoins' && view === 'pilotage' && <PilotageView />}
+      <CommandPalette />
+      <ShortcutsHelp />
+      <Announcer />
     </Shell>
   )
 }

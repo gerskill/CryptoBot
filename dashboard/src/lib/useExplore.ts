@@ -18,6 +18,9 @@ type Options<T> = {
   onReset?: () => void
   /** Colonnes qui se trient d'abord en décroissant (P&L, mise, durée…). */
   descFirst?: readonly string[]
+  /** Requête portée ailleurs (l'URL) : sinon le hook garde la sienne. */
+  query?: string
+  onQuery?: (query: string) => void
 }
 
 /**
@@ -31,8 +34,11 @@ type Options<T> = {
  */
 export function useExplore<T>({
   rows, searchOf, accessors, predicate, filterActive = false, onReset, descFirst,
+  query: controlledQuery, onQuery,
 }: Options<T>) {
-  const [query, setQuery] = useState('')
+  const [ownQuery, setOwnQuery] = useState('')
+  const query = controlledQuery ?? ownQuery
+  const setQuery = onQuery ?? setOwnQuery
   const [sort, setSort] = useState<SortState | null>(null)
   const deferredQuery = useDeferredValue(query)
 

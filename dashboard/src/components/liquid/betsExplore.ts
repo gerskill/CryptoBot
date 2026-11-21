@@ -1,4 +1,5 @@
-import { useCallback, useState } from 'react'
+import { useCallback } from 'react'
+import { useFilter } from '../../lib/useFilter'
 import { useExplore } from '../../lib/useExplore'
 import type { PredictionBet } from '../../lib/predictionTypes'
 import { BET_ACCESSORS, BET_DESC_FIRST, issueLabel } from './betSort'
@@ -9,8 +10,10 @@ const SEARCH_OF = (b: PredictionBet) =>
 
 /** Recherche, tri et filtres statut/domaine des paris d'un bras. */
 export function useBetsExplore(armBets: PredictionBet[]) {
-  const [statut, setStatut] = useState('tous')
-  const [domaine, setDomaine] = useState('tous')
+  // Statut et domaine vivent dans l'URL (lien partageable) ; le domaine est
+  // validé contre ceux du bras affiché.
+  const [statut, setStatut] = useFilter('statut', 'tous')
+  const [domaine, setDomaine] = useFilter('domaine', 'tous')
   const domains = [...new Set(armBets.map((b) => b.domain))]
   const domaineActif = domains.includes(domaine) ? domaine : 'tous'
   const predicate = useCallback(
