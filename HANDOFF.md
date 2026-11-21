@@ -1,4 +1,4 @@
-# HANDOFF — 2026-11-18
+# HANDOFF — 2026-11-21
 
 ## Objectif en cours
 Rendre la mesure des bras digne de confiance avant toute question de
@@ -14,6 +14,8 @@ rentabilité (« quel bras fait +120 %/an ? »). PAPER uniquement.
   `npm test` dans `dashboard/`.
 - B1 fait : positions sans prix fermées à -100 % après le time stop + 30 min, et par `/STOP` (spec `docs/superpowers/specs/2026-11-18-positions-zombies-design.md`).
 - App iPhone faite (spec `docs/superpowers/specs/2026-11-18-app-iphone-design.md`) : PWA GitHub Pages + Supabase, lecture seule ; à mettre en route avec `docs/APP_IPHONE.md`.
+- 2026-11-21 : app iPhone reliée à Supabase + pilotage (ADR 021). Reste le
+  `.env` et `installe_services.sh publie` sur le Mac (`docs/APP_IPHONE.md`).
 - Skill `rentabilite-annuelle` : pas de rendement annualisé sous 30 jours et
   30 positions ; aucune suppression de bras hors ADR 011.
 

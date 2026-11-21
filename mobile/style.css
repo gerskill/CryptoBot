@@ -142,3 +142,21 @@ nav button[aria-current="page"] { color: var(--texte); font-weight: 600; }
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }
+
+/* Pilotage (ADR 021) */
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+.actions button, #form-fork button, .bouton-bras {
+  min-height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--filet);
+  background: var(--surface); color: var(--texte); font: inherit; font-weight: 600;
+}
+button.danger { background: var(--perte); border-color: var(--perte); color: #10131c; }
+button:disabled { opacity: .5; }
+#form-fork label { display: block; margin: 12px 0 4px; color: var(--secondaire); font-size: 13px; }
+#form-fork select, #form-fork input {
+  width: 100%; min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--filet);
+  background: var(--surface); color: var(--texte); font: inherit;
+}
+#form-fork button { margin-top: 16px; width: 100%; }
+#message-pilotage { margin-top: 16px; padding: 12px; border-radius: 10px; background: var(--surface); }
+.statut-appliquée { color: var(--gain); }
+.statut-refusée { color: var(--ambre); }

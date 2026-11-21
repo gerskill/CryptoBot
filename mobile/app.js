@@ -1,14 +1,17 @@
-/* CryptoBot — app iPhone, LECTURE SEULE.
+/* CryptoBot — app iPhone : suivi et pilotage, MODE PAPIER.
  *
  * Lit la table Supabase `snapshots` (une ligne par clé : etat, positions,
  * perf_7d, perf_30d, perf_all, liquid, alertes), publiée toutes les 2 min par
- * scripts/publie_supabase.py sur le Mac. Contrat des champs :
- * docs/superpowers/plans/2026-11-18-app-iphone.md (« Contrat de données »).
+ * scripts/publie_supabase.py sur le Mac. Contrat des champs : mobile/contrat.json.
  *
- * Aucune action possible : aucun appel d'écriture, aucun bouton qui agit sur
- * le bot. Les données restent en mémoire (jamais de stockage local, jamais en
- * cache du service worker) : un chiffre affiché vient de la dernière lecture,
- * et son âge est toujours dit.
+ * Pilotage (ADR 021) : la SEULE écriture est l'ajout d'une ligne dans la table
+ * `commandes` (stop, resume, pm_toggle, pm_fork). L'app ne décide rien : le Mac
+ * relit la demande, la valide avec les règles du site, l'applique ou la refuse,
+ * et écrit le résultat que l'onglet Pilotage affiche. Aucun ordre réel possible.
+ *
+ * Les données restent en mémoire (jamais de stockage local, jamais en cache du
+ * service worker) : un chiffre affiché vient de la dernière lecture, et son âge
+ * est toujours dit.
  */
 'use strict';
 
@@ -19,9 +22,22 @@ const RAFRAICHIR_MS = 60 * 1000;
 const TIRER_SEUIL_PX = 70;
 const PAS_DE_DONNEES = "Pas encore de données : le Mac n'a rien publié.";
 const TYPES_ALERTE = { ZOMBIE: 'Zombie', PANIC_STOP: "Arrêt d'urgence", PANNE: 'Panne' };
+// Variables qu'un fork peut changer selon le rôle du parent : copie de
+// src/prediction/overlay.py (VARIABLES, BOUNDS). Le Mac revalide de toute façon.
+const VARIABLES_FORK = {
+  temoin: ['fourchette', 'max_jours', 'min_minutes'],
+  regle: ['fourchette', 'cote', 'max_jours', 'min_minutes'],
+  parieur: ['edge_min', 'estimateur', 'max_jours', 'min_minutes'],
+};
+const BORNES_FORK = { edge_min: [0.01, 0.30], max_jours: [0.05, 60], min_minutes: [1, 1440] };
+const LIBELLES_VARIABLE = {
+  fourchette: 'fourchette de prix (0,02 à 0,98)', cote: 'cote (favori / outsider)', estimateur: 'estimateur',
+  edge_min: 'avantage minimal (0,01 à 0,30)', max_jours: 'échéance max en jours (0,05 à 60)', min_minutes: 'délai min en minutes (1 à 1440)',
+};
+const LIBELLES_ACTION = { stop: "Arrêt d'urgence", resume: 'Reprise des entrées', pm_toggle: 'Bras Liquid', pm_fork: 'Nouveau bras Liquid' };
 
 const $ = s => document.querySelector(s);
-const etat = { sb: null, donnees: null, lu_a: null, onglet: 'etat', fenetre: '7d', erreur: '', chargement: null };
+const etat = { sb: null, donnees: null, commandes: null, lu_a: null, onglet: 'etat', fenetre: '7d', erreur: '', chargement: null, envoi: false };
 
 /* ---------- Formats (français, signe + / − et libellé VoiceOver) ---------- */
 const fmt = (v, dec) => new Intl.NumberFormat('fr-FR', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(v);
@@ -101,6 +117,7 @@ async function charger() {
         etat.donnees = donnees;
         etat.lu_a = Date.now();
         etat.erreur = '';
+        await chargerCommandes();
       }
     } catch {
       etat.erreur = 'Lecture impossible (réseau ?). Chiffres de la dernière lecture.';
@@ -108,6 +125,37 @@ async function charger() {
     afficher();
   })();
   try { await etat.chargement; } finally { etat.chargement = null; }
+}
+
+async function chargerCommandes() {
+  try {
+    const { data, error } = await etat.sb.from('commandes')
+      .select('id, action, payload, cree_a, statut, detail, traite_a')
+      .order('id', { ascending: false }).limit(10);
+    if (!error) etat.commandes = data || [];
+  } catch { /* la liste garde la dernière lecture */ }
+}
+
+/** Seule écriture de l'app : une demande « en attente », que le Mac validera. */
+async function envoyerCommande(action, payload, confirmation) {
+  if (etat.envoi) return;
+  if (confirmation && !window.confirm(confirmation)) return;
+  etat.envoi = true; afficherPilotage();
+  try {
+    const { error } = await etat.sb.from('commandes').insert({ action, payload: payload || {} });
+    if (error) {
+      messagePilotage(sessionExpiree(error) ? 'Session expirée : reconnecte-toi.' : "Commande non envoyée (réseau ?). Rien n'a été fait.");
+    } else {
+      messagePilotage('Commande envoyée. Le Mac la traite dans les 2 min : résultat dans « Dernières commandes ».');
+      await chargerCommandes();
+    }
+  } catch {
+    messagePilotage("Commande non envoyée (réseau ?). Rien n'a été fait.");
+  } finally { etat.envoi = false; afficherPilotage(); }
+}
+function messagePilotage(texte) {
+  const el = $('#message-pilotage');
+  el.textContent = texte || ''; el.hidden = !texte;
 }
 
 /* ---------- Rendu ---------- */
@@ -125,8 +173,9 @@ function afficher() {
   afficherPositions();
   afficherBras();
   afficherLiquid();
+  afficherPilotage();
 
-  const cle = { etat: 'etat', positions: 'positions', bras: `perf_${etat.fenetre}`, liquid: 'liquid' }[etat.onglet];
+  const cle = { etat: 'etat', positions: 'positions', bras: `perf_${etat.fenetre}`, liquid: 'liquid', pilotage: 'etat' }[etat.onglet];
   const pub = etat.donnees?.[cle]?.publie_a;
   $('#texte-publication').textContent = (pub ? `Publié à ${heure(pub)}, ${ilYa(pub)}.` : 'Rien de publié.')
     + (etat.erreur ? ` ${etat.erreur}` : '');
@@ -145,7 +194,7 @@ function afficherEtat(perime) {
   else if (!e.bot?.dernier_cycle) { texte = "Le bot n'a encore fait aucun cycle."; code = 'panne'; }
   else if (ageMs(e.bot.dernier_cycle) > BOT_ARRETE_APRES_MS) {
     texte = `Le bot ne tourne plus. Dernier cycle ${ilYa(e.bot.dernier_cycle)}.`; code = 'panne';
-  } else texte = `Le bot tourne. Dernier cycle ${ilYa(e.bot.dernier_cycle)}.`;
+  } else texte = `Le bot tourne${e.bot.en_pause ? ', entrées en pause' : ''}. Dernier cycle ${ilYa(e.bot.dernier_cycle)}.`;
   phrase.textContent = texte;
   phrase.dataset.etat = code;
 
@@ -230,6 +279,113 @@ function afficherLiquid() {
     : '';
 }
 
+function texteCommande(c) {
+  const p = c.payload || {};
+  if (c.action === 'pm_toggle') return `${p.enabled ? 'activer' : 'désactiver'} ${p.arm || '?'}`;
+  if (c.action === 'pm_fork') return `${p.name || '?'} (depuis ${p.parent || '?'}, ${p.variable || '?'})`;
+  return '';
+}
+
+function afficherPilotage() {
+  const e = etat.donnees?.etat;
+  $('#pilotage-bot').textContent = !e ? PAS_DE_DONNEES
+    : e.bot?.en_pause ? 'Entrées en pause (après un arrêt d\'urgence ou 3 pertes).' : 'Entrées actives.';
+  $('#bouton-stop').disabled = etat.envoi;
+  $('#bouton-reprendre').disabled = etat.envoi;
+  $('#bouton-fork').disabled = etat.envoi;
+
+  const bras = etat.donnees?.liquid?.bras || [];
+  $('#pilotage-liquid').innerHTML = !bras.length
+    ? `<li class="vide">${etat.donnees?.liquid ? 'Aucun bras Liquid.' : PAS_DE_DONNEES}</li>`
+    : bras.map(b => `<li><div class="ligne-principale"><span class="nom">${echapper(b.bras)}</span>
+        <button type="button" class="bouton-bras" data-bras="${echapper(b.bras)}" data-actif="${b.actif ? '1' : '0'}"${etat.envoi ? ' disabled' : ''}>${b.actif ? 'Désactiver' : 'Activer'}</button></div>
+        <p class="secondaire">${b.actif ? 'actif' : 'désactivé'}${b.famille ? `, ${echapper(b.famille)}` : ''}</p></li>`).join('');
+
+  // Formulaire de fork : ne réécrit pas les listes si rien n'a changé (sinon la saisie se perdrait).
+  const parent = $('#fork-parent');
+  const options = bras.filter(b => VARIABLES_FORK[b.role]).map(b => b.bras).join('|');
+  if (parent.dataset.options !== options) {
+    const choisi = parent.value;
+    parent.innerHTML = bras.filter(b => VARIABLES_FORK[b.role])
+      .map(b => `<option value="${echapper(b.bras)}">${echapper(b.bras)}</option>`).join('');
+    if (choisi) parent.value = choisi;
+    parent.dataset.options = options;
+    majVariables();
+  }
+
+  const cmds = etat.commandes;
+  $('#liste-commandes').innerHTML = !cmds
+    ? '<li class="vide">Pas encore lues.</li>'
+    : !cmds.length ? '<li class="vide">Aucune commande envoyée.</li>'
+      : cmds.map(c => `<li><div class="ligne-principale"><span class="nom">${echapper(LIBELLES_ACTION[c.action] || c.action)}</span>
+          <span class="statut-${echapper(c.statut)}">${echapper(c.statut)}</span></div>
+          <p class="secondaire">${echapper(texteCommande(c))}${texteCommande(c) ? ', ' : ''}envoyée ${echapper(ilYa(c.cree_a))}${c.detail ? ` — ${echapper(c.detail)}` : ''}</p></li>`).join('');
+}
+
+function majVariables() {
+  const b = (etat.donnees?.liquid?.bras || []).find(x => x.bras === $('#fork-parent').value);
+  const vars = VARIABLES_FORK[b?.role] || [];
+  const sel = $('#fork-variable');
+  const choisi = sel.value;
+  sel.innerHTML = vars.map(v => `<option value="${v}">${echapper(LIBELLES_VARIABLE[v] || v)}</option>`).join('');
+  if (vars.includes(choisi)) sel.value = choisi;
+  majValeur();
+}
+
+function majValeur() {
+  const v = $('#fork-variable').value;
+  const zone = $('#fork-valeur');
+  if (zone.dataset.variable === v) return;
+  zone.dataset.variable = v;
+  const champ = (id, label, attrs = '') => `<label for="${id}">${label}</label><input id="${id}" type="text" inputmode="decimal" autocomplete="off" ${attrs}>`;
+  if (v === 'fourchette') zone.innerHTML = champ('fork-min', 'Prix minimal') + champ('fork-max', 'Prix maximal');
+  else if (v === 'cote') zone.innerHTML = '<label for="fork-choix">Nouvelle valeur</label><select id="fork-choix"><option value="favori">favori</option><option value="outsider">outsider</option></select>';
+  else if (v === 'estimateur') zone.innerHTML = '<label for="fork-choix">Nouvelle valeur</label><select id="fork-choix"><option value="empirique">empirique</option><option value="lognormal">lognormal</option></select>';
+  else if (v) zone.innerHTML = champ('fork-nombre', 'Nouvelle valeur');
+  else zone.innerHTML = '';
+}
+
+const nombre = id => { const t = ($(id)?.value || '').trim().replace(',', '.'); const n = Number(t); return t && Number.isFinite(n) ? n : null; };
+
+function demandeFork() {
+  const parent = $('#fork-parent').value, variable = $('#fork-variable').value;
+  const name = $('#fork-nom').value.trim().toLowerCase();
+  if (!parent || !variable) return [null, 'Choisis un bras parent et une variable.'];
+  if (!/^pm_[a-z0-9_]{3,30}$/.test(name)) return [null, 'Nom invalide : « pm_ » puis 3 à 30 lettres minuscules, chiffres ou « _ ».'];
+  let value;
+  if (variable === 'fourchette') {
+    const min = nombre('#fork-min'), max = nombre('#fork-max');
+    if (min === null || max === null || !(0.02 <= min && min < max && max <= 0.98)) return [null, 'Fourchette : 0,02 ≤ min < max ≤ 0,98.'];
+    value = { prix_min: min, prix_max: max };
+  } else if (variable === 'cote' || variable === 'estimateur') value = $('#fork-choix').value;
+  else {
+    value = nombre('#fork-nombre');
+    const [bas, haut] = BORNES_FORK[variable] || [-Infinity, Infinity];
+    if (value === null || value < bas || value > haut) return [null, `Valeur hors bornes (${fmt(bas, 2)} à ${fmt(haut, 2)}).`];
+  }
+  return [{ parent, name, variable, value }, ''];
+}
+
+function brancherPilotage() {
+  $('#bouton-stop').addEventListener('click', () => envoyerCommande('stop', {},
+    "Arrêt d'urgence : fermer TOUTES les positions papier et mettre les entrées en pause ?"));
+  $('#bouton-reprendre').addEventListener('click', () => envoyerCommande('resume', {}, 'Reprendre les entrées du bot ?'));
+  $('#pilotage-liquid').addEventListener('click', ev => {
+    const b = ev.target.closest('[data-bras]');
+    if (!b) return;
+    const activer = b.dataset.actif !== '1';
+    envoyerCommande('pm_toggle', { arm: b.dataset.bras, enabled: activer }, `${activer ? 'Activer' : 'Désactiver'} le bras ${b.dataset.bras} ?`);
+  });
+  $('#fork-parent').addEventListener('change', majVariables);
+  $('#fork-variable').addEventListener('change', majValeur);
+  $('#form-fork').addEventListener('submit', ev => {
+    ev.preventDefault();
+    const [demande, erreur] = demandeFork();
+    if (!demande) return messagePilotage(erreur);
+    envoyerCommande('pm_fork', demande, `Créer le bras papier ${demande.name} (copie de ${demande.parent}, ${demande.variable} changée) ?`);
+  });
+}
+
 /* ---------- Navigation ---------- */
 function choisirOnglet(nom) {
   etat.onglet = nom;
@@ -306,6 +462,7 @@ async function demarrer() {
   document.querySelectorAll('nav [data-onglet]').forEach(b => b.addEventListener('click', () => choisirOnglet(b.dataset.onglet)));
   document.querySelectorAll('[data-fenetre]').forEach(b => b.addEventListener('click', () => { etat.fenetre = b.dataset.fenetre; afficher(); }));
   $('#bouton-actualiser').addEventListener('click', () => charger());
+  brancherPilotage();
   brancherTirer();
   brancherRafraichissement();
   setInterval(() => { if (!$('#app').hidden) afficher(); }, 30000); // les âges avancent même sans réseau

@@ -567,6 +567,17 @@ def post_prediction_request(
     _require_token(None, authorization)
     if x_cryptobbot != "1" or not (content_type or "").lower().startswith("application/json"):
         raise HTTPException(status_code=400, detail="en-tête X-CryptobBot ou type JSON manquant")
+    return deposer_demande_prediction(payload)
+
+
+def deposer_demande_prediction(payload: dict[str, Any]) -> dict[str, Any]:
+    """Valide et dépose une demande de bras de prédiction ; HTTPException si refusée.
+
+    Partagée par la route du site et par les commandes iPhone
+    (`scripts/publie_supabase.py`, ADR 021) : mêmes règles, même boîte.
+    """
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="demande illisible")
     action = payload.get("action")
     if action == "toggle":
         request = {"action": "toggle", "arm": str(payload.get("arm") or ""),

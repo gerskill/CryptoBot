@@ -90,6 +90,28 @@ HEALTHCHECK_PING_URL=https://hc-ping.com/<uuid>
   Le jeton `DASHBOARD_TOKEN` est alors **obligatoire**.
 - Tunnel Cloudflare nommé : adresse fixe, mais demande un domaine (~10 €/an).
 
+### 5. Installer le site comme une appli (portable, téléphone)
+
+Le dashboard a un manifeste (`dashboard/public/manifest.webmanifest`) et des
+icônes : il s'installe comme une appli, avec sa propre fenêtre et son icône.
+
+1. Sur le Mac mini, après `git pull` : `cd dashboard && npm run build`
+   (`dist/` n'est pas versionné), puis relancer le service `ui`.
+2. Donner au site une **adresse fixe en HTTPS** — l'installation l'exige, et une
+   appli installée sur une adresse `trycloudflare.com` casse au prochain
+   redémarrage du tunnel. Le plus simple : Tailscale sur le Mac et sur le
+   portable, puis `tailscale serve --bg 8000` sur le Mac (activer « HTTPS
+   Certificates » et MagicDNS dans la console Tailscale). Adresse obtenue :
+   `https://<nom-du-mac>.<tailnet>.ts.net`.
+3. Sur le portable, ouvrir cette adresse puis :
+   - Chrome / Edge / Brave : icône « Installer » dans la barre d'adresse
+     (ou menu ⋮ → *Caster, enregistrer et partager* → *Installer la page en tant qu'appli*).
+   - Safari (Mac) : *Fichier → Ajouter au Dock*.
+   - iPhone (Safari) : *Partager → Sur l'écran d'accueil*. Android (Chrome) : ⋮ → *Installer l'appli*.
+
+Le jeton n'est pas mémorisé (choix de sécurité de `TokenGate`) : il se
+ressaisit à chaque ouverture de l'appli pour les pages qui l'exigent.
+
 ### Jeton et tunnel — à ne pas casser
 
 Derrière un tunnel (cloudflared, ngrok, `tailscale serve`), les requêtes

@@ -1,23 +1,96 @@
 {
-  "_lisez_moi": "Champs que l'app lit dans la table Supabase `snapshots`, publiés par scripts/publie_supabase.py. Verrouillé des deux côtés : tests/test_contrat_app.py (le publieur produit exactement ça) et mobile/test/smoke.mjs (les données de test de l'app ont exactement ça). `perf` vaut pour perf_7d, perf_30d et perf_all.",
+  "_lisez_moi": "Champs que l'app lit dans la table Supabase `snapshots`, publiés par scripts/publie_supabase.py. Verrouillé des deux côtés : tests/test_contrat_app.py (le publieur produit exactement ça) et mobile/test/smoke.mjs (les données de test de l'app ont exactement ça). `perf` vaut pour perf_7d, perf_30d et perf_all. Les commandes (table `commandes`, ADR 021) ne font pas partie de ce contrat : voir supabase/schema.sql.",
   "cles": {
-    "etat": ["publie_a", "bot", "liquid"],
-    "positions": ["publie_a", "lignes"],
-    "perf_7d": ["publie_a", "fenetre", "capital_par_bras", "bras", "flotte"],
-    "perf_30d": ["publie_a", "fenetre", "capital_par_bras", "bras", "flotte"],
-    "perf_all": ["publie_a", "fenetre", "capital_par_bras", "bras", "flotte"],
-    "liquid": ["publie_a", "bras"],
-    "alertes": ["publie_a", "lignes"]
+    "etat": [
+      "publie_a",
+      "bot",
+      "liquid"
+    ],
+    "positions": [
+      "publie_a",
+      "lignes"
+    ],
+    "perf_7d": [
+      "publie_a",
+      "fenetre",
+      "capital_par_bras",
+      "bras",
+      "flotte"
+    ],
+    "perf_30d": [
+      "publie_a",
+      "fenetre",
+      "capital_par_bras",
+      "bras",
+      "flotte"
+    ],
+    "perf_all": [
+      "publie_a",
+      "fenetre",
+      "capital_par_bras",
+      "bras",
+      "flotte"
+    ],
+    "liquid": [
+      "publie_a",
+      "bras"
+    ],
+    "alertes": [
+      "publie_a",
+      "lignes"
+    ]
   },
   "objets": {
-    "etat.bot": ["dernier_cycle", "mode"],
-    "etat.liquid": ["dernier_cycle"],
-    "perf.flotte": ["trades", "win_rate", "pnl_usd", "profit_factor"]
+    "etat.bot": [
+      "dernier_cycle",
+      "mode",
+      "en_pause"
+    ],
+    "etat.liquid": [
+      "dernier_cycle"
+    ],
+    "perf.flotte": [
+      "trades",
+      "win_rate",
+      "pnl_usd",
+      "profit_factor"
+    ]
   },
   "lignes": {
-    "positions.lignes": ["bras", "symbole", "pnl_pct", "taille_usd", "duree_min", "tp1_atteint"],
-    "perf.bras": ["bras", "trades", "win_rate", "ic_bas", "ic_haut", "profit_factor", "pnl_usd", "max_drawdown_pct", "verdict"],
-    "liquid.bras": ["bras", "famille", "actif", "ouverts", "solde_usd", "regles", "gagnes_net"],
-    "alertes.lignes": ["quand", "type", "bras", "texte"]
+    "positions.lignes": [
+      "bras",
+      "symbole",
+      "pnl_pct",
+      "taille_usd",
+      "duree_min",
+      "tp1_atteint"
+    ],
+    "perf.bras": [
+      "bras",
+      "trades",
+      "win_rate",
+      "ic_bas",
+      "ic_haut",
+      "profit_factor",
+      "pnl_usd",
+      "max_drawdown_pct",
+      "verdict"
+    ],
+    "liquid.bras": [
+      "bras",
+      "famille",
+      "role",
+      "actif",
+      "ouverts",
+      "solde_usd",
+      "regles",
+      "gagnes_net"
+    ],
+    "alertes.lignes": [
+      "quand",
+      "type",
+      "bras",
+      "texte"
+    ]
   }
 }

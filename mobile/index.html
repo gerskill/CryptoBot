@@ -11,7 +11,7 @@
 <meta name="apple-mobile-web-app-title" content="CryptoBot">
 <meta name="robots" content="noindex">
 <title>CryptoBot</title>
-<meta name="description" content="Suivi du bot CryptoBot en lecture seule : état, positions, bras, Liquid. Mode papier.">
+<meta name="description" content="Suivi et pilotage du bot CryptoBot : état, positions, bras, Liquid. Mode papier.">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -26,7 +26,7 @@
 
 <div id="ecran-connexion" class="ecran-plein" hidden>
   <h1>CryptoBot</h1>
-  <p class="secondaire">Suivi du bot, en lecture seule.</p>
+  <p class="secondaire">Suivi et pilotage du bot, en papier.</p>
   <form id="form-connexion" novalidate>
     <label for="email">E-mail</label>
     <input id="email" type="email" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" required>
@@ -75,6 +75,37 @@
       <p id="flotte-liquid" class="flotte"></p>
     </section>
 
+    <section id="vue-pilotage" class="vue" aria-labelledby="titre-pilotage" hidden>
+      <h1 id="titre-pilotage">Pilotage</h1>
+      <p class="secondaire">Mode papier : rien ici ne passe d'ordre réel. Le Mac lit tes commandes toutes les 2 min et les valide comme le site ; une commande non lue sous 15 min est refusée.</p>
+
+      <h2>Bot memecoin</h2>
+      <p id="pilotage-bot"></p>
+      <div class="actions">
+        <button type="button" id="bouton-stop" class="danger">Arrêt d'urgence</button>
+        <button type="button" id="bouton-reprendre">Reprendre les entrées</button>
+      </div>
+
+      <h2>Bras Liquid</h2>
+      <ul id="pilotage-liquid" class="liste"></ul>
+
+      <h2>Créer un bras Liquid</h2>
+      <form id="form-fork" novalidate>
+        <label for="fork-parent">Bras parent</label>
+        <select id="fork-parent"></select>
+        <label for="fork-variable">Variable changée (une seule)</label>
+        <select id="fork-variable"></select>
+        <div id="fork-valeur"></div>
+        <label for="fork-nom">Nom du nouveau bras</label>
+        <input id="fork-nom" type="text" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="pm_mon_bras">
+        <button type="submit" id="bouton-fork">Créer le bras (papier)</button>
+      </form>
+
+      <p id="message-pilotage" role="status" hidden></p>
+      <h2>Dernières commandes</h2>
+      <ul id="liste-commandes" class="liste"></ul>
+    </section>
+
     <p id="publication" class="secondaire">
       <span id="texte-publication"></span>
       <button type="button" id="bouton-actualiser">Actualiser</button>
@@ -86,6 +117,7 @@
     <button type="button" data-onglet="positions">Positions</button>
     <button type="button" data-onglet="bras">Bras</button>
     <button type="button" data-onglet="liquid">Liquid</button>
+    <button type="button" data-onglet="pilotage">Pilotage</button>
   </nav>
 </div>
 

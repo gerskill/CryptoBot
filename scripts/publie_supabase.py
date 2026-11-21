@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
-"""Publication Supabase : les résumés du bot pour l'app iPhone (lecture seule).
+"""Publication Supabase : les résumés du bot pour l'app iPhone, et ses commandes.
 
 CE QUE ÇA FAIT. Toutes les 2 minutes (launchd), construit sept résumés à partir
 des fonctions existantes de `api/server.py` (appelées directement, sans HTTP) et
-les enregistre dans la table `snapshots` de Supabase. L'app iPhone ne lit que
-cette table : aucune action possible depuis le téléphone.
+les enregistre dans la table `snapshots` de Supabase. L'app iPhone lit cette table.
+
+COMMANDES (ADR 021). Avant de publier, relit la table `commandes` (demandes
+déposées depuis l'iPhone), et pour chacune « en attente » : la VALIDE avec les
+mêmes règles que le site, l'applique, puis écrit « appliquée » ou « refusée »
+avec la raison. Quatre actions, toutes PAPIER : `stop` et `resume` (déposés dans
+la boîte de la boucle, comme /STOP et /RESUME sur Telegram), `pm_toggle` et
+`pm_fork` (déposés dans la boîte de la simulation Liquid, comme depuis le site).
+Une demande de plus de 15 min est refusée : un arrêt d'urgence ne doit pas
+partir des heures plus tard au réveil du Mac. Aucune action ne peut passer
+d'ordre réel : le bot n'a pas de module d'exécution.
 
 CE QUI SORT, ET CE QUI NE SORT JAMAIS. Chaque clé a une LISTE BLANCHE de champs
 (le contrat du plan `docs/superpowers/plans/2026-11-18-app-iphone.md`). Ce qui
@@ -38,6 +47,7 @@ import requests  # noqa: E402
 from contextlib import redirect_stdout  # noqa: E402
 
 from src import settings  # noqa: E402
+from src.core import commandes as boite_bot  # noqa: E402
 
 # api/server.py affiche un avertissement à l'import (jeton du site absent) :
 # sur stderr, pour que `--sans-envoi` reste un JSON propre sur stdout.
@@ -50,6 +60,10 @@ VEILLE_ETAT_PATH = os.path.join(settings.BASE_DIR, "data", "veille_etat.json")
 DELAI_S = 20
 FENETRES = (("perf_7d", "7d"), ("perf_30d", "30d"), ("perf_all", "all"))
 TYPES_ALERTE = ("ZOMBIE", "PANIC_STOP")
+COMMANDES_DATA_DIR = os.path.join(settings.BASE_DIR, "data")
+COMMANDE_EXPIRE_S = 15 * 60
+COMMANDES_PAR_PASSAGE = 20
+ACTIONS_PM = {"pm_toggle": "toggle", "pm_fork": "fork"}
 ALERTES_MAX = 20
 ALERTES_HEURES = 24
 
@@ -76,7 +90,8 @@ def _iso(epoch_ou_texte) -> "str | None":
 def _etat(maintenant: datetime, resume_liquid: dict) -> dict:
     etat = server._state()
     return {
-        "bot": {"dernier_cycle": _iso(etat.get("updated_at")), "mode": "PAPER"},
+        "bot": {"dernier_cycle": _iso(etat.get("updated_at")), "mode": "PAPER",
+                "en_pause": bool(etat.get("paused"))},
         "liquid": {"dernier_cycle": _iso(resume_liquid.get("updated_at_iso"))},
     }
 
@@ -136,6 +151,7 @@ def _liquid(resume: dict) -> dict:
         bras.append({
             "bras": a.get("arm"),
             "famille": a.get("famille"),
+            "role": a.get("role"),
             "actif": bool(a.get("enabled", True)),
             "ouverts": a.get("ouverts"),
             "solde_usd": (a.get("compte") or {}).get("solde"),
@@ -193,7 +209,8 @@ def _alertes(maintenant: datetime) -> dict:
 def _vide(cle: str) -> dict:
     """Résumé « aucune donnée » : même forme que le contrat, sans contenu."""
     if cle == "etat":
-        return {"bot": {"dernier_cycle": None, "mode": "PAPER"}, "liquid": {"dernier_cycle": None}}
+        return {"bot": {"dernier_cycle": None, "mode": "PAPER", "en_pause": False},
+                "liquid": {"dernier_cycle": None}}
     if cle == "positions" or cle == "alertes":
         return {"lignes": []}
     if cle == "liquid":
@@ -337,6 +354,76 @@ def publier(snapshots: dict, session: Session) -> None:
     raise ErreurPublication(f"Supabase a refusé la publication (HTTP {reponse.status_code})")
 
 
+# --- Commandes depuis l'iPhone (ADR 021) -------------------------------------
+
+def _requete(methode: str, url: str, **kwargs):
+    """Comme `_post`, pour GET et PATCH : jamais le texte d'une exception."""
+    try:
+        return requests.request(methode, url, timeout=DELAI_S, **kwargs)
+    except requests.exceptions.RequestException as exc:
+        raise ErreurPublication(f"Supabase injoignable ({type(exc).__name__})") from None
+
+
+def appliquer_commande(ligne: dict, maintenant: datetime) -> tuple[str, str]:
+    """(statut, détail) pour UNE demande. Pur côté réseau : n'écrit que dans
+    les boîtes locales (boucle memecoin ou simulation Liquid)."""
+    action = ligne.get("action")
+    payload = ligne.get("payload") if isinstance(ligne.get("payload"), dict) else {}
+    cree = server._parse_ts(str(ligne.get("cree_a") or ""))
+    if cree is None:
+        return "refusée", "date de la demande illisible"
+    age = (maintenant - cree).total_seconds()
+    if age > COMMANDE_EXPIRE_S:
+        return "refusée", f"expirée : reçue {int(age // 60)} min après l'envoi (Mac éteint ?)"
+    ident = f"{int(cree.timestamp() * 1000):013d}-{int(ligne.get('id') or 0)}"
+    if action in boite_bot.COMMANDES:
+        boite_bot.deposer(COMMANDES_DATA_DIR, action, ident)
+        quoi = "arrêt d'urgence" if action == "stop" else "reprise des entrées"
+        return "appliquée", f"{quoi} transmis à la boucle (prochain cycle)"
+    if action in ACTIONS_PM:
+        demande = dict(payload, action=ACTIONS_PM[action])
+        try:
+            reponse = server.deposer_demande_prediction(demande)
+        except server.HTTPException as exc:
+            return "refusée", str(exc.detail)[:300]
+        return "appliquée", f"déposée pour la simulation Liquid ({reponse.get('note', 'prochain cycle')})"
+    return "refusée", "action inconnue"
+
+
+def traiter_commandes(session: "Session", maintenant: datetime) -> int:
+    """Traite les demandes en attente ; rend leur nombre. Un échec réseau lève
+    ErreurPublication (sans corps de réponse)."""
+    base = f"{session.env['SUPABASE_URL'].rstrip('/')}/rest/v1/commandes"
+    entetes = {k: v for k, v in session.entetes().items() if k != "Prefer"}
+    reponse = _requete("GET", base, headers=entetes, params={
+        "select": "id,action,payload,cree_a", "statut": "eq.en attente",
+        "order": "id.asc", "limit": str(COMMANDES_PAR_PASSAGE)})
+    if reponse.status_code != 200:
+        raise ErreurPublication(f"Lecture des commandes refusée (HTTP {reponse.status_code})")
+    try:
+        lignes = reponse.json()
+    except ValueError:
+        raise ErreurPublication("Réponse illisible pour les commandes") from None
+    if not isinstance(lignes, list):
+        return 0
+    traitees = 0
+    for ligne in lignes:
+        if not isinstance(ligne, dict) or not isinstance(ligne.get("id"), int):
+            continue
+        try:
+            statut, detail = appliquer_commande(ligne, maintenant)
+        except (OSError, ValueError) as exc:
+            statut, detail = "refusée", f"échec local ({type(exc).__name__})"
+        maj = _requete("PATCH", base, headers={**entetes, "Prefer": "return=minimal"},
+                       params={"id": f"eq.{ligne['id']}", "statut": "eq.en attente"},
+                       json={"statut": statut, "detail": detail, "traite_a": maintenant.isoformat()})
+        if maj.status_code not in (200, 204):
+            raise ErreurPublication(f"Mise à jour d'une commande refusée (HTTP {maj.status_code})")
+        traitees += 1
+        print(f"Commande {ligne['id']} ({ligne.get('action')}) : {statut} — {detail}")
+    return traitees
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Publie les résumés du bot dans Supabase.")
     parser.add_argument("--sans-envoi", action="store_true", help="affiche ce qui serait publié, n'envoie rien")
@@ -353,8 +440,17 @@ def main(argv=None) -> int:
               + ", ".join(manquantes) + " (voir .env.example). Rien publié.")
         return 0
 
+    session = Session(env)
     try:
-        publier(construire_snapshots(datetime.now(timezone.utc)), Session(env))
+        # Les commandes d'abord : la publication qui suit montre déjà leur effet
+        # (pause, bras désactivé). Un échec ici ne bloque pas la publication.
+        traiter_commandes(session, datetime.now(timezone.utc))
+    except ErreurPublication as exc:
+        print(f"Commandes iPhone non traitées : {exc}", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001
+        print(f"Commandes iPhone non traitées : erreur inattendue ({type(exc).__name__})", file=sys.stderr)
+    try:
+        publier(construire_snapshots(datetime.now(timezone.utc)), session)
     except ErreurPublication as exc:
         print(f"Publication Supabase échouée : {exc}", file=sys.stderr)
         return 1

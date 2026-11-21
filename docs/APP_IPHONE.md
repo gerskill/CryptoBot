@@ -1,8 +1,13 @@
 # App iPhone CryptoBot — installation pas à pas
 
 L'app (`mobile/`) montre sur l'iPhone l'état du bot, les positions ouvertes, le
-P&L par bras et l'espace Liquid. **Lecture seule** : aucune action possible
-depuis le téléphone. Mode PAPER.
+P&L par bras et l'espace Liquid, et permet de **piloter** le bot depuis l'onglet
+Pilotage (arrêt d'urgence, reprise, activer/désactiver un bras Liquid, créer un
+bras Liquid). Mode PAPER : aucun ordre réel possible (ADR 021).
+
+**État au 2026-11-21** : projet Supabase `uabnczoqnpzctgclmcrn` créé, schéma
+exécuté, inscriptions fermées, compte de Killian créé, `mobile/config.js`
+rempli, GitHub Pages activé. Reste l'étape 4 (le Mac) puis l'étape 5 (l'iPhone).
 
 Comment ça marche : toutes les 2 min, le Mac publie des résumés dans Supabase
 (`scripts/publie_supabase.py`) ; l'app, hébergée sur GitHub Pages, les lit
@@ -23,8 +28,9 @@ après connexion à ton compte. Passé 10 min sans publication, l'app affiche
    sign up »** après avoir créé ton compte. Sinon n'importe qui pourrait se
    créer un compte avec la clé publique de l'app et stocker des données dans
    ton projet.
-5. **Project Settings → API** : copie la **Project URL** et la clé publique
-   **anon** (« anon public »). Ne copie **jamais** la clé `service_role`.
+5. **Project Settings → API Keys** : copie la **Project URL** et la **clé
+   publiable** (`sb_publishable_…`, ou l'ancienne clé « anon public »). Ne
+   copie **jamais** la clé secrète (`sb_secret_…` / `service_role`).
 
 ## 2. Relier l'app à Supabase : `mobile/config.js`
 
@@ -33,7 +39,7 @@ Remplis les deux valeurs, puis commite et pousse sur `main` :
 ```js
 window.CRYPTOBOT_CONFIG = {
   supabaseUrl: 'https://xxxxxxxx.supabase.co',
-  supabaseAnonKey: 'eyJ…',   // la clé « anon public »
+  supabaseAnonKey: 'sb_publishable_…',   // la clé publiable
 };
 ```
 
@@ -58,7 +64,7 @@ L'action `.github/workflows/pages.yml` publie `mobile/` à chaque push sur
    `.env.example`) :
    ```
    SUPABASE_URL=https://xxxxxxxx.supabase.co
-   SUPABASE_ANON_KEY=eyJ…
+   SUPABASE_ANON_KEY=sb_publishable_…   # la même clé publiable que mobile/config.js
    SUPABASE_EMAIL=ton-email
    SUPABASE_PASSWORD=ton-mot-de-passe
    ```
@@ -89,6 +95,20 @@ L'action `.github/workflows/pages.yml` publie `mobile/` à chaque push sur
 - Les chiffres ne sont jamais mis en cache : hors réseau, l'app dit l'âge de la
   dernière lecture.
 
+## Pilotage (onglet Pilotage)
+
+- **Arrêt d'urgence** : comme /STOP sur Telegram — ferme toutes les positions
+  papier et met les entrées en pause. **Reprendre les entrées** : comme /RESUME.
+- **Bras Liquid** : activer ou désactiver un bras (ses paris ouverts sont encore réglés).
+- **Créer un bras Liquid** : copie d'un bras avec UNE variable changée, dans
+  les bornes du site (ADR 017).
+
+Chaque action demande confirmation, puis part dans la table `commandes`. Le Mac
+la lit au plus 2 min plus tard, la valide comme le site, l'applique et écrit
+« appliquée » ou « refusée » (avec la raison) dans **Dernières commandes**. Une
+commande non lue sous 15 min (Mac éteint) est refusée, jamais appliquée en retard.
+Telegram reste le chemin le plus rapide pour un arrêt d'urgence.
+
 ## Si ça ne marche pas
 
 | ce que l'app affiche | cause probable |
@@ -98,5 +118,7 @@ L'action `.github/workflows/pages.yml` publie `mobile/` à chaque push sur
 | « Pas encore de données : le Mac n'a rien publié. » | service `publie` non installé ou `.env` incomplet : voir `logs/publie.log` |
 | « Aucune nouvelle depuis X min » | Mac éteint, publication ou bot arrêté |
 | « Session expirée : reconnecte-toi. » | reconnecte-toi, c'est tout |
+| commande restée « en attente » | service `publie` arrêté : voir `logs/publie.log` |
+| commande « refusée — expirée » | le Mac ne l'a pas lue sous 15 min (éteint, en veille) |
 
 Test de l'app sans Supabase : `mobile/test/README.md`.

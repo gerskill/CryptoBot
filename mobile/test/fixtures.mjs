@@ -24,7 +24,7 @@ function perf(fenetre, publie_a, facteur) {
 export function snapshots(maintenant, { ageMin = 1, cycleMin = 1 } = {}) {
   const publie_a = iso(maintenant, ageMin);
   return {
-    etat: { publie_a, bot: { dernier_cycle: iso(maintenant, cycleMin), mode: 'PAPER' }, liquid: { dernier_cycle: iso(maintenant, cycleMin + 2) } },
+    etat: { publie_a, bot: { dernier_cycle: iso(maintenant, cycleMin), mode: 'PAPER', en_pause: false }, liquid: { dernier_cycle: iso(maintenant, cycleMin + 2) } },
     positions: {
       publie_a,
       lignes: [
@@ -39,9 +39,9 @@ export function snapshots(maintenant, { ageMin = 1, cycleMin = 1 } = {}) {
     liquid: {
       publie_a,
       bras: [
-        { bras: 'pm_temoin', famille: 'transverse', actif: true, ouverts: 2, solde_usd: 44.1, regles: 9, gagnes_net: 4 },
-        { bras: 'pm_coherence', famille: 'transverse', actif: true, ouverts: 0, solde_usd: 47.85, regles: 11, gagnes_net: 7 },
-        { bras: 'pm_meteo', famille: 'meteo', actif: false, ouverts: 0, solde_usd: 46.0, regles: 0, gagnes_net: 0 },
+        { bras: 'pm_temoin', famille: 'transverse', role: 'temoin', actif: true, ouverts: 2, solde_usd: 44.1, regles: 9, gagnes_net: 4 },
+        { bras: 'pm_coherence', famille: 'transverse', role: 'regle', actif: true, ouverts: 0, solde_usd: 47.85, regles: 11, gagnes_net: 7 },
+        { bras: 'pm_meteo', famille: 'meteo', role: 'parieur', actif: false, ouverts: 0, solde_usd: 46.0, regles: 0, gagnes_net: 0 },
       ],
     },
     alertes: {
