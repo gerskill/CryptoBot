@@ -403,6 +403,8 @@ class OnchainObserver:
         # Réserve active seulement au budget de production (>= 20 000/jour).
         self.reserve = RESERVED_PRIORITY_CREDITS if self.budget.daily >= DEFAULT_DAILY_CREDITS else 0
         self._last_error: Optional[str] = None
+        self._quota_pause_jusqu_a = 0.0
+        self._quota_signale = False
         if self.enabled and start_thread:
             self._thread = threading.Thread(target=self._worker, name="onchain-observer", daemon=True)
             self._thread.start()
@@ -489,6 +491,8 @@ class OnchainObserver:
     def _rpc(self, method: str, params: Any, credits: int) -> Optional[Any]:
         if method not in ALLOWED_METHODS:
             raise ValueError(f"méthode {method} interdite (lecture seule)")
+        if self.clock() < getattr(self, "_quota_pause_jusqu_a", 0.0):
+            raise _BudgetExceeded()  # quota du mois épuisé : aucun appel pendant la pause
         needed = credits if self._job_priority else credits + self.reserve
         if not self.budget.can(needed):
             raise _BudgetExceeded()
@@ -503,8 +507,18 @@ class OnchainObserver:
             )
             if getattr(response, "status_code", 200) != 200:
                 self.stats[f"http_{response.status_code}"] += 1
+                if response.status_code == 429 and "max usage" in str(getattr(response, "text", "")).lower():
+                    self._quota_pause_jusqu_a = self.clock() + QUOTA_MOIS_PAUSE_S
+                    if not getattr(self, "_quota_signale", False):
+                        self._quota_signale = True
+                        print("[OnChain] quota Helius du mois épuisé (429 max usage) : "
+                              f"pause de {QUOTA_MOIS_PAUSE_S // 60} min, entrées notées « budget »")
+                    raise _BudgetExceeded()
                 return None
+            self._quota_signale = False
             body = response.json()
+        except _BudgetExceeded:
+            raise  # quota du mois : doit remonter jusqu'au statut « budget », pas finir en rpc_error
         except Exception as exc:  # réseau, JSON : silencieux, clé masquée
             self.stats["rpc_error"] += 1
             self._last_error = _mask(f"{type(exc).__name__}: {exc}")
@@ -728,6 +742,12 @@ def wallet_concentration(
         "onchain_program_holders_top20": len(programs),
         "onchain_program_holders_pct": _r(100 * sum(v for _o, v in programs) / supply),
     }
+
+
+# Helius répond `429 max usage reached` quand les crédits du MOIS sont épuisés (mesuré le 2026-11-21).
+# Insister ne sert à rien : chaque candidat refaisait ses appels pour rien et finissait en « error ».
+# On s'arrête une heure, puis on retente une fois (le quota peut se recharger en cours de journée).
+QUOTA_MOIS_PAUSE_S = 3600
 
 
 class _BudgetExceeded(Exception):
