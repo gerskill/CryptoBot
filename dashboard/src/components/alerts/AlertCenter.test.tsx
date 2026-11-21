@@ -62,6 +62,16 @@ describe('AlertCenter', () => {
     expect(useAlertStore.getState().settings.lossPct).toBe(12)
   })
 
+  it('borne le seuil saisi (0 -> 0,5)', () => {
+    render(<AlertCenter />)
+    fireEvent.click(screen.getByRole('button', { name: /Alertes/ }))
+    const input = screen.getByLabelText(/Perte d'un bras/) as HTMLInputElement
+    fireEvent.change(input, { target: { value: '0' } })
+    fireEvent.blur(input)
+    expect(useAlertStore.getState().settings.lossPct).toBe(0.5)
+    expect(input.value).toBe('0.5')
+  })
+
   it('le son est désactivé par défaut', () => {
     render(<AlertCenter />)
     fireEvent.click(screen.getByRole('button', { name: /Alertes/ }))

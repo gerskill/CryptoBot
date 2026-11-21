@@ -16,30 +16,45 @@ export type AlertSnapshot = {
   botStopped: boolean
   liquidStopped: boolean
 }
-export type LiquidHealth = { demo: boolean; runnerOnline: boolean; updatedAtIso: string | null }
+export const LIQUID_POLL_MS = 30_000
+export type LiquidHealth = {
+  demo: boolean
+  /** `runner_online` : déjà calculé côté serveur (âge < 600 s), pas recalculé ici. */
+  runnerOnline: boolean
+  updatedAtIso: string | null
+  /** Réception LOCALE de cette réponse : au-delà de 2 sondages, la donnée est périmée. */
+  fetchedAt: number
+}
+export type BotFrame = { lastFrameAt: number | null; connectedAt: number | null }
 
 /**
  * Le WebSocket ne pousse que lorsque `updated_at` change : un bot mort ne
- * produit AUCUNE trame, donc `bot_online` reste vrai côté client. On compare
- * donc l'âge de l'état à l'horloge locale. API injoignable = état inconnu
- * (déjà signalé ailleurs), pas « bot arrêté ».
+ * produit AUCUNE trame, donc `bot_online` reste vrai côté client. On mesure
+ * l'âge depuis la réception LOCALE de la dernière trame (jamais l'epoch
+ * serveur contre l'horloge du navigateur), ou depuis la (re)connexion si elle
+ * est plus récente. Sans trame reçue ou API injoignable : état inconnu, donc
+ * pas d'alerte. `!bot_online` n'a de sens que sur une trame réelle.
  */
 export function isBotStopped(
-  state: Pick<BotState, 'bot_online' | 'updated_at'>,
+  state: Pick<BotState, 'bot_online'>,
   connected: boolean,
+  frame: BotFrame,
   nowMs: number,
 ): boolean {
-  if (!connected) return false
+  if (!connected || frame.lastFrameAt === null) return false
   if (!state.bot_online) return true
-  return state.updated_at != null && nowMs / 1000 - state.updated_at > BOT_STALE_SECONDS
+  const reference = Math.max(frame.lastFrameAt, frame.connectedAt ?? 0)
+  return (nowMs - reference) / 1000 > BOT_STALE_SECONDS
 }
 
-/** Pas d'alerte sans réponse, en mode exemple, ou si la boucle n'a jamais publié. */
+/**
+ * Pas d'alerte sans réponse récente, en mode exemple, ou si la boucle n'a
+ * jamais publié. API injoignable (réponse périmée) = inconnu, pas « arrêtée ».
+ */
 export function isLiquidStopped(health: LiquidHealth | null, nowMs: number): boolean {
   if (!health || health.demo || !health.updatedAtIso) return false
-  if (!health.runnerOnline) return true
-  const published = Date.parse(health.updatedAtIso)
-  return !Number.isNaN(published) && (nowMs - published) / 1000 > LIQUID_STALE_SECONDS
+  if (nowMs - health.fetchedAt > 2 * LIQUID_POLL_MS) return false
+  return !health.runnerOnline
 }
 
 function armLoss(arm: Arm, lossPct: number): AlertCandidate | null {
@@ -49,7 +64,7 @@ function armLoss(arm: Arm, lossPct: number): AlertCandidate | null {
   const pnlPct = (100 * pnl) / baseline
   if (pnlPct > -lossPct) return null
   return {
-    key: `arm-loss:${arm.name}`,
+    key: `arm-loss:${arm.name}:${lossPct}`,
     kind: 'arm-loss',
     title: `Bras ${arm.name} en perte`,
     detail: `${pnlPct.toFixed(1)} % de la mise de départ (seuil -${lossPct} %)`,
@@ -89,6 +104,22 @@ export function detectAlerts(snapshot: AlertSnapshot, settings: AlertSettings): 
       : null,
   ]
   return found.filter((alert): alert is AlertCandidate => alert !== null)
+}
+
+/**
+ * Amorçage : l'état DÉJÀ existant à l'ouverture, au rechargement ou à
+ * l'activation n'est pas une nouveauté. On le mémorise (sans écraser une
+ * mémoire plus ancienne) et on renvoie ce qui n'était pas connu, à lister
+ * comme « lu » sans notification ni bip.
+ */
+export function primeAlerts(
+  candidates: readonly AlertCandidate[],
+  memory: DedupeMemory,
+  nowMs: number,
+): { fresh: AlertCandidate[]; memory: DedupeMemory } {
+  const fresh = candidates.filter((candidate) => !(candidate.key in memory.lastSeen))
+  const added = Object.fromEntries(fresh.map((candidate) => [candidate.key, nowMs]))
+  return { fresh, memory: { ...memory, lastSeen: { ...memory.lastSeen, ...added } } }
 }
 
 export type DedupeMemory = { lastSeen: Record<string, number>; lastNotifiedAt: number }

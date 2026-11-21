@@ -25,6 +25,7 @@ export function AlertCenter() {
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
+        aria-label={`Alertes, ${unread} non lue${unread > 1 ? 's' : ''}`}
         aria-controls={panelId}
         className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg px-3 text-[12px] text-muted ring-1 ring-edge/60 hover:text-ink"
       >

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { loadSettings, saveSettings } from './alertSettings'
+import { loadSettings, sanitizeSettings, saveSettings } from './alertSettings'
 import { notificationState, type NotificationState } from './notify'
 import type { AlertCandidate, AlertEntry, AlertSettings } from './alerts'
 
@@ -11,7 +11,7 @@ type AlertStore = {
   alerts: AlertEntry[]
   setSettings: (patch: Partial<AlertSettings>) => void
   setPermission: (permission: NotificationState) => void
-  addAlerts: (fresh: readonly AlertCandidate[], at: number) => void
+  addAlerts: (fresh: readonly AlertCandidate[], at: number, read?: boolean) => void
   markRead: (id: string) => void
   markAllRead: () => void
 }
@@ -24,15 +24,15 @@ export const useAlertStore = create<AlertStore>((set) => ({
   alerts: [],
   setSettings: (patch) =>
     set((state) => {
-      const settings = { ...state.settings, ...patch }
+      const settings = sanitizeSettings({ ...state.settings, ...patch })
       saveSettings(settings)
       return { settings }
     }),
   setPermission: (permission) => set({ permission }),
-  addAlerts: (fresh, at) =>
+  addAlerts: (fresh, at, read = false) =>
     set((state) => ({
       alerts: [
-        ...fresh.map((alert): AlertEntry => ({ ...alert, id: `${at}-${sequence++}`, at, read: false })),
+        ...fresh.map((alert): AlertEntry => ({ ...alert, id: `${at}-${sequence++}`, at, read })),
         ...state.alerts,
       ].slice(0, MAX_ALERTS),
     })),

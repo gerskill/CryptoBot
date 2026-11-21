@@ -26,7 +26,7 @@ export function AlertSettingsForm() {
   }
   const commitLoss = () => {
     const value = Number(draft.replace(',', '.'))
-    if (Number.isFinite(value) && value > 0) setSettings({ lossPct: value })
+    if (Number.isFinite(value)) setSettings({ lossPct: value }) // bornage 0,5-100 dans le store
     setDraft(String(useAlertStore.getState().settings.lossPct))
   }
 
@@ -66,6 +66,7 @@ export function AlertSettingsForm() {
         type="button"
         role="switch"
         aria-checked={settings.sound}
+        aria-label="Bip sonore à chaque nouvelle alerte"
         onClick={() => setSettings({ sound: !settings.sound })}
         className="flex min-h-11 items-center gap-2 text-muted"
       >

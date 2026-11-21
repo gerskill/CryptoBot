@@ -12,7 +12,6 @@ import { DrawdownChart } from '../backtester/DrawdownChart'
 import { ArmSummaryTable } from '../backtester/ArmSummaryTable'
 import { RangePicker } from './RangePicker'
 
-const DEFAULT_BASELINE = 1000
 const DEFAULT_RANGE: RangeChoice = { preset: '7d' }
 
 /**
@@ -28,7 +27,10 @@ export function ArmCompare() {
   const names = arms.map((arm) => arm.name)
   const selected = (picked ?? names.slice(0, MIN_COMPARED)).filter((name) => names.includes(name))
   const fetched = useArmTrades(selected)
-  const range = useMemo(() => resolveRange(choice), [choice])
+  // « 7 j » se recalcule chaque minute : sinon la borne reste figée à l'ouverture.
+  const minute = Math.floor(Date.now() / 60_000)
+  const range = useMemo(() => resolveRange(choice), [choice, minute])
+  const openEnded = choice.preset === 'custom' && !choice.from && !choice.to
   const invalid = isInvalidRange(range)
 
   const comparison = useMemo(
@@ -37,7 +39,7 @@ export function ArmCompare() {
         fetched.map((result) => ({
           arm: result.arm,
           trades: result.trades,
-          baseline: arms.find((arm) => arm.name === result.arm)?.stats?.baseline ?? DEFAULT_BASELINE,
+          baseline: arms.find((arm) => arm.name === result.arm)?.stats?.baseline ?? null,
         })),
         range,
       ),
@@ -93,6 +95,15 @@ export function ArmCompare() {
                 Trades indisponibles pour : {failed.join(', ')}. Ces bras apparaissent sans données.
               </p>
             )}
+            {openEnded && (
+              <p className="text-[11px] text-dim">Aucune date saisie : toute la période est comparée.</p>
+            )}
+            {comparison.some((item) => !item.baselineKnown) && (
+              <p className="text-[11px] text-warn" role="alert">
+                Baseline inconnue pour {comparison.filter((item) => !item.baselineKnown).map((item) => item.arm).join(', ')} :
+                drawdown non calculé.
+              </p>
+            )}
             {!hasTrades && <Empty>Aucun trade clôturé sur cette plage pour ces bras.</Empty>}
             {hasTrades && (
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -108,7 +119,9 @@ export function ArmCompare() {
                   <div>
                     <h3 className="mb-1.5 text-[11px] uppercase tracking-wide text-dim">Drawdown sur la plage</h3>
                     <DrawdownChart
-                      curves={comparison.map((item, index) => ({ arm: item.arm, points: item.drawdown, color: armColor(index) }))}
+                      curves={comparison
+                        .map((item, index) => ({ arm: item.arm, points: item.drawdown, color: armColor(index) }))
+                        .filter((curve) => curve.points.length > 0)}
                       visible={visible}
                       highlighted={highlighted}
                     />

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filterByRange, isInvalidRange, pnlBefore, resolveRange } from './dateRange'
+import { filterByRange, isInvalidRange, parseUtc, pnlBefore, resolveRange } from './dateRange'
 
 const NOW = new Date('2026-11-21T12:00:00Z')
 const t = (ts: string, pnl = 1) => ({ timestamp_exit: ts, pnl_usd: pnl })
@@ -51,5 +51,14 @@ describe('isInvalidRange', () => {
     expect(isInvalidRange({ since: '2026-11-10T00:00:00Z', until: '2026-11-10T00:00:00Z' })).toBe(true)
     expect(isInvalidRange({ since: null, until: '2026-11-09T00:00:00Z' })).toBe(false)
     expect(isInvalidRange({ since: '2026-11-01T00:00:00Z', until: '2026-11-09T00:00:00Z' })).toBe(false)
+  })
+})
+
+describe('parseUtc', () => {
+  it('ISO naïf = UTC ; avec fuseau ou Z inchangé', () => {
+    expect(parseUtc('2026-11-10T00:00:00')).toBe(Date.parse('2026-11-10T00:00:00Z'))
+    expect(parseUtc('2026-11-10 00:00:00')).toBe(Date.parse('2026-11-10T00:00:00Z'))
+    expect(parseUtc('2026-11-10T02:00:00+02:00')).toBe(Date.parse('2026-11-10T00:00:00Z'))
+    expect(parseUtc('2026-11-10T00:00:00Z')).toBe(Date.parse('2026-11-10T00:00:00Z'))
   })
 })

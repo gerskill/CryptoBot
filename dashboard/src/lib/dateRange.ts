@@ -7,6 +7,19 @@ type Dated = { timestamp_exit: string; pnl_usd: number }
 
 const DAY_MS = 86_400_000
 const PRESET_DAYS: Record<'7d' | '30d', number> = { '7d': 7, '30d': 30 }
+const HAS_ZONE = /(?:Z|[+-]\d{2}:?\d{2})$/i
+const NAIVE_ISO = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/
+
+/**
+ * Instant d'un horodatage du journal. Le serveur lit un ISO SANS fuseau comme
+ * de l'UTC (`_parse_ts`) ; `Date.parse` l'aurait lu en heure locale du
+ * navigateur : décalage de 1 à 2 h sur les bornes de plage.
+ */
+export function parseUtc(value: string): number {
+  const text = value.trim()
+  return NAIVE_ISO.test(text) && !HAS_ZONE.test(text) ? Date.parse(`${text.replace(' ', 'T')}Z`) : Date.parse(text)
+}
+
 const DATE_INPUT = /^(\d{4})-(\d{2})-(\d{2})$/
 
 /** `YYYY-MM-DD` (champ date) -> minuit LOCAL du navigateur, décalé de `plusDays`. */
@@ -31,7 +44,7 @@ export function filterByRange<T extends Dated>(rows: readonly T[], range: Resolv
   const since = range.since ? Date.parse(range.since) : null
   const until = range.until ? Date.parse(range.until) : null
   return rows.filter((row) => {
-    const at = Date.parse(row.timestamp_exit)
+    const at = parseUtc(row.timestamp_exit)
     if (Number.isNaN(at)) return false
     if (since !== null && at < since) return false
     if (until !== null && at >= until) return false
@@ -44,7 +57,7 @@ export function pnlBefore(rows: readonly Dated[], since: string | null): number 
   if (!since) return 0
   const limit = Date.parse(since)
   return rows.reduce((sum, row) => {
-    const at = Date.parse(row.timestamp_exit)
+    const at = parseUtc(row.timestamp_exit)
     return !Number.isNaN(at) && at < limit ? sum + row.pnl_usd : sum
   }, 0)
 }

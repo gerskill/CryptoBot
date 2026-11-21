@@ -319,7 +319,7 @@ function ExportTrades() {
   const trades = useStore((s) => s.trades)
   return (
     <div className="mt-2">
-      <ExportCsvButton rows={trades} columns={TRADE_COLUMNS} kind="trades" label="Exporter les trades" />
+      <ExportCsvButton rows={trades} columns={TRADE_COLUMNS} kind="trades" label="Exporter les 100 derniers trades" />
     </div>
   )
 }

@@ -21,6 +21,22 @@ describe('toggleSelection', () => {
   })
 })
 
+describe('buildComparison — baseline et fuseau', () => {
+  it('baseline inconnue : drawdown non calculé, rien d\'inventé', () => {
+    const [a] = buildComparison([{ arm: 'a', baseline: null, trades: [tr('2026-11-01T00:00:00Z', -5)] }], { since: null, until: null })
+    expect(a.baselineKnown).toBe(false)
+    expect(a.drawdown).toEqual([])
+    expect(a.summary.maxDrawdownPct).toBe(0)
+  })
+  it('timestamp sans fuseau lu comme UTC, comme le serveur', () => {
+    const [a] = buildComparison(
+      [{ arm: 'a', baseline: 1000, trades: [tr('2026-11-10T00:30:00', 1), tr('2026-11-09T23:30:00', 2)] }],
+      { since: '2026-11-10T00:00:00Z', until: null },
+    )
+    expect(a.series).toEqual([1])
+  })
+})
+
 describe('buildComparison', () => {
   const inputs = [
     {

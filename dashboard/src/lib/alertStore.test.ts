@@ -28,6 +28,16 @@ describe('alertStore', () => {
     useAlertStore.getState().addAlerts(Array.from({ length: 60 }, (_, i) => cand(`k${i}`)), 1)
     expect(useAlertStore.getState().alerts).toHaveLength(50)
   })
+  it('liste l\'amorçage en « lu »', () => {
+    useAlertStore.getState().addAlerts([cand('a')], 1, true)
+    expect(selectUnread(useAlertStore.getState())).toBe(0)
+  })
+  it('borne le seuil dès la saisie (0,5 à 100)', () => {
+    useAlertStore.getState().setSettings({ lossPct: 0 })
+    expect(useAlertStore.getState().settings.lossPct).toBe(0.5)
+    useAlertStore.getState().setSettings({ lossPct: 900 })
+    expect(useAlertStore.getState().settings.lossPct).toBe(100)
+  })
   it('mémorise les réglages', () => {
     useAlertStore.getState().setSettings({ lossPct: 9 })
     expect(JSON.parse(localStorage.getItem('cryptobot.alerts.v1') ?? '{}').lossPct).toBe(9)

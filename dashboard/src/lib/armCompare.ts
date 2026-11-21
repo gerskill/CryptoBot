@@ -1,13 +1,14 @@
 import { computeDrawdownSeries } from './drawdown'
 import { summarizeArm } from './armSummary'
-import { filterByRange, pnlBefore, type ResolvedRange } from './dateRange'
+import { filterByRange, parseUtc, pnlBefore, type ResolvedRange } from './dateRange'
 import type { ArmSummary } from '../components/backtester/ArmSummaryTable'
 
 export const MIN_COMPARED = 2
 export const MAX_COMPARED = 4
 
 type TradeLike = { timestamp_exit: string; pnl_usd: number }
-export type CompareInput = { arm: string; baseline: number; trades: readonly TradeLike[] }
+/** `baseline: null` = mise de départ inconnue : le drawdown n'est pas calculé. */
+export type CompareInput = { arm: string; baseline: number | null; trades: readonly TradeLike[] }
 export type ArmComparison = {
   arm: string
   /** P&L par trade dans la plage, chronologique. */
@@ -16,6 +17,7 @@ export type ArmComparison = {
   points: number[]
   drawdown: number[]
   summary: ArmSummary
+  baselineKnown: boolean
 }
 
 /** Ajoute ou retire un bras ; au-delà de MAX_COMPARED l'ajout est ignoré. Pure. */
@@ -36,15 +38,18 @@ function cumulative(series: readonly number[]): number[] {
  */
 export function buildComparison(inputs: readonly CompareInput[], range: ResolvedRange): ArmComparison[] {
   return inputs.map(({ arm, baseline, trades }) => {
-    const ordered = [...trades].sort((a, b) => Date.parse(a.timestamp_exit) - Date.parse(b.timestamp_exit))
+    const ordered = [...trades].sort((a, b) => parseUtc(a.timestamp_exit) - parseUtc(b.timestamp_exit))
     const series = filterByRange(ordered, range).map((trade) => trade.pnl_usd)
-    const startingEquity = baseline + pnlBefore(ordered, range.since)
+    const known = baseline !== null && baseline > 0
+    const startingEquity = (baseline ?? 0) + pnlBefore(ordered, range.since)
+    const summary = summarizeArm(arm, series, startingEquity)
     return {
       arm,
       series,
       points: cumulative(series),
-      drawdown: computeDrawdownSeries(series, startingEquity),
-      summary: summarizeArm(arm, series, startingEquity),
+      drawdown: known ? computeDrawdownSeries(series, startingEquity) : [],
+      summary: known ? summary : { ...summary, maxDrawdownPct: 0 },
+      baselineKnown: known,
     }
   })
 }

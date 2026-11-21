@@ -1,5 +1,7 @@
 import { withBom } from './csv'
 
+const REVOKE_DELAY_MS = 10_000
+
 /**
  * Déclenche le téléchargement (seule partie impure de l'export). Renvoie
  * `false` si le navigateur refuse (Blob/URL indisponibles) pour que l'appelant
@@ -15,7 +17,7 @@ export function downloadCsv(filename: string, csv: string): boolean {
     document.body.appendChild(link)
     link.click()
     link.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 0)
+    setTimeout(() => URL.revokeObjectURL(url), REVOKE_DELAY_MS)
     return true
   } catch {
     return false

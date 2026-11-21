@@ -6,6 +6,9 @@ import {
   detectAlerts,
   isBotStopped,
   isLiquidStopped,
+  LIQUID_POLL_MS,
+  primeAlerts,
+  type LiquidHealth,
   summarizeBatch,
   type DedupeMemory,
 } from './alerts'
@@ -21,38 +24,52 @@ const quiet = { arms: [], positions: [], botStopped: false, liquidStopped: false
 const settings = { enabled: true, lossPct: 5, sound: false }
 
 describe('isBotStopped', () => {
+  const frame = (ageS: number, connectedAgeS = 9999) => ({
+    lastFrameAt: NOW - ageS * 1000,
+    connectedAt: NOW - connectedAgeS * 1000,
+  })
   it('constantes miroir du serveur', () => {
     expect(BOT_STALE_SECONDS).toBe(180)
     expect(LIQUID_STALE_SECONDS).toBe(600)
   })
-  it('API injoignable : inconnu, pas « arrêté »', () => {
-    expect(isBotStopped({ bot_online: false }, false, NOW)).toBe(false)
+  it('aucune trame reçue (état initial bot_online:false) : inconnu, pas « arrêté »', () => {
+    expect(isBotStopped({ bot_online: false }, true, { lastFrameAt: null, connectedAt: NOW }, NOW)).toBe(false)
   })
-  it('bot hors ligne selon le serveur', () => {
-    expect(isBotStopped({ bot_online: false }, true, NOW)).toBe(true)
+  it('API injoignable : inconnu', () => {
+    expect(isBotStopped({ bot_online: false }, false, frame(1), NOW)).toBe(false)
   })
-  it('état figé : plus de poussée au-delà de 180 s', () => {
-    const fresh = { bot_online: true, updated_at: NOW / 1000 - 179 }
-    const stale = { bot_online: true, updated_at: NOW / 1000 - 181 }
-    expect(isBotStopped(fresh, true, NOW)).toBe(false)
-    expect(isBotStopped(stale, true, NOW)).toBe(true)
+  it('trame réelle disant hors ligne : arrêté', () => {
+    expect(isBotStopped({ bot_online: false }, true, frame(1), NOW)).toBe(true)
   })
-  it('sans horodatage, se fie au serveur', () => {
-    expect(isBotStopped({ bot_online: true }, true, NOW)).toBe(false)
+  it('âge mesuré depuis la RÉCEPTION locale : 180 s', () => {
+    expect(isBotStopped({ bot_online: true }, true, frame(179), NOW)).toBe(false)
+    expect(isBotStopped({ bot_online: true }, true, frame(181), NOW)).toBe(true)
+  })
+  it('à la reconnexion, l\'âge repart de la connexion', () => {
+    expect(isBotStopped({ bot_online: true }, true, frame(600, 5), NOW)).toBe(false)
+    expect(isBotStopped({ bot_online: true }, true, frame(600, 200), NOW)).toBe(true)
   })
 })
 
 describe('isLiquidStopped', () => {
+  const health = (over: Partial<LiquidHealth> = {}): LiquidHealth => ({
+    demo: false,
+    runnerOnline: true,
+    updatedAtIso: '2026-01-01T00:00:00Z',
+    fetchedAt: NOW - 1000,
+    ...over,
+  })
   it('rien de chargé, exemple fictif ou boucle jamais lancée : pas d\'alerte', () => {
     expect(isLiquidStopped(null, NOW)).toBe(false)
-    expect(isLiquidStopped({ demo: true, runnerOnline: false, updatedAtIso: '2026-01-01T00:00:00Z' }, NOW)).toBe(false)
-    expect(isLiquidStopped({ demo: false, runnerOnline: false, updatedAtIso: null }, NOW)).toBe(false)
+    expect(isLiquidStopped(health({ demo: true, runnerOnline: false }), NOW)).toBe(false)
+    expect(isLiquidStopped(health({ runnerOnline: false, updatedAtIso: null }), NOW)).toBe(false)
   })
-  it('arrêtée si le serveur le dit ou au-delà de 600 s', () => {
-    const iso = (s: number) => new Date(NOW - s * 1000).toISOString()
-    expect(isLiquidStopped({ demo: false, runnerOnline: false, updatedAtIso: iso(10) }, NOW)).toBe(true)
-    expect(isLiquidStopped({ demo: false, runnerOnline: true, updatedAtIso: iso(601) }, NOW)).toBe(true)
-    expect(isLiquidStopped({ demo: false, runnerOnline: true, updatedAtIso: iso(599) }, NOW)).toBe(false)
+  it('se fie à runner_online du serveur', () => {
+    expect(isLiquidStopped(health({ runnerOnline: false }), NOW)).toBe(true)
+    expect(isLiquidStopped(health({ runnerOnline: true }), NOW)).toBe(false)
+  })
+  it('API injoignable (réponse vieille de plus de 2 sondages) : inconnu', () => {
+    expect(isLiquidStopped(health({ runnerOnline: false, fetchedAt: NOW - 2 * LIQUID_POLL_MS - 1 }), NOW)).toBe(false)
   })
 })
 
@@ -62,7 +79,7 @@ describe('detectAlerts', () => {
   })
   it('bras sous le seuil de perte (en % de sa mise de départ)', () => {
     const out = detectAlerts({ ...quiet, arms: [arm('a', -50), arm('b', -49.9), arm('c', 20)] }, settings)
-    expect(out.map((a) => a.key)).toEqual(['arm-loss:a'])
+    expect(out.map((a) => a.key)).toEqual(['arm-loss:a:5'])
     expect(out[0].kind).toBe('arm-loss')
   })
   it('seuil de perte paramétrable', () => {
@@ -114,6 +131,26 @@ describe('dedupeAlerts', () => {
   it('oublie les clés plus vieilles que la fenêtre', () => {
     const memory: DedupeMemory = { lastSeen: { old: NOW - 40 * 60_000 }, lastNotifiedAt: 0 }
     expect(dedupeAlerts([], memory, NOW, cfg).memory.lastSeen).toEqual({})
+  })
+})
+
+describe('primeAlerts', () => {
+  const c = (key: string) => ({ key, kind: 'near-stop' as const, title: key, detail: '' })
+  it('mémorise l\'existant sans toucher lastNotifiedAt, renvoie ce qui était inconnu', () => {
+    const memory: DedupeMemory = { lastSeen: { known: 5 }, lastNotifiedAt: 7 }
+    const r = primeAlerts([c('known'), c('new')], memory, NOW)
+    expect(r.fresh.map((x) => x.key)).toEqual(['new'])
+    expect(r.memory).toEqual({ lastSeen: { known: 5, new: NOW }, lastNotifiedAt: 7 })
+    expect(memory.lastSeen).toEqual({ known: 5 })
+  })
+})
+
+describe('clé de perte et seuil', () => {
+  it('changer le seuil change la clé (nouvelle alerte si toujours franchi)', () => {
+    const snap = { ...quiet, arms: [arm('a', -200)] }
+    const k5 = detectAlerts(snap, settings)[0].key
+    const k10 = detectAlerts(snap, { ...settings, lossPct: 10 })[0].key
+    expect(k5).not.toBe(k10)
   })
 })
 
