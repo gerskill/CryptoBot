@@ -57,7 +57,7 @@ export function snapshots(maintenant, { ageMin = 1, cycleMin = 1 } = {}) {
       champs_vides: [
         { champ: 'bundlers', vide_pct: 100.0 },
         { champ: 'holders', vide_pct: 61.5 },
-        { champ: 'smart money', vide_pct: 0.0 },
+        { champ: 'smart_money', vide_pct: 0.0 },
       ],
     },
     alertes: {

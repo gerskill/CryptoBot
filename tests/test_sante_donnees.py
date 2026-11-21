@@ -56,7 +56,7 @@ class TestChampsVides(unittest.TestCase):
     def test_zero_est_une_valeur_valide_none_est_vide(self):
         entrees = [entree(entry_smart_money_buys_30m=0), entree(entry_smart_money_buys_30m=None)]
         par_champ = {c["champ"]: c["vide_pct"] for c in sd.champs_vides(entrees)}
-        self.assertEqual(par_champ["smart money"], 50.0)
+        self.assertEqual(par_champ["smart_money"], 50.0)
         self.assertEqual(par_champ["holders"], 0.0)
 
     def test_champ_absent_du_journal_compte_comme_vide(self):
