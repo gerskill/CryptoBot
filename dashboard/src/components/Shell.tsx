@@ -5,6 +5,8 @@ import { usd, pct, pnlColor } from '../lib/format'
 import { usePulse } from '../lib/useLiveState'
 import { NavBar, SpaceSwitch } from './NavBar'
 import { LiquidHero } from './liquid/LiquidHero'
+import { AlertCenter } from './alerts/AlertCenter'
+import { AlertBanner } from './alerts/AlertBanner'
 
 /** Compte à rebours jusqu'au prochain scan. */
 function ScanClock() {
@@ -110,8 +112,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-full">
       <header className="sticky top-0 z-20 border-b border-edge/60 bg-void/80 backdrop-blur-xl">
-        <div className="mx-auto max-w-[1800px] px-5 pt-3">
+        <div className="mx-auto flex max-w-[1800px] items-center justify-between gap-3 px-5 pt-3">
           <SpaceSwitch />
+          <AlertCenter />
         </div>
         {space === 'liquid' ? <LiquidHero /> : (
         <div className="mx-auto flex max-w-[1800px] flex-wrap items-end justify-between gap-4 px-5 py-3">
@@ -188,6 +191,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         animate={{ opacity: 1 }}
         className="mx-auto max-w-[1800px] px-5 py-5"
       >
+        <AlertBanner />
         {children}
       </motion.main>
     </div>
