@@ -1,13 +1,39 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { useStore } from '../lib/store'
 import { EMPTY_ARRAY } from '../lib/empty'
+import { useCallback, useRef, useState } from 'react'
 import { Panel, Empty } from './Panel'
+import { useExplore } from '../lib/useExplore'
+import { ExploreBar, NoResults } from './explore/ExploreBar'
+import { SortBar } from './explore/SortControls'
+import { Drawer } from './explore/Drawer'
+import { PositionDetail } from './explore/PositionDetail'
+import { useLiveDrawer } from './explore/useLiveDrawer'
+import type { OpenEvent } from './explore/useDrawer'
+import { keepOrder } from '../lib/explore'
 import { price, usd, pct, multiple, duration, compact, pnlColor } from '../lib/format'
 import { usePulse } from '../lib/useLiveState'
 import { isNearStop, isNearTp1 } from '../lib/positionSignals'
 import { ExportCsvButton } from './ExportCsvButton'
 import { POSITION_COLUMNS } from '../lib/csvExports'
 import type { Position } from '../lib/types'
+
+type OpenHandler = (event: OpenEvent) => void
+
+const SORT_OPTIONS = [
+  { key: 'symbole', label: 'Symbole' },
+  { key: 'pnl', label: 'P&L' },
+  { key: 'mise', label: 'Mise' },
+  { key: 'duree', label: 'Durée' },
+]
+const DESC_FIRST = ['pnl', 'mise', 'duree']
+const SEARCH_OF = (p: Position) => [p.symbol, p.arm, p.token_address]
+const ACCESSORS = {
+  symbole: (p: Position) => p.symbol,
+  pnl: (p: Position) => p.pnl_pct,
+  mise: (p: Position) => p.size_usd,
+  duree: (p: Position) => p.duration_min,
+}
 
 /**
  * Barre de progression entre le stop loss et TP1.
@@ -53,7 +79,12 @@ function RiskBar({ position }: { position: Position }) {
 // Au-dessus, c'est du bruit permanent — la barre suffit.
 const TIME_STOP_ALERT_RATIO = 0.8
 
-function PositionCard({ position }: { position: Position }) {
+function PositionCard({ position, onOpen, animateLayout }: {
+  position: Position
+  onOpen: OpenHandler
+  /** Coupé quand un tri est actif : une carte qui glisse sous le curseur se clique de travers. */
+  animateLayout: boolean
+}) {
   const pulse = usePulse(position.current_price)
   const timeRatio = Math.min(1, position.duration_min / position.max_hold_time_minutes)
   const timeRemaining = Math.max(0, position.max_hold_time_minutes - position.duration_min)
@@ -65,17 +96,29 @@ function PositionCard({ position }: { position: Position }) {
 
   return (
     <motion.article
-      layout
+      layout={animateLayout}
       initial={{ opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.35 } }}
       transition={{ type: 'spring', stiffness: 300, damping: 26 }}
-      className={`mb-3 rounded-xl border px-4 py-3 ${pulseClass} ${
+      className={`relative mb-3 rounded-xl border px-4 py-3 ${pulseClass} ${
         position.pnl_pct >= 0
           ? 'border-toxic/35 bg-toxic/[0.03]'
           : 'border-blood/35 bg-blood/[0.03]'
       }`}
     >
+      {/* Vrai bouton qui couvre la carte : atteignable au clavier, annoncé
+          comme ouvrant une fenêtre, sans masquer le contenu de la carte. */}
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-haspopup="dialog"
+        className="absolute inset-0 z-10 min-h-11 w-full rounded-xl"
+      >
+        <span className="sr-only">
+          Détail de {position.symbol}{position.arm ? ` (${position.arm})` : ''}
+        </span>
+      </button>
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
@@ -148,10 +191,54 @@ function PositionCard({ position }: { position: Position }) {
   )
 }
 
+/** Cartes triées/filtrées ; l'ordre se fige pendant le survol et le focus. */
+function PositionsList({ positions, animateLayout, onOpen }: {
+  positions: Position[]
+  animateLayout: boolean
+  onOpen: (id: string) => OpenHandler
+}) {
+  // Données temps réel : sans ce gel, un tri actif réordonne les cartes à
+  // chaque message et le clic peut tomber sur une autre position.
+  const [frozen, setFrozen] = useState<string[] | null>(null)
+  const ids = positions.map((p) => p.id)
+  const shown = frozen ? keepOrder(positions, (p) => p.id, frozen) : positions
+  const freeze = () => setFrozen((current) => current ?? ids)
+  const thaw = () => setFrozen(null)
+
+  return (
+    <div data-testid="positions-list" onMouseEnter={freeze} onMouseLeave={thaw} onFocus={freeze} onBlur={thaw}>
+      <AnimatePresence initial={false}>
+        {shown.map((position) => (
+          <PositionCard key={position.id} position={position} onOpen={onOpen(position.id)} animateLayout={animateLayout} />
+        ))}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+function usePositionsExplore(positions: Position[]) {
+  const [arm, setArm] = useState('tous')
+  const predicate = useCallback((p: Position) => arm === 'tous' || p.arm === arm, [arm])
+  const explore = useExplore({
+    rows: positions,
+    searchOf: SEARCH_OF,
+    accessors: ACCESSORS,
+    predicate,
+    filterActive: arm !== 'tous',
+    onReset: () => setArm('tous'),
+    descFirst: DESC_FIRST,
+  })
+  return { arm, setArm, explore }
+}
+
 export function ActivePositions() {
   const positions = useStore((s) => s.state.positions ?? EMPTY_ARRAY)
   const stats = useStore((s) => s.state.stats)
   const aggregate = useStore((s) => s.state.aggregate)
+  const { arm, setArm, explore } = usePositionsExplore(positions)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const drawer = useLiveDrawer(positions, (p) => p.id, searchRef)
+  const arms = [...new Set(positions.map((p) => p.arm).filter((a): a is string => !!a))].sort()
 
   // Le compteur porte sur TOUTES les stratégies. Il n'affichait que celles du
   // témoin : deux bras détenaient une position chacun et le panneau annonçait
@@ -176,6 +263,11 @@ export function ActivePositions() {
           {' '}{stats.consecutive_losses} pertes consécutives. Aucune nouvelle entrée.
         </div>
       )}
+      {drawer.gone && (
+        <p role="status" className="mb-3 rounded-lg border border-edge px-3 py-2 text-xs text-muted">
+          La position {drawer.gone.symbol}{drawer.gone.arm ? ` (${drawer.gone.arm})` : ''} est clôturée.
+        </p>
+      )}
 
       <div className="mb-2">
         <ExportCsvButton rows={positions} columns={POSITION_COLUMNS} kind="positions" label="Exporter les positions" />
@@ -188,12 +280,53 @@ export function ActivePositions() {
           Le bot n'entre que si le score absolu franchit le seuil ET que la structure de prix valide.
         </Empty>
       ) : (
-        <AnimatePresence initial={false}>
-          {positions.map((position) => (
-            <PositionCard key={position.id} position={position} />
-          ))}
-        </AnimatePresence>
+        <>
+          <ExploreBar
+            label="Chercher une position"
+            placeholder="Symbole ou stratégie"
+            inputRef={searchRef}
+            query={explore.query}
+            onQuery={explore.setQuery}
+            shown={explore.visible.length}
+            total={explore.total}
+            isFiltered={explore.isFiltered}
+            onReset={explore.reset}
+          >
+            {arms.length > 1 && <ArmFilter arms={arms} value={arm} onChange={setArm} />}
+          </ExploreBar>
+          <div className="mb-3 px-1">
+            <SortBar options={SORT_OPTIONS} sort={explore.sort} onSort={explore.toggleSort} />
+          </div>
+          {explore.visible.length === 0 ? (
+            <NoResults query={explore.query} />
+          ) : (
+            <PositionsList positions={explore.visible} animateLayout={explore.sort === null} onOpen={drawer.openFrom} />
+          )}
+        </>
       )}
+
+      <Drawer
+        open={drawer.open}
+        onClose={drawer.close}
+        title={drawer.item?.symbol ?? ''}
+        subtitle={drawer.item?.arm ? `stratégie ${drawer.item.arm}` : undefined}
+      >
+        {drawer.item && <PositionDetail position={drawer.item} />}
+      </Drawer>
     </Panel>
+  )
+}
+
+function ArmFilter({ arms, value, onChange }: { arms: string[]; value: string; onChange: (v: string) => void }) {
+  return (
+    <select
+      aria-label="Bras"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      className="min-h-11 rounded-md bg-void px-2 font-mono text-xs text-ink ring-1 ring-edge"
+    >
+      <option value="tous">tous les bras</option>
+      {arms.map((name) => <option key={name} value={name}>{name}</option>)}
+    </select>
   )
 }
