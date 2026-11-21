@@ -283,6 +283,12 @@ function afficherBras() {
   $('#flotte-bras').innerHTML = f && bras.length
     ? `flotte (somme) : ${pluriel(f.trades || 0, 'trade', 'trades')}${resumeWR(f)}${resumePF(f)}, ${estNombre(f.pnl_usd) ? `<span aria-label="${f.pnl_usd < 0 ? 'moins' : 'plus'} ${fmt(Math.abs(f.pnl_usd), 2)} dollars">${f.pnl_usd > 0 ? '+' : f.pnl_usd < 0 ? '−' : ''}${fmt(Math.abs(f.pnl_usd), 2)} $</span>` : '—'}.`
     : '';
+  // Audit B2 : un verdict n'est rendu qu'à partir de 30 positions de chaque côté, et avec 18 bras
+  // comparés au même témoin, un « supérieur » isolé peut venir du hasard. Le dire sous la liste.
+  const compares = bras.filter(b => b.verdict != null).length;
+  $('#note-verdict').textContent = compares
+    ? `Verdict face au témoin : seulement à partir de 30 trades de chaque côté. ${compares} bras sont comparés au même témoin : un « supérieur » isolé peut venir du hasard.`
+    : '';
 }
 
 function afficherLiquid() {

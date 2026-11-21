@@ -385,6 +385,10 @@ def get_arms_performance(window: str = "7d") -> dict[str, Any]:
         reference = []
     arms = []
     fleet: list[dict[str, Any]] = []
+    comparaisons = sum(
+        1 for e in load_manifest()
+        if e.get("enabled", True) and e["name"] != settings.BASELINE_ARM
+    )
     for entry in load_manifest():
         if not entry.get("enabled", True):
             continue
@@ -395,7 +399,7 @@ def get_arms_performance(window: str = "7d") -> dict[str, Any]:
         fleet.extend(fenetre)
         perf["verdict"] = (
             None if name == settings.BASELINE_ARM
-            else verdict_vs_reference(fenetre, reference)
+            else verdict_vs_reference(fenetre, reference, comparisons=comparaisons)
         )
         arms.append({"arm": name, "role": entry.get("role"), **perf})
 

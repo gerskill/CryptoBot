@@ -226,6 +226,8 @@ async function main() {
       const flotte = await texte(page, '#flotte-bras');
       ok(flotte.startsWith('flotte (somme)') && flotte.includes('133 trades'), `Bras : flotte (somme) en dernier (${flotte})`);
       ok(await page.locator('[data-fenetre="7d"]').getAttribute('aria-pressed') === 'true', 'Bras : 7 j sélectionné par défaut');
+      const note = await texte(page, '#note-verdict');
+      ok(note.includes('30 trades') && note.includes('hasard'), `Bras : note sur le verdict face au témoin (${note})`);
       await capture(page, '3-bras');
       await page.click('[data-fenetre="30d"]');
       ok((await lignesBras.filter({ hasText: 'sniper' }).innerText()).includes('69 trades'), 'Bras : 30 j affiche la fenêtre 30 j');
