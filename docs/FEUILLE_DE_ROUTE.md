@@ -40,6 +40,16 @@ alertes, positions ouvertes, P&L par bras, Liquid. Mise en route une fois :
 `docs/APP_IPHONE.md`. ADR 019 et 020 écrits ; runbook
 `docs/RUNBOOK_MISE_A_JOUR_MAC.md`.
 
+## Fait le 2026-11-21 — M2 et B2
+
+- **M2** : la boucle d'entrée ne s'arrête plus au premier candidat sous le seuil
+  absolu (liste triée par score de classement) ; ADR 003 amendé (#40).
+- **B2** : aucun verdict face au témoin sous 30 positions de chaque côté ; le
+  nombre de bras comparés est rendu et affiché ; ADR 011 amendé (#41).
+- Aussi : santé des données, alertes « sans prix », signaux GMGN réparés,
+  `require_data` (ADR 022, désactivé), `explique_position`, `veille --test`.
+Prochain candidat de l'audit : **B4** (gel des paramètres par période).
+
 ## À surveiller sur le Mac après fusion
 
 Lignes `🧠 recherche de sorties` par bras : part de « indéterminé » avec moins

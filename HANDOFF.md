@@ -40,6 +40,12 @@ rentabilité (« quel bras fait +120 %/an ? »). PAPER uniquement.
 - Helius : l'observateur on-chain appelle Helius en direct, sans le repli
   Chainstack → RPC public que `src/core/rpc_endpoint.py` offre déjà aux autres
   modules. Pas de seconde clé : diagnostic HTTP d'abord, puis repli à décider.
+- 2026-11-21 (soir, suite) : #32 pause 1 h sur quota Helius du mois (429) ;
+  #37 `rat_trader_amount_rate` lu comme insiders (champ vide à 100 %) ; #38 nom
+  du bras dans les lignes 🧠 ; #39 « données en panne » : quota connu =
+  dégradé, GMGN mesuré après correctif, alerte qui dit la source ; #40 **M2**
+  (plus de `break` sur le seuil absolu) ; #41 **B2** (pas de verdict face au
+  témoin sous 30 positions, nombre de bras comparés affiché).
 - Constat 2026-11-21 (journal du Mac) : OGTA est resté 31 h 47 ouvert sans que
   le stop -25 % joue (sortie à -100,9 %, ancien code) = le cas B1. Contrôles
   on-chain en `error` depuis au moins le 19/11 (Helius), Birdeye à court de
@@ -79,4 +85,4 @@ rentabilité (« quel bras fait +120 %/an ? »). PAPER uniquement.
 Sur le Mac : `git pull`, redémarrer le bot (alerte sans prix, santé des
 données), puis lancer `python -m scripts.analyse_donnees_manquantes` après
 quelques jours de données. Relire le 7 j dans une semaine (fenêtre disjointe,
-pas emboîtée). Puis choisir M2, B2 ou B4.
+pas emboîtée). Reste B4 (gel des paramètres par période) et A1/A5.
