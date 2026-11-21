@@ -74,6 +74,14 @@ def _opt_float(value: Any) -> Optional[float]:
         return None
 
 
+def _premier(row: dict[str, Any], *noms: str) -> Any:
+    """Première valeur non `None` parmi plusieurs noms de champ (le CLI GMGN renomme ses champs)."""
+    for nom in noms:
+        if row.get(nom) is not None:
+            return row[nom]
+    return None
+
+
 def _opt_int(value: Any) -> Optional[int]:
     try:
         return int(value) if value is not None else None
@@ -163,7 +171,10 @@ def gmgn_to_candidate(
         bot_degen_count=_opt_int(row.get("bot_degen_count")),
         renowned_count=_opt_int(row.get("renowned_count")),
         bundler_rate=_opt_float(row.get("bundler_rate")),
-        insider_rate=_opt_float(row.get("insider_rate")),
+        # GMGN renvoie ce signal sous `rat_trader_amount_rate` (doc gmgn-market), pas `insider_rate` :
+        # jusqu'au 2026-11-21 le champ était vide sur 100 % des entrées et `max_insider_rate` ne
+        # filtrait rien. On lit les deux noms, l'ancien d'abord si une version du CLI le renvoie.
+        insider_rate=_opt_float(_premier(row, "insider_rate", "rat_trader_amount_rate")),
         entrapment_ratio=_opt_float(row.get("entrapment_ratio")),
         rug_ratio=_opt_float(row.get("rug_ratio")),
         is_wash_trading=_opt_bool(row.get("is_wash_trading")),
@@ -183,7 +194,8 @@ def gmgn_to_candidate(
         dexscreener_paid=bool(row.get("dexscr_ad") or row.get("dexscr_boost_fee")),
         manipulation_source="gmgn_trending" if any(
             row.get(k) is not None
-            for k in ("bundler_rate", "insider_rate", "sniper_count", "entrapment_ratio")
+            for k in ("bundler_rate", "insider_rate", "rat_trader_amount_rate", "sniper_count",
+                      "entrapment_ratio")
         ) else None,
         raw=row,
     )
