@@ -38,6 +38,13 @@
     "alertes": [
       "publie_a",
       "lignes"
+    ],
+    "donnees": [
+      "publie_a",
+      "fenetre_h",
+      "entrees",
+      "sources",
+      "champs_vides"
     ]
   },
   "objets": {
@@ -91,6 +98,15 @@
       "type",
       "bras",
       "texte"
+    ],
+    "donnees.sources": [
+      "nom",
+      "etat",
+      "detail"
+    ],
+    "donnees.champs_vides": [
+      "champ",
+      "vide_pct"
     ]
   }
 }

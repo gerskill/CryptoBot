@@ -131,7 +131,7 @@ async function main() {
   const s = snapshots(Date.now());
   const memes = (o, champs) => JSON.stringify(Object.keys(o).sort()) === JSON.stringify([...champs].sort());
   const cles = chemin => (chemin.startsWith('perf.') ? ['perf_7d', 'perf_30d', 'perf_all'] : [chemin.split('.')[0]]);
-  ok(memes(s, Object.keys(CONTRAT.cles)), 'fixture : les sept clés du contrat');
+  ok(memes(s, Object.keys(CONTRAT.cles)), 'fixture : les clés du contrat');
   for (const [cle, champs] of Object.entries(CONTRAT.cles)) ok(memes(s[cle], champs), `fixture ${cle} : champs du contrat`);
   for (const [chemin, champs] of Object.entries(CONTRAT.objets)) {
     ok(cles(chemin).every(c => memes(s[c][chemin.split('.')[1]], champs)), `fixture ${chemin} : champs du contrat`);
@@ -193,6 +193,11 @@ async function main() {
       ok((await page.locator('#liste-alertes > li').count()) === 4, 'État : 4 alertes');
       ok(etat.includes('Panne') && etat.includes('Zombie') && etat.includes("Arrêt d'urgence") && etat.includes('Sans prix'), 'État : types d\'alerte en français');
       ok(etat.includes('runner') && etat.includes('MOODENG : sortie ZOMBIE_NO_PRICE'), 'État : alerte nomme son bras et son texte');
+      // innerText applique le text-transform du titre de section : on compare sans casse.
+      ok(etat.toLowerCase().includes('santé des données') && etat.includes('analyse on-chain (Helius)'), 'État : section Santé des données');
+      ok((await page.locator('#liste-sources > li').count()) === 4, 'Santé : 4 sources');
+      ok(etat.includes('Coupé') && etat.includes('Dégradé') && etat.includes('OK') && etat.includes('À juger'), 'Santé : l\'état est écrit en toutes lettres');
+      ok(etat.includes('bundlers 100 %') && etat.includes('38 entrées'), 'Santé : champs vides à l\'entrée');
       ok(await page.locator('nav [data-onglet="etat"]').getAttribute('aria-current') === 'page', 'aria-current sur l\'onglet actif');
       await capture(page, '1-etat');
 

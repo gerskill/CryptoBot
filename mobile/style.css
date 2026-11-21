@@ -125,6 +125,9 @@ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px 
 .montant { font-family: var(--mono); font-weight: 600; white-space: nowrap; }
 .gain { color: var(--gain); }
 .perte { color: var(--perte); }
+.ambre { color: var(--ambre); }
+/* État d'une source de données : libellé en monospace, comme les montants. */
+.etat-source { font-family: var(--mono); font-weight: 600; font-size: 13px; white-space: nowrap; }
 
 .flotte { color: var(--secondaire); font-family: var(--mono); font-size: 13px; margin-top: 16px; }
 

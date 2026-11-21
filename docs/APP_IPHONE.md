@@ -86,7 +86,14 @@ L'action `.github/workflows/pages.yml` publie `mobile/` à chaque push sur
 
 - **État** : une phrase (« Le bot tourne. Dernier cycle il y a 2 min. »), la
   boucle Liquid, et les alertes des dernières 24 h (sorties zombie, arrêts
-  d'urgence, services en panne).
+  d'urgence, services en panne, positions **sans prix depuis 2 h**).
+- **Santé des données** (en bas de l'écran État) : pour chaque source du bot,
+  « OK », « Dégradé » (repli en cours), « Coupé » (plus aucune source, ou
+  presque toutes les entrées sans donnée) ou « À juger » (moins de 10 entrées).
+  Dessous, la part de champs restés vides à l'entrée (bundlers, insiders,
+  snipers…). Une source **coupée** prévient aussi sur Telegram (veille). Mesure
+  seulement : ça ne change rien au comportement du bot. Détail et limites :
+  `src/core/sante_donnees.py` (les entrées ne sont vues qu'une fois sorties).
 - **Positions**, **Bras** (7 j / 30 j / tout, avec l'intervalle de confiance du
   WR et le verdict face au témoin), **Liquid** : chaque ligne nomme son bras ;
   les totaux sont dits « flotte (somme) ».
