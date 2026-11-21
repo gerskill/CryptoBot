@@ -17,7 +17,7 @@
 
 const PERIME_APRES_MS = 10 * 60 * 1000;      // bandeau « aucune nouvelle » (spec)
 const BOT_ARRETE_APRES_MS = 180 * 1000;       // comme le dashboard (STALE_AFTER_SECONDS)
-const LIQUID_ARRETE_APRES_MS = 300 * 1000;    // comme le dashboard (PREDICTION_STALE_SECONDS)
+const LIQUID_ARRETE_APRES_MS = 600 * 1000;    // comme le dashboard (PREDICTION_STALE_SECONDS)
 const RAFRAICHIR_MS = 60 * 1000;
 const TIRER_SEUIL_PX = 70;
 const PAS_DE_DONNEES = "Pas encore de données : le Mac n'a rien publié.";
