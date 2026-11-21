@@ -4,6 +4,8 @@ import { useStore } from '../lib/store'
 import { EMPTY_ARRAY, EMPTY_OBJECT } from '../lib/empty'
 import { Panel, NoSource } from './Panel'
 import { usd, pct, duration, pnlColor, relativeTime } from '../lib/format'
+import { ExportCsvButton } from './ExportCsvButton'
+import { TRADE_COLUMNS } from '../lib/csvExports'
 
 /**
  * Valeur d'ajustement lisible.
@@ -312,6 +314,16 @@ function LearningFeed() {
 // abandonné mérite le signal.
 const PIC_MANQUE_RATIO = 2
 
+/** Exporte les trades chargés (les 100 derniers), pas seulement les 5 affichés. */
+function ExportTrades() {
+  const trades = useStore((s) => s.trades)
+  return (
+    <div className="mt-2">
+      <ExportCsvButton rows={trades} columns={TRADE_COLUMNS} kind="trades" label="Exporter les trades" />
+    </div>
+  )
+}
+
 function RecentTrades() {
   const allTrades = useStore((s) => s.trades)
   const trades = allTrades.slice(0, 5)
@@ -381,6 +393,7 @@ export function TheBrain() {
 
       <h3 className="mb-1.5 mt-4 text-[11px] uppercase tracking-wide text-dim">Derniers trades</h3>
       <RecentTrades />
+      <ExportTrades />
 
       <h3 className="mb-1.5 mt-4 text-[11px] uppercase tracking-wide text-dim">Ce que le bot a raté</h3>
       <GhostMode />

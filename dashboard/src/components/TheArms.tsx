@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useStore } from '../lib/store'
 import { EMPTY_ARRAY } from '../lib/empty'
 import { Panel } from './Panel'
+import { ExportCsvButton } from './ExportCsvButton'
+import { ARM_COLUMNS } from '../lib/csvExports'
 import { usd, pct, pnlColor } from '../lib/format'
 import type { Arm } from '../lib/types'
 
@@ -262,6 +264,10 @@ export function TheArms() {
         barre&nbsp;: vus → retenus → au-dessus du seuil. La chute est
         l'information&nbsp;— un bras qui ne qualifie rien a un filtre à revoir.
       </p>
+
+      <div className="mt-2">
+        <ExportCsvButton rows={arms} columns={ARM_COLUMNS} kind="bras" label="Exporter les bras" />
+      </div>
 
       <h3 className="mb-1 mt-4 text-[11px] uppercase tracking-wide text-dim">Confluence</h3>
       <Confluence />
