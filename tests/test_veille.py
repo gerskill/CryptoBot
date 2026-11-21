@@ -87,6 +87,59 @@ class TestDiagnostic(unittest.TestCase):
         self.assertFalse(resultat["ui"][0])
 
 
+class TestDiagnosticDonnees(unittest.TestCase):
+    """La veille prévient quand une source de données est COUPÉE (Helius en erreur sur presque
+    toutes les entrées, par exemple), pas pour un simple repli ni un échantillon trop court."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self._saved = (settings.STATE_PATH, settings.TRADES_LOG_PATH)
+        settings.STATE_PATH = os.path.join(self.tmp, "state.json")
+        settings.TRADES_LOG_PATH = os.path.join(self.tmp, "trades_log.jsonl")
+
+    def tearDown(self):
+        settings.STATE_PATH, settings.TRADES_LOG_PATH = self._saved
+
+    def _entrees(self, n, onchain):
+        from datetime import datetime, timedelta, timezone
+        maintenant = datetime.fromtimestamp(T0, tz=timezone.utc)
+        with open(settings.TRADES_LOG_PATH, "w", encoding="utf-8") as fh:
+            for i in range(n):
+                fh.write(json.dumps({
+                    "position_id": str(i), "is_final_exit": True, "onchain_status": onchain,
+                    "timestamp_entry": (maintenant - timedelta(hours=2)).isoformat(),
+                    "entry_bundler_rate": 0.1, "entry_insider_rate": 0.1,
+                    "entry_sniper_count": 1, "entry_entrapment_ratio": 0.1,
+                }) + "\n")
+
+    def test_rien_a_juger_n_est_pas_une_panne(self):
+        ok, detail = veille.diagnostiquer(["donnees"], T0)["donnees"]
+        self.assertTrue(ok, detail)
+
+    def test_onchain_en_erreur_sur_presque_toutes_les_entrees_previent(self):
+        self._entrees(15, "error")
+        ok, detail = veille.diagnostiquer(["donnees"], T0)["donnees"]
+        self.assertFalse(ok)
+        self.assertIn("on-chain", detail)
+
+    def test_onchain_sain_ne_previent_pas(self):
+        self._entrees(15, "ok")
+        self.assertTrue(veille.diagnostiquer(["donnees"], T0)["donnees"][0])
+
+    def test_un_state_illisible_ne_leve_pas(self):
+        with open(settings.STATE_PATH, "w", encoding="utf-8") as fh:
+            fh.write("{pas du json")
+        self.assertTrue(veille.diagnostiquer(["donnees"], T0)["donnees"][0])
+
+    def test_les_donnees_n_entrent_pas_dans_le_ping_externe(self):
+        # Le ping healthchecks.io dit « le bot vit » : une source coupée ne doit pas le faire échouer.
+        self.assertTrue(veille.tout_ok({"bot": (True, "ok"), "donnees": (False, "on-chain coupé")}))
+        self.assertFalse(veille.tout_ok({"bot": (False, "arrêté"), "donnees": (True, "ok")}))
+
+    def test_donnees_fait_partie_des_verifications_par_defaut(self):
+        self.assertIn("donnees", veille.VERIFICATIONS)
+
+
 class TestModelesLaunchd(unittest.TestCase):
     def test_chaque_modele_rempli_est_un_plist_valide(self):
         modeles = glob.glob(os.path.join(RACINE, "scripts", "launchd", "*.plist.modele"))
