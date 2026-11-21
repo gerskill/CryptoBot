@@ -15,9 +15,9 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src import pipeline  # noqa: E402
-from src.core.entry_context import build_entry_context  # noqa: E402
-from src.core.models import Candidate  # noqa: E402
+from src import pipeline
+from src.core.entry_context import build_entry_context
+from src.core.models import Candidate
 
 INFO = {
     "holder_count": 812,
