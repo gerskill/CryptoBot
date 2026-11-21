@@ -200,7 +200,8 @@ def _alertes(maintenant: datetime) -> dict:
             "quand": depuis.astimezone(timezone.utc).isoformat(),
             "type": "PANNE",
             "bras": None,
-            "texte": f"{nom} en panne depuis {minutes} min",
+            "texte": f"{nom} en panne depuis {minutes} min"
+                     + (f" : {etat['detail']}" if isinstance(etat.get("detail"), str) and etat["detail"] else ""),
         }))
     # Positions ouvertes sans prix depuis 2 h ou plus : une panne en cours, pas une sortie.
     # `sans_prix_depuis_min` est écrit par le bot (src/core/sans_prix.py) ; absent = pas d'alerte.

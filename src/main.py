@@ -165,6 +165,14 @@ def _handle_sigint(*_: object) -> None:
     _running = False
 
 
+def _etat_onchain(observateur) -> Optional[dict]:
+    """État public de l'observateur on-chain, ou None : l'écriture du state ne doit jamais tomber."""
+    try:
+        return observateur.etat_public() if observateur is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 class AlphaLoop:
     def __init__(self) -> None:
         self.params = ParamsStore(settings.PARAMS_PATH)
@@ -806,6 +814,9 @@ class AlphaLoop:
                     # montrer sur quoi le bot tourne réellement.
                     "capabilities": self.capabilities.report,
                     "blind_spots": self.capabilities.blind_spots,
+                    # Quota Helius du mois : une coupure CONNUE et sans action possible n'est pas
+                    # une panne (src/core/sante_donnees.py la classe « dégradé »).
+                    "onchain": _etat_onchain(getattr(self, "onchain", None)),
                     # État RÉEL au moment du cycle, pas juste « la clé
                     # existe » : Twitter se coupe tout seul sur un 402, le
                     # dashboard doit le refléter au lieu d'afficher « actif ».

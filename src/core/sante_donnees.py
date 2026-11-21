@@ -85,9 +85,11 @@ def _sources_capacites(capacites: Any) -> list[dict[str, str]]:
             etat, detail = "coupe", "aucune source disponible"
         else:
             etat = "degrade" if (c.get("degraded") or morts) else "ok"
-            detail = f"source : {c.get('using') or 'aucune utilisée récemment'}"
+            vivants = [str(v) for v in c.get("available") or []]
+            detail = (f"source : {c['using']}" if c.get("using")
+                      else f"disponible : {', '.join(vivants) or '—'}")
             if morts:
-                detail += f" ; morte : {', '.join(morts)}"
+                detail += f" ; morte : {', '.join(morts)} (repli en place)"
         lignes.append({"nom": str(c["capability"]), "etat": etat, "detail": detail})
     return lignes
 
@@ -109,7 +111,7 @@ def _source_budgets(budgets: Any) -> list[dict[str, str]]:
     return lignes
 
 
-def _source_onchain(entrees: list[dict[str, Any]]) -> dict[str, str]:
+def _source_onchain(entrees: list[dict[str, Any]], etat_onchain: Any = None) -> dict[str, str]:
     statuts = [e.get("onchain_status") for e in entrees]
     # Les entrées d'avant l'observateur on-chain (`None`) et les modules coupés exprès
     # (`disabled`) ne sont pas des pannes.
@@ -124,20 +126,40 @@ def _source_onchain(entrees: list[dict[str, Any]]) -> dict[str, str]:
     erreur = statuts.count("error")
     absente = statuts.count("missing")
     quota = statuts.count("budget")
+    etat = etat_depuis_pct(pct, total)
+    # Quota du mois épuisé (l'observateur le dit, ou la plupart des défauts sont « quota ») : cause
+    # connue, reprise automatique, rien à faire. « Dégradé » et pas « coupé » : sinon la veille
+    # sonnait « données en panne » pendant des jours pour une limite d'abonnement.
+    quota_connu = isinstance(etat_onchain, dict) and etat_onchain.get("quota_epuise")
+    if etat == "coupe" and (quota_connu or (defauts and quota >= defauts / 2)):
+        reprise = etat_onchain.get("reprise_dans_min") if quota_connu else None
+        return {
+            "nom": nom,
+            "etat": "degrade",
+            "detail": ("quota Helius du mois épuisé : reprise automatique"
+                       + (f" (nouvel essai dans {reprise} min)" if reprise is not None else "")
+                       + f", rien à faire ; {defauts}/{total} entrées sans lecture on-chain"),
+        }
     return {
         "nom": nom,
-        "etat": etat_depuis_pct(pct, total),
+        "etat": etat,
         "detail": (f"{defauts}/{total} entrées sans lecture on-chain "
                    f"(erreur {erreur}, absente {absente}, quota {quota})"),
     }
 
 
-def _source_gmgn(vides: list[dict[str, Any]], total: int) -> dict[str, str]:
-    par_champ = {ligne["champ"]: ligne["vide_pct"] for ligne in vides}
-    valeurs = [par_champ[c] for c in SIGNAUX_GMGN if c in par_champ]
+def _source_gmgn(entrees: list[dict[str, Any]]) -> dict[str, str]:
+    """Mesurée seulement sur les entrées écrites APRÈS les correctifs du 2026-11-21 (fusion qui jetait
+    les signaux, champ insiders mal nommé) : elles portent la clé `entry_manipulation_source`. Les
+    entrées d'avant resteraient « coupé » 24 h de plus pour un défaut déjà corrigé."""
+    recentes = [e for e in entrees if "entry_manipulation_source" in e]
     nom = "signaux de manipulation (GMGN)"
-    if not valeurs:
-        return {"nom": nom, "etat": "inconnu", "detail": "aucune entrée mesurée"}
+    if not recentes:
+        return {"nom": nom, "etat": "inconnu",
+                "detail": "aucune entrée depuis le correctif du 21/11 : à juger plus tard"}
+    total = len(recentes)
+    par_champ = {ligne["champ"]: ligne["vide_pct"] for ligne in champs_vides(recentes)}
+    valeurs = [par_champ[c] for c in SIGNAUX_GMGN if c in par_champ]
     moyenne = sum(valeurs) / len(valeurs)
     return {
         "nom": nom,
@@ -155,8 +177,8 @@ def resume(etat: dict[str, Any] | None, entrees: list[dict[str, Any]]) -> dict[s
     etat = etat if isinstance(etat, dict) else {}
     vides = champs_vides(entrees)
     sources = _sources_capacites(etat.get("capabilities")) + _source_budgets(etat.get("budgets"))
-    sources.append(_source_onchain(entrees))
-    sources.append(_source_gmgn(vides, len(entrees)))
+    sources.append(_source_onchain(entrees, etat.get("onchain")))
+    sources.append(_source_gmgn(entrees))
     return {"fenetre_h": FENETRE_HEURES, "entrees": len(entrees), "sources": sources, "champs_vides": vides}
 
 

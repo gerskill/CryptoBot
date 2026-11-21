@@ -51,6 +51,12 @@ class TestMessages(unittest.TestCase):
         self.assertEqual(len(messages), 1)
         self.assertIn("toujours en panne", messages[0])
 
+    def test_le_detail_est_garde_pour_l_app(self):
+        _, memoire = veille.messages_a_envoyer({"donnees": (False, "analyse on-chain : 15/15")}, {}, T0)
+        self.assertEqual(memoire["donnees"]["detail"], "analyse on-chain : 15/15")
+        _, memoire = veille.messages_a_envoyer({"donnees": (False, "nouveau détail")}, memoire, T0 + 300)
+        self.assertEqual(memoire["donnees"]["detail"], "nouveau détail")
+
     def test_retablissement_annonce_avec_sa_duree(self):
         _, memoire = veille.messages_a_envoyer({"ui": (False, "x")}, {}, T0)
         messages, memoire = veille.messages_a_envoyer({"ui": (True, "HTTP 200")}, memoire, T0 + 1800)

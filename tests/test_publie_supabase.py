@@ -280,6 +280,14 @@ class TestAlertes(DonneesTestCase):
         self.assertIsNone(lignes[0]["bras"])
         self.assertIn("bot", lignes[0]["texte"])
 
+    def test_l_alerte_de_panne_dit_quelle_source(self):
+        depuis = (MAINTENANT - timedelta(minutes=77)).timestamp()
+        self._ecrire("veille_etat.json", {"donnees": {
+            "ok": False, "depuis": depuis, "detail": "signaux de manipulation (GMGN) : 98 % vides"}})
+        texte = pub.construire_snapshots(MAINTENANT)["alertes"]["lignes"][0]["texte"]
+        self.assertIn("donnees en panne depuis 77 min", texte)
+        self.assertIn("GMGN", texte)
+
     def test_pannes_et_sorties_sont_triees_ensemble(self):
         self._manifeste("baseline")
         self._trades("baseline", [self._sortie("1", "ZOMBIE", MAINTENANT - timedelta(hours=5))])

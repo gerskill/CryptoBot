@@ -141,11 +141,16 @@ def messages_a_envoyer(diagnostic: dict, memoire: dict, maintenant: float) -> tu
                 if avant is not None and ok:
                     duree = f" après {(maintenant - avant.get('depuis', maintenant)) / 60:.0f} min de panne"
                 messages.append(f"{'✅' if ok else '🔴'} {nom} : {'rétabli' + duree if ok else 'EN PANNE'} — {detail}")
-                nouvelle[nom] = {"ok": ok, "depuis": maintenant, "dernier_message": maintenant}
+                nouvelle[nom] = {"ok": ok, "depuis": maintenant, "dernier_message": maintenant,
+                                 "detail": detail}
             else:
-                nouvelle[nom] = {"ok": ok, "depuis": maintenant, "dernier_message": None}
+                nouvelle[nom] = {"ok": ok, "depuis": maintenant, "dernier_message": None,
+                                 "detail": detail}
             continue
         etat = dict(avant)
+        # Le détail du DERNIER passage : l'app l'affiche avec l'alerte (« données en panne depuis
+        # 77 min » sans dire laquelle ne servait à rien).
+        etat["detail"] = detail
         if not ok and maintenant - (etat.get("dernier_message") or 0) >= RAPPEL_S:
             heures = (maintenant - etat.get("depuis", maintenant)) / 3600
             messages.append(f"🔴 {nom} : toujours en panne depuis {heures:.1f} h — {detail}")
