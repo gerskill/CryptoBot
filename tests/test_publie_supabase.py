@@ -289,6 +289,43 @@ class TestAlertes(DonneesTestCase):
         self.assertEqual(types, ["PANNE", "ZOMBIE"])
 
 
+class TestAlerteSansPrix(DonneesTestCase):
+    """Une position ouverte sans prix depuis 2 h ou plus devient une alerte SANS_PRIX (OGTA :
+    31 h ouverte, stop muet, personne prévenu)."""
+
+    def _etat(self, positions):
+        self._ecrire("state.json", {"updated_at": MAINTENANT.timestamp(), "positions": positions})
+
+    def test_une_position_sans_prix_depuis_deux_heures_est_une_alerte(self):
+        self._etat([
+            {"id": "a", "arm": "baseline", "symbol": "OGTA", "sans_prix_depuis_min": 130.4},
+            {"id": "b", "arm": "sniper", "symbol": "PEPE", "sans_prix_depuis_min": 45.0},
+            {"id": "c", "arm": "sniper", "symbol": "BONK", "sans_prix_depuis_min": None},
+        ])
+        lignes = pub.construire_snapshots(MAINTENANT)["alertes"]["lignes"]
+        self.assertEqual([ligne["type"] for ligne in lignes], ["SANS_PRIX"])
+        self.assertEqual(lignes[0]["bras"], "baseline")
+        self.assertIn("OGTA", lignes[0]["texte"])
+        self.assertIn("130 min", lignes[0]["texte"])
+
+    def test_l_alerte_date_du_debut_de_la_coupure(self):
+        self._etat([{"id": "a", "arm": "baseline", "symbol": "OGTA", "sans_prix_depuis_min": 150}])
+        ligne = pub.construire_snapshots(MAINTENANT)["alertes"]["lignes"][0]
+        attendu = (MAINTENANT - timedelta(minutes=150)).isoformat()
+        self.assertEqual(ligne["quand"], attendu)
+
+    def test_un_state_sans_le_champ_ne_donne_pas_d_alerte(self):
+        # Un state.json écrit par l'ancien code n'a pas `sans_prix_depuis_min`.
+        self._etat([{"id": "a", "arm": "baseline", "symbol": "OGTA"}])
+        self.assertEqual(pub.construire_snapshots(MAINTENANT)["alertes"]["lignes"], [])
+
+    def test_l_adresse_du_token_ne_sort_pas(self):
+        self._etat([{"id": "a", "arm": "baseline", "symbol": "OGTA", "token_address": "HXT1Upm",
+                     "sans_prix_depuis_min": 200}])
+        texte = json.dumps(pub.construire_snapshots(MAINTENANT)["alertes"])
+        self.assertNotIn("HXT1Upm", texte)
+
+
 class TestLiquid(DonneesTestCase):
     """L'exemple fictif (`demo`) ne doit jamais se mélanger au réel."""
 

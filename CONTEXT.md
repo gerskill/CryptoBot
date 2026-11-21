@@ -84,14 +84,19 @@ Position restée sans prix exploitable au-delà de son time stop + 30 min :
 fermée à -100 % de sa part restante, raison `ZOMBIE (sans prix depuis le
 time stop)` (ADR 020). Ne pas confondre avec un rug pull : le rug est
 détecté sur une chute de liquidité **avec** un prix ; le zombie, c'est
-l'absence de prix.
+l'absence de prix. Avant la fermeture, une position ouverte **2 h sans prix**
+déclenche une alerte (message Telegram + ligne « Sans prix » dans l'app,
+`src/core/sans_prix.py`) : elle ne ferme rien, elle prévient. Le compteur est en
+mémoire et repart de zéro au redémarrage du bot.
 
 ### Coût de sortie réel
 Impact de prix Jupiter (deux devis réels, achat + vente) + priority fee
 Helius, déduits du P&L **une seule fois par position, sur la jambe finale**
 (`action.is_final` — stop loss, time stop, trailing, TP3, rug pull, ou
-`force_close`). Les jambes partielles (TP1, TP2) restent au prix nu. Voir
-`src/core/exit_fees.py`, ADR 009 et ADR 010.
+`force_close`). Les jambes partielles (TP1, TP2) reçoivent un coût **estimé**
+(la moitié de la médiane mesurée du bras, champ `exit_cost_estimated`) depuis le
+2026-08-31 ; avant cette date elles restaient au prix nu. Voir
+`src/core/exit_fees.py`, ADR 009, ADR 010 et ADR 012.
 
 ### Bras désactivé
 Un bras (`enabled: false` dans `config/strategies.json`) est exclu de

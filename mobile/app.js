@@ -21,7 +21,7 @@ const LIQUID_ARRETE_APRES_MS = 600 * 1000;    // comme le dashboard (PREDICTION_
 const RAFRAICHIR_MS = 60 * 1000;
 const TIRER_SEUIL_PX = 70;
 const PAS_DE_DONNEES = "Pas encore de données : le Mac n'a rien publié.";
-const TYPES_ALERTE = { ZOMBIE: 'Zombie', PANIC_STOP: "Arrêt d'urgence", PANNE: 'Panne' };
+const TYPES_ALERTE = { ZOMBIE: 'Zombie', PANIC_STOP: "Arrêt d'urgence", PANNE: 'Panne', SANS_PRIX: 'Sans prix' };
 // Variables qu'un fork peut changer selon le rôle du parent : copie de
 // src/prediction/overlay.py (VARIABLES, BOUNDS). Le Mac revalide de toute façon.
 const VARIABLES_FORK = {
