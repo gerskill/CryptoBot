@@ -942,7 +942,8 @@ class AlphaLoop:
                 row["trades"] = len(arm.journal.read_positions())
             if arm.journal is not None and not arm.is_baseline:
                 row["vs_baseline"] = verdict_vs_reference(
-                    arm.journal.read_positions(), reference
+                    arm.journal.read_positions(), reference,
+                    comparisons=sum(1 for a in self.arms if not a.is_baseline),
                 )
             payload.append(row)
         return payload

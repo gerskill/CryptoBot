@@ -123,7 +123,11 @@ class TestVerdictContreLeTemoin(unittest.TestCase):
                 for i, p in enumerate([40, -5, -5, -5, -5, 25])]
         temoin = [_position(f"b{i}", 3.0, 30000, pnl=p)
                   for i, p in enumerate([-4] * 30)]
+        # Depuis B2 (2026-11-21) : 6 positions < 30, aucun verdict n'est rendu du tout.
         self.assertEqual(verdict_vs_reference(bras, temoin)["verdict"],
+                         "échantillon trop court")
+        # Sous le seuil abaissé, les intervalles se recouvrent toujours : pas de conclusion.
+        self.assertEqual(verdict_vs_reference(bras, temoin, min_positions=3)["verdict"],
                          "indistinguable")
 
     def test_un_ecart_franc_et_repete_conclut(self):

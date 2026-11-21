@@ -62,3 +62,14 @@ qu'après que le bras a eu sa chance de produire un échantillon.
 - `MIN_TRADES_FOR_WEIGHTS` (50) et `MIN_SIGNALS_PER_AGENT` (20) protègent des
   décisions analogues sur la pondération des agents de score, avec le même
   principe : pas d'action tant que l'échantillon ne permet pas de trancher.
+
+
+## Amendement 2026-11-21 (audit B2)
+
+Le critère « intervalles disjoints » était appliqué dès 3 positions. Simulation de
+l'audit du 2026-11-17 sur deux bras identiques : 10 % de faux verdicts à 3 positions,
+5 % à 10, 1 % à 40, loin des ~0,5 % annoncés ici. Désormais `verdict_vs_reference`
+ne rend aucun verdict sous `MIN_POSITIONS_VERDICT = 30` positions de chaque côté
+(« échantillon trop court »), et renvoie le nombre de bras comparés au même témoin
+(`comparisons`), affiché dans l'app : avec 18 bras, un « supérieur » isolé peut
+venir du hasard. Test : `tests/test_verdict_b2.py`.

@@ -135,9 +135,17 @@ def pnl_per_trade_interval(positions: Sequence[dict[str, Any]]) -> Optional[Inte
     return bootstrap_mean([p.get("pnl_usd") or 0.0 for p in positions])
 
 
+# Positions par côté sous lesquelles AUCUN verdict n'est rendu (audit B2). Simulation de l'audit du
+# 2026-11-17 sur deux bras IDENTIQUES : 10 % de faux verdicts à 3 positions, 5 % à 10, 1 % à 40 —
+# loin des ~0,5 % annoncés. À 30 positions de chaque côté, on approche du 1 %.
+MIN_POSITIONS_VERDICT = 30
+
+
 def verdict_vs_reference(
     positions: Sequence[dict[str, Any]],
     reference: Sequence[dict[str, Any]],
+    comparisons: Optional[int] = None,
+    min_positions: int = MIN_POSITIONS_VERDICT,
 ) -> dict[str, Any]:
     """Ce bras bat-il le témoin, et peut-on le DIRE ?
 
@@ -158,17 +166,19 @@ def verdict_vs_reference(
     """
     mien = pnl_per_trade_interval(positions)
     sien = pnl_per_trade_interval(reference)
-    if mien is None or sien is None:
-        return {
-            "verdict": "échantillon trop court",
-            "interval": mien.as_dict() if mien else None,
-            "reference": sien.as_dict() if sien else None,
-        }
-    return {
-        "verdict": compare(mien, sien),
-        "interval": mien.as_dict(),
-        "reference": sien.as_dict(),
+    base: dict[str, Any] = {
+        "interval": mien.as_dict() if mien else None,
+        "reference": sien.as_dict() if sien else None,
+        "min_positions": min_positions,
     }
+    # Nombre de bras comparés au même témoin : avec 18 bras, au moins un faux « supérieur » devient
+    # probable même à 1 % chacun. Le dire avec le verdict, pour qu'un écart isolé ne soit pas lu
+    # comme une découverte (audit B2).
+    if comparisons is not None:
+        base["comparisons"] = comparisons
+    if mien is None or sien is None or mien.n < min_positions or sien.n < min_positions:
+        return {"verdict": "échantillon trop court", **base}
+    return {"verdict": compare(mien, sien), **base}
 
 
 def walk_forward(
