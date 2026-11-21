@@ -55,6 +55,9 @@ class PredictionRunner:
         self.data_dir = data_dir
         self.now = now
         self._candles: dict[tuple[str, str], list[dict[str, float]]] = {}
+        # Carnets lus CE cycle, par pièce (absent compris) : sans ça chaque bras
+        # relisait le même carnet, 252 lectures et 146 s par cycle (2026-11-21).
+        self._books: dict[str, Optional[dict[str, list[tuple[float, float]]]]] = {}
         # Parts achetées CE cycle, par pièce, tous bras confondus : un même
         # carnet ne se vend pas deux fois.
         self._taken: dict[str, float] = {}
@@ -186,7 +189,7 @@ class PredictionRunner:
         if exposure + target > exposure_cap:
             return "exposition_max"
         side = pick["side"]
-        book = self.api.l2_book(side.coin)
+        book = self._book(side.coin)
         if not book or not book["asks"]:
             return "carnet_absent"
         asks = remaining_asks(book["asks"], self._taken.get(side.coin, 0.0))
@@ -278,6 +281,16 @@ class PredictionRunner:
         return "ouvert"
 
     # ---------- règlement ----------
+
+    def _book(self, coin: str) -> Optional[dict[str, list[tuple[float, float]]]]:
+        """Carnet d'une pièce, lu une seule fois par cycle.
+
+        Les parts déjà prises par un autre bras sont retirées à part
+        (`_taken`) : le carnet mémorisé reste celui de l'API, jamais modifié.
+        """
+        if coin not in self._books:
+            self._books[coin] = self.api.l2_book(coin)
+        return self._books[coin]
 
     def _last_mid(self, coin: str) -> Optional[float]:
         rows = read_jsonl(self._price_path(coin))
@@ -519,6 +532,7 @@ class PredictionRunner:
     def cycle(self) -> dict[str, Any]:
         moment = self.now()
         self._candles = {}
+        self._books = {}
         self._taken = {}
         meta = self.api.outcome_meta()
         if meta is None:
