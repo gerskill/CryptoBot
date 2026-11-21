@@ -140,6 +140,51 @@ class TestDiagnosticDonnees(unittest.TestCase):
         self.assertIn("donnees", veille.VERIFICATIONS)
 
 
+class FauxTelegram:
+    def __init__(self, enabled=True, accepte=True):
+        self.enabled = enabled
+        self.accepte = accepte
+        self.messages = []
+
+    def send(self, texte, *args, **kwargs):
+        self.messages.append(texte)
+        return self.accepte
+
+
+class TestMessageDeTest(unittest.TestCase):
+    """`--test` : vérifier depuis le téléphone que les alertes arrivent, sans provoquer de panne."""
+
+    def test_un_seul_message_et_code_zero(self):
+        faux = FauxTelegram()
+        self.assertEqual(veille.envoyer_test(faux), 0)
+        self.assertEqual(len(faux.messages), 1)
+        self.assertIn("test de la veille", faux.messages[0])
+
+    def test_telegram_non_configure_dit_quelle_variable_manque_sans_cle(self):
+        sauve = (settings.TELEGRAM_BOT_TOKEN, settings.TELEGRAM_CHAT_ID)
+        settings.TELEGRAM_BOT_TOKEN, settings.TELEGRAM_CHAT_ID = "secret-123", ""
+        try:
+            import io
+            from contextlib import redirect_stdout
+            sortie = io.StringIO()
+            with redirect_stdout(sortie):
+                code = veille.envoyer_test(FauxTelegram(enabled=False))
+        finally:
+            settings.TELEGRAM_BOT_TOKEN, settings.TELEGRAM_CHAT_ID = sauve
+        self.assertEqual(code, 1)
+        self.assertIn("TELEGRAM_CHAT_ID", sortie.getvalue())
+        self.assertNotIn("secret-123", sortie.getvalue())
+
+    def test_refus_de_telegram_donne_un_code_non_nul(self):
+        self.assertEqual(veille.envoyer_test(FauxTelegram(accepte=False)), 1)
+
+    def test_le_test_n_ecrit_pas_la_memoire_de_la_veille(self):
+        avant = os.path.exists(veille.ETAT_PATH) and os.path.getmtime(veille.ETAT_PATH)
+        veille.envoyer_test(FauxTelegram())
+        apres = os.path.exists(veille.ETAT_PATH) and os.path.getmtime(veille.ETAT_PATH)
+        self.assertEqual(avant, apres)
+
+
 class TestModelesLaunchd(unittest.TestCase):
     def test_chaque_modele_rempli_est_un_plist_valide(self):
         modeles = glob.glob(os.path.join(RACINE, "scripts", "launchd", "*.plist.modele"))

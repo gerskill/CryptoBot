@@ -31,6 +31,7 @@ Usage :
   python scripts/veille.py                 # un passage (lancé toutes les 5 min par launchd)
   python scripts/veille.py --sans-envoi    # affiche le diagnostic, n'envoie rien
   python scripts/veille.py --verifie bot,ui
+  python scripts/veille.py --test          # envoie UN message de test sur Telegram, rien d'autre
 """
 
 import argparse
@@ -181,12 +182,42 @@ def _ping_externe(tout_ok: bool) -> None:
         print(f"[veille] ping externe impossible : {type(exc).__name__}")
 
 
+MESSAGE_TEST = (
+    "🧪 <b>CryptobBot — test de la veille</b>\n"
+    "Si tu lis ce message sur ton téléphone, les alertes de panne arriveront aussi. "
+    "Mode PAPER, rien n'a été modifié."
+)
+
+
+def envoyer_test(notifier=None) -> int:
+    """Un message de test, et rien d'autre : ni diagnostic, ni mémoire, ni ping externe.
+
+    Code de sortie : 0 si Telegram a accepté le message, 1 sinon (configuration absente ou refus).
+    Aucune clé affichée : on dit seulement QUELLE variable manque."""
+    notifier = notifier or TelegramNotifier(settings.TELEGRAM_BOT_TOKEN, settings.TELEGRAM_CHAT_ID)
+    if not notifier.enabled:
+        manquantes = [nom for nom, valeur in (("TELEGRAM_BOT_TOKEN", settings.TELEGRAM_BOT_TOKEN),
+                                              ("TELEGRAM_CHAT_ID", settings.TELEGRAM_CHAT_ID)) if not valeur]
+        print(f"[veille] Telegram non configuré : {', '.join(manquantes) or 'configuration incomplète'} "
+              "absent(s) de .env")
+        return 1
+    if notifier.send(MESSAGE_TEST):
+        print("[veille] message de test envoyé : regarde Telegram sur ton téléphone.")
+        return 0
+    print("[veille] Telegram a refusé le message (jeton ou chat_id faux ? voir le journal ci-dessus).")
+    return 1
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--sans-envoi", action="store_true", help="diagnostic seul, aucun message ni ping")
+    parser.add_argument("--test", action="store_true",
+                        help="envoie un message de test sur Telegram et s'arrête")
     parser.add_argument("--verifie", default=",".join(VERIFICATIONS),
                         help=f"liste parmi {','.join(VERIFICATIONS)} (défaut : tout)")
     args = parser.parse_args()
+    if args.test:
+        raise SystemExit(envoyer_test())
     verifs = [v.strip() for v in args.verifie.split(",") if v.strip()]
     inconnues = set(verifs) - set(VERIFICATIONS)
     if inconnues:
