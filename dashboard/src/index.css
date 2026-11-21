@@ -134,4 +134,8 @@ p { text-wrap: pretty; }
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+  /* Danger / proche du TP1 : sans pulsation, l'anneau reste allumé (état
+     statique) au lieu de disparaître, sinon le signal serait perdu. */
+  .pulse-danger { animation: none !important; box-shadow: 0 0 0 1px rgba(255, 74, 110, 0.55); }
+  .pulse-target { animation: none !important; box-shadow: 0 0 0 1px rgba(46, 229, 107, 0.55); }
 }

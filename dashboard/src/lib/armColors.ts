@@ -7,9 +7,9 @@ const ARM_COLOR_PALETTE: CurveColor[] = [
   { stroke: 'var(--color-blood)', fill: 'rgba(255, 74, 110, 0.12)' },
   { stroke: 'var(--color-warn)', fill: 'rgba(255, 171, 46, 0.12)' },
   { stroke: 'var(--color-gem)', fill: 'rgba(124, 108, 255, 0.12)' },
-  { stroke: 'var(--color-muted)', fill: 'rgba(139, 141, 155, 0.12)' },
+  { stroke: 'var(--color-muted)', fill: 'rgba(164, 166, 180, 0.12)' },
   { stroke: 'var(--color-ink)', fill: 'rgba(237, 238, 242, 0.12)' },
-  { stroke: 'rgba(90, 92, 106, 0.5)', fill: 'rgba(90, 92, 106, 0.08)' },
+  { stroke: 'rgba(127, 129, 145, 0.6)', fill: 'rgba(127, 129, 145, 0.08)' },
 ]
 
 export function armColor(index: number): CurveColor {

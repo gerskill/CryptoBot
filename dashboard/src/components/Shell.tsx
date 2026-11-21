@@ -133,7 +133,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
               {/* Le seul chiffre héroïque de l'écran. Tout le reste recule
                   d'un cran : sans ce contraste d'échelle, l'équité se noie
                   dans la densité des panneaux. */}
-              <div className="mt-1 flex items-baseline gap-3">
+              <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
                 <span
                   className={`font-mono text-[clamp(2.25rem,1.2rem+3vw,3.5rem)] font-semibold leading-[0.9] tracking-tight ${equityPulse}`}
                 >
