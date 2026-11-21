@@ -124,6 +124,7 @@ class PaperPortfolio:
         exit_fee_measurer: Optional[Callable[[str, float], Optional[Any]]] = None,
         partial_cost_estimator: Optional[Callable[[], Optional[float]]] = None,
         scale_in_checker: Optional[Callable[..., Any]] = None,
+        depuis: Optional[float] = None,
     ):
         # COUPE-CIRCUIT. Le cooldown réagit à 3 pertes CONSÉCUTIVES ; il ne
         # voit rien d'une érosion lente qui alterne gains et pertes. Sur ce
@@ -164,6 +165,9 @@ class PaperPortfolio:
         self.consecutive_losses = 0
         self.cooldown_until: Optional[float] = None
         self.max_drawdown_pct = 0.0  # recalculé depuis le journal ci-dessous
+        # Début du compte courant (src/core/compte.py). None = tout le journal, comme avant.
+        # Seules les positions OUVERTES depuis comptent pour le solde et les statistiques.
+        self.depuis = depuis
 
         # `baseline` = la mise de départ configurée, jamais recalculée. Elle
         # sert de référence au P&L cumulé.
@@ -176,13 +180,15 @@ class PaperPortfolio:
         # perd définitivement — elles ne sont jamais clôturées, jamais
         # journalisées, et le trade disparaît sans laisser de trace.
         self.positions = self._load_positions()
-        engaged = sum(p.size_usd * p.remaining_fraction for p in self.positions.values())
+        engaged = sum(
+            p.size_usd * p.remaining_fraction for p in self.positions.values() if self._du_compte(p)
+        )
         # Frais d'entrée déjà pris sur la part encore ouverte. Les jambes
         # vendues l'ont dans le journal ; on ne le retire pas une seconde fois.
         open_entry_fees = sum(
             p.size_usd * p.remaining_fraction * p.entry_cost_pct / 100.0
             for p in self.positions.values()
-            if p.entry_cost_version
+            if p.entry_cost_version and self._du_compte(p)
         )
 
         self.capital = capital + realized - engaged - open_entry_fees
@@ -194,6 +200,19 @@ class PaperPortfolio:
                 f"({realized:+.2f} $), {len(self.positions)} position(s) ouverte(s) "
                 f"({engaged:.2f} $ engagés) — capital {self.capital:.2f} $"
             )
+
+    def _du_compte(self, position: Any) -> bool:
+        """Position ouverte dans le compte courant ? Une position d'avant finit sa vie dans l'ancien."""
+        depuis = getattr(self, "depuis", None)
+        return depuis is None or float(getattr(position, "entry_time", 0) or 0) >= depuis
+
+    def _lignes_du_compte(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        depuis = getattr(self, "depuis", None)
+        if depuis is None:
+            return rows
+        from src.core.compte import Compte
+        compte = Compte(depuis=depuis, capital=self.baseline)
+        return [r for r in rows if compte.contient(r)]
 
     def _realized_pnl_from_journal(self) -> float:
         """P&L cumulé, pertes consécutives et drawdown max, reconstruits.
@@ -207,7 +226,7 @@ class PaperPortfolio:
         capital reconstruit, et une position gagnante grâce à son TP1 était
         comptée comme une perte consécutive de plus.
         """
-        rows = self.journal.read_positions()
+        rows = self._lignes_du_compte(self.journal.read_positions())
         self.closed_count = len(rows)
 
         streak = 0
@@ -494,7 +513,8 @@ class PaperPortfolio:
         half = half_round_trip_pct(measured)
         add_pct = half or 0.0
         if half is not None and add_pct:
-            self.capital -= add_usd * add_pct / 100.0
+            if self._du_compte(position):
+                self.capital -= add_usd * add_pct / 100.0
         total = position.size_usd
         if total <= 0:
             return position
@@ -631,7 +651,8 @@ class PaperPortfolio:
             position = apply_exit(position, action, price, cost_pct=realized_cost)
             self.positions[position_id] = position
 
-            self.capital += position.size_usd * fraction * (1 + price_pnl / 100)
+            if self._du_compte(position):
+                self.capital += position.size_usd * fraction * (1 + price_pnl / 100)
 
             # Une écriture journal ratée ne doit JAMAIS empêcher la clôture
             # réelle : sinon la position reste à `remaining_fraction == 0`
@@ -824,7 +845,8 @@ class PaperPortfolio:
         before = position
         position = apply_scale_in(position, effective, add_usd, observed_price=price)
         self.positions[position_id] = position
-        self.capital -= add_usd
+        if self._du_compte(position):
+            self.capital -= add_usd
         if before.entry_cost_version == ENTRY_COST_VERSION and before.entry_impact_charged:
             position = self._blend_entry_cost(
                 before, position, add_usd, measured=prepared_entry_quote
@@ -890,7 +912,8 @@ class PaperPortfolio:
             position, ExitAction(fraction, reason, is_final=True), price, cost_pct=realized_cost
         )
         self.positions[position_id] = position
-        self.capital += position.size_usd * fraction * (1 + price_pnl / 100)
+        if self._du_compte(position):
+            self.capital += position.size_usd * fraction * (1 + price_pnl / 100)
 
         row = self.journal.record_exit(
             position=position,
@@ -934,7 +957,8 @@ class PaperPortfolio:
         )
         self.positions[position_id] = position
         # price_pnl vaut -100 : la part restante ne rapporte rien.
-        self.capital += position.size_usd * fraction * (1 + price_pnl / 100)
+        if self._du_compte(position):
+            self.capital += position.size_usd * fraction * (1 + price_pnl / 100)
 
         row = self.journal.record_exit(
             position=position,
@@ -992,11 +1016,14 @@ class PaperPortfolio:
 
     def equity(self) -> float:
         """Capital libre + valeur d'entrée des positions ouvertes (approximation)."""
-        engaged = sum(p.size_usd * p.remaining_fraction for p in self.positions.values())
+        engaged = sum(
+            p.size_usd * p.remaining_fraction for p in self.positions.values() if self._du_compte(p)
+        )
         return self.capital + engaged
 
     def stats(self, journal_rows: Optional[list[dict[str, Any]]] = None) -> dict[str, Any]:
-        rows = journal_rows if journal_rows is not None else self.journal.read_positions()
+        rows = (journal_rows if journal_rows is not None
+                else self._lignes_du_compte(self.journal.read_positions()))
         wins = [r for r in rows if r.get("pnl_usd", 0) > 0]
         losses = [r for r in rows if r.get("pnl_usd", 0) <= 0]
         gross_win = sum(r.get("pnl_usd", 0) for r in wins)
