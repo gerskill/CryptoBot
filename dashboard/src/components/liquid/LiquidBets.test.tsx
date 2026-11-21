@@ -66,24 +66,40 @@ describe('paris : explorer', () => {
   it('tri par P&L net via l’en-tête, aria-sort suit, valeur absente en dernier', () => {
     render(<LiquidBets summary={SUMMARY} bets={BETS} demo={false} />)
     const th = within(screen.getByRole('table', { name: 'Paris du bras alpha' })).getByRole('columnheader', { name: /P&L net/ })
-    fireEvent.click(within(th).getByRole('button'))
-    expect(th.getAttribute('aria-sort')).toBe('ascending')
-    expect(titres()).toEqual(['Arsenal gagne', 'BTC au-dessus de 100k', 'ETH au-dessus de 5k'])
+    // P&L : le plus gros d'abord au premier clic
     fireEvent.click(within(th).getByRole('button'))
     expect(th.getAttribute('aria-sort')).toBe('descending')
     expect(titres()).toEqual(['BTC au-dessus de 100k', 'Arsenal gagne', 'ETH au-dessus de 5k'])
+    fireEvent.click(within(th).getByRole('button'))
+    expect(th.getAttribute('aria-sort')).toBe('ascending')
+    expect(titres()).toEqual(['Arsenal gagne', 'BTC au-dessus de 100k', 'ETH au-dessus de 5k'])
   })
 
-  it('Entrée ouvre le détail d’un pari ; Échap le ferme', async () => {
+  it('le bouton du marché ouvre le détail ; Échap le ferme et rend le focus au bouton', async () => {
     render(<LiquidBets summary={SUMMARY} bets={BETS} demo={false} />)
     const table = screen.getByRole('table', { name: 'Paris du bras alpha' })
-    const ligne = within(table).getAllByRole('row')[2]
-    ligne.focus()
-    fireEvent.keyDown(ligne, { key: 'Enter' })
+    const bouton = within(table).getByRole('button', { name: 'Arsenal gagne' })
+    bouton.focus()
+    fireEvent.click(bouton)
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByText('Prix payé')).toBeTruthy()
     fireEvent.keyDown(dialog, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    expect(document.activeElement).toBe(ligne)
+    expect(document.activeElement).toBe(bouton)
+  })
+
+  it('au-delà de 100 lignes : pagination « Afficher plus »', () => {
+    const beaucoup = Array.from({ length: 150 }, (_, i) =>
+      bet(`${100 + i}`, `Marché ${i}`, { entry_time: `2026-10-01T10:${String(i % 60).padStart(2, '0')}:00Z` }))
+    render(<LiquidBets summary={SUMMARY} bets={beaucoup} demo={false} />)
+    expect(titres()).toHaveLength(100)
+    expect(screen.getByText('150 sur 150')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Afficher plus/ }))
+    expect(titres()).toHaveLength(150)
+  })
+
+  it('la ligne d’un bras se sélectionne au clavier', () => {
+    render(<LiquidBets summary={SUMMARY} bets={BETS} demo={false} />)
+    expect(screen.getByRole('button', { name: /^alpha/ }).getAttribute('aria-current')).toBe('true')
   })
 })

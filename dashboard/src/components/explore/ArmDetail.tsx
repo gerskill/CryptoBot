@@ -2,6 +2,10 @@ import type { Arm } from '../../lib/types'
 import { usd, pct, pnlColor } from '../../lib/format'
 import { Fields } from './Fields'
 
+/** Profit factor : arrondi, et « ∞ » quand il n'y a aucune perte (jamais « Infinity »). */
+const factor = (value: number): string | null =>
+  Number.isNaN(value) ? null : Number.isFinite(value) ? value.toFixed(2) : '∞'
+
 /** Contenu du tiroir d'une stratégie : règles, entonnoir du cycle, résultats. */
 export function ArmDetail({ arm }: { arm: Arm }) {
   const s = arm.stats
@@ -38,7 +42,7 @@ export function ArmDetail({ arm }: { arm: Arm }) {
             ['Trades', trades],
             ['Positions ouvertes', s.open_positions || null],
             ['Win rate', pct(s.win_rate)],
-            ['Profit factor', s.profit_factor],
+            ['Profit factor', factor(s.profit_factor)],
             ['Gain moyen', pct(s.avg_win_pct)],
             ['Perte moyenne', pct(s.avg_loss_pct)],
             ['Drawdown max', `${s.max_drawdown_pct.toFixed(1)} %`],

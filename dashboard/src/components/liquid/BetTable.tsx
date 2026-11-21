@@ -1,13 +1,17 @@
+import { useState } from 'react'
 import { Empty } from '../Panel'
 import { NoResults } from '../explore/ExploreBar'
 import { SortableTh } from '../explore/SortControls'
-import { rowProps } from '../explore/useDrawer'
+import { rowClick, type OpenEvent } from '../explore/useDrawer'
 import { pnlColor, utc, prob } from '../../lib/format'
 import type { PredictionBet } from '../../lib/predictionTypes'
 import { signed } from './liquidLabels'
 import { issueLabel } from './betSort'
 
-type Handler = Parameters<typeof rowProps>[0]
+type Handler = (event: OpenEvent) => void
+
+/** Au-delà, on pagine : des centaines de lignes à re-rendre à chaque message pèsent. */
+const PAGE_SIZE = 100
 
 const COLUMNS: { key: string; label: string; align?: 'right' }[] = [
   { key: 'entree', label: 'Entrée (UTC)' },
@@ -36,8 +40,10 @@ export function BetTable({
   onSort: (key: string) => void
   onOpen: (id: string) => Handler
 }) {
+  const [limit, setLimit] = useState(PAGE_SIZE)
   if (total === 0) return <Empty>Aucun pari pour ce bras.</Empty>
   if (bets.length === 0) return <NoResults query={query} />
+  const shown = bets.slice(0, limit)
   return (
     <div className="max-h-[420px] overflow-auto">
       <table aria-label={label} className="w-full min-w-[640px] whitespace-nowrap text-left text-[11px]">
@@ -50,22 +56,32 @@ export function BetTable({
           </tr>
         </thead>
         <tbody className="font-mono tabular-nums">
-          {bets.map((bet) => (
-            <tr key={bet.id} {...rowProps(onOpen(bet.id))}
-              className={`cursor-pointer border-t border-edge/40 transition-colors hover:bg-raised ${bet.id === selectedId ? 'bg-raised' : ''}`}>
-              <td className="whitespace-nowrap px-2 py-3 text-muted sm:py-2">{utc(bet.entry_time)}</td>
-              <td className="whitespace-normal px-2 py-3 font-sans text-ink sm:py-2">{bet.title}</td>
-              <td className="px-2 py-3 text-muted sm:py-2">{bet.side_name}</td>
-              <td className="px-2 py-3 text-right text-ink sm:py-2">{prob(bet.entry_price)}</td>
-              <td className="px-2 py-3 text-right text-muted sm:py-2">{prob(bet.prob_estimee)}</td>
-              <td className="px-2 py-3 text-right text-muted sm:py-2">{issueLabel(bet)}</td>
-              <td className={`px-2 py-3 text-right sm:py-2 ${bet.pnl_net == null ? 'text-dim' : pnlColor(bet.pnl_net)}`}>
+          {shown.map((bet) => (
+            <tr key={bet.id} {...rowClick(onOpen(bet.id))}
+              className={`h-11 cursor-pointer border-t border-edge/40 transition-colors hover:bg-raised ${bet.id === selectedId ? 'bg-raised' : ''}`}>
+              <td className="whitespace-nowrap px-2 py-2 text-muted">{utc(bet.entry_time)}</td>
+              <td className="whitespace-normal px-2 py-0 font-sans text-ink">
+                {/* Le vrai bouton de la ligne : focalisable, annoncé comme ouvrant un détail. */}
+                <button type="button" data-row-trigger aria-haspopup="dialog"
+                  className="min-h-11 w-full text-left">{bet.title}</button>
+              </td>
+              <td className="px-2 py-2 text-muted">{bet.side_name}</td>
+              <td className="px-2 py-2 text-right text-ink">{prob(bet.entry_price)}</td>
+              <td className="px-2 py-2 text-right text-muted">{prob(bet.prob_estimee)}</td>
+              <td className="px-2 py-2 text-right text-muted">{issueLabel(bet)}</td>
+              <td className={`px-2 py-2 text-right ${bet.pnl_net == null ? 'text-dim' : pnlColor(bet.pnl_net)}`}>
                 {bet.pnl_net == null ? '—' : signed(bet.pnl_net)}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+      {bets.length > shown.length && (
+        <button type="button" onClick={() => setLimit(limit + PAGE_SIZE)}
+          className="mt-2 min-h-11 w-full rounded-md text-[11px] text-muted ring-1 ring-edge transition-colors hover:text-ink">
+          Afficher plus ({bets.length - shown.length} restants)
+        </button>
+      )}
     </div>
   )
 }

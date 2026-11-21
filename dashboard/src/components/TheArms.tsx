@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useStore } from '../lib/store'
 import { EMPTY_ARRAY } from '../lib/empty'
@@ -29,6 +29,8 @@ const SORT_OPTIONS = [
   { key: 'trades', label: 'Trades' },
   { key: 'positions', label: 'Positions' },
 ]
+const DESC_FIRST = ['pnl', 'trades', 'positions']
+const SEARCH_OF = (a: Arm) => [a.name, a.role, a.description]
 const ACCESSORS = {
   nom: (a: Arm) => a.name,
   pnl: (a: Arm) => (a.stats ? a.stats.total_pnl_usd : null),
@@ -199,11 +201,13 @@ function Confluence() {
 export function TheArms() {
   const arms = useStore((s) => s.state.arms ?? EMPTY_ARRAY)
   const [statut, setStatut] = useState<Statut>('tous')
+  const predicate = useCallback((a: Arm) => inStatut(a, statut), [statut])
   const explore = useExplore({
     rows: arms,
-    searchOf: (a) => [a.name, a.role, a.description],
+    searchOf: SEARCH_OF,
     accessors: ACCESSORS,
-    predicate: (a) => inStatut(a, statut),
+    predicate,
+    descFirst: DESC_FIRST,
     filterActive: statut !== 'tous',
     onReset: () => setStatut('tous'),
   })
@@ -249,7 +253,7 @@ export function TheArms() {
           aria-label="Statut"
           value={statut}
           onChange={(event) => setStatut(event.target.value as Statut)}
-          className="min-h-11 rounded-md bg-void px-2 font-mono text-xs text-ink ring-1 ring-edge sm:min-h-8"
+          className="min-h-11 rounded-md bg-void px-2 font-mono text-xs text-ink ring-1 ring-edge "
         >
           <option value="tous">tous les statuts</option>
           <option value="position">en position</option>

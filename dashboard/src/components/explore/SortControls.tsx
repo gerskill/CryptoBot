@@ -23,7 +23,7 @@ export function SortableTh({
       <button
         type="button"
         onClick={() => onSort(sortKey)}
-        className={`flex min-h-11 w-full items-center gap-1 px-2 uppercase tracking-wider transition-colors hover:text-ink sm:min-h-0 sm:py-1.5 ${
+        className={`flex min-h-11 w-full items-center gap-1 px-2 uppercase tracking-wider transition-colors hover:text-ink ${
           align === 'right' ? 'justify-end' : 'justify-start'
         } ${ariaSort === 'none' ? '' : 'text-ink'}`}
       >
@@ -56,7 +56,7 @@ export function SortBar({
             type="button"
             aria-pressed={active}
             onClick={() => onSort(key)}
-            className={`min-h-11 rounded-md px-3 text-[11px] ring-1 transition-colors sm:min-h-8 ${
+            className={`min-h-11 rounded-md px-3 text-[11px] ring-1 transition-colors ${
               active ? 'text-ink ring-edge-strong bg-raised' : 'text-muted ring-edge hover:text-ink'
             }`}
           >

@@ -1,5 +1,5 @@
 import type { PredictionBet } from '../../lib/predictionTypes'
-import { useBetPrices } from '../../lib/usePrediction'
+import type { PriceState } from '../../lib/usePrediction'
 import { pnlColor, utc, prob, usd } from '../../lib/format'
 import { BetChart } from '../liquid/BetChart'
 import { DOMAIN_LABEL, signed } from '../liquid/liquidLabels'
@@ -7,8 +7,7 @@ import { issueLabel } from '../liquid/betSort'
 import { Fields } from './Fields'
 
 /** Contenu du tiroir d'un pari : champs du journal + courbe si le prix est servi. */
-export function BetDetail({ bet, demo }: { bet: PredictionBet; demo: boolean }) {
-  const prices = useBetPrices(bet.coin, demo)
+export function BetDetail({ bet, prices }: { bet: PredictionBet; prices: PriceState }) {
   const settled = bet.status === 'regle'
   return (
     <>
@@ -39,7 +38,7 @@ export function BetDetail({ bet, demo }: { bet: PredictionBet; demo: boolean }) 
           ['P&L net', bet.pnl_net != null ? signed(bet.pnl_net) : null, bet.pnl_net != null ? pnlColor(bet.pnl_net) : undefined],
         ]}
       />
-      {prices.points.length > 0 && (
+      {prices.coin === bet.coin && prices.points.length > 0 && (
         <section>
           <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-dim">Courbe du prix</h3>
           <BetChart bet={bet} points={prices.points} />

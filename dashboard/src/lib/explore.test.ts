@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ariaSortOf,
   countLabel,
+  keepOrder,
   matchesQuery,
   nextSort,
   normalize,
@@ -38,6 +39,11 @@ describe('nextSort', () => {
   it('même colonne : bascule asc puis desc, sans repasser par rien', () => {
     expect(nextSort({ key: 'pnl', dir: 'asc' }, 'pnl')).toEqual({ key: 'pnl', dir: 'desc' })
     expect(nextSort({ key: 'pnl', dir: 'desc' }, 'pnl')).toEqual({ key: 'pnl', dir: 'asc' })
+  })
+  it('première pression : sens initial paramétrable (P&L décroissant d’abord)', () => {
+    expect(nextSort(null, 'pnl', 'desc')).toEqual({ key: 'pnl', dir: 'desc' })
+    expect(nextSort({ key: 'pnl', dir: 'desc' }, 'pnl', 'desc')).toEqual({ key: 'pnl', dir: 'asc' })
+    expect(nextSort({ key: 'nom', dir: 'asc' }, 'pnl', 'desc')).toEqual({ key: 'pnl', dir: 'desc' })
   })
   it('autre colonne : repart en ascendant', () => {
     expect(nextSort({ key: 'pnl', dir: 'desc' }, 'nom')).toEqual({ key: 'nom', dir: 'asc' })
@@ -80,6 +86,14 @@ describe('sortRows', () => {
     sortRows(rows, acc, { key: 'v', dir: 'asc' })
     expect(rows).toEqual(copie)
   })
+  it('NaN et Infinity sont des valeurs absentes : toujours en dernier', () => {
+    const lignes = [
+      { n: 'nan', v: NaN }, { n: 'un', v: 1 }, { n: 'inf', v: Infinity }, { n: 'deux', v: 2 },
+    ]
+    const accesseurs = { v: (r: (typeof lignes)[0]) => r.v }
+    expect(sortRows(lignes, accesseurs, { key: 'v', dir: 'asc' }).map((r) => r.n)).toEqual(['un', 'deux', 'nan', 'inf'])
+    expect(sortRows(lignes, accesseurs, { key: 'v', dir: 'desc' }).map((r) => r.n)).toEqual(['deux', 'un', 'nan', 'inf'])
+  })
   it('clé inconnue : ordre d’origine', () => {
     expect(sortRows(rows, acc, { key: 'zzz', dir: 'asc' })).toEqual(rows)
   })
@@ -92,5 +106,15 @@ describe('sortRows', () => {
 describe('countLabel', () => {
   it('N sur M', () => {
     expect(countLabel(3, 12)).toBe('3 sur 12')
+  })
+})
+
+describe('keepOrder', () => {
+  const rows = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+  it('garde l’ordre figé, valeurs à jour', () => {
+    expect(keepOrder(rows, (r) => r.id, ['c', 'a', 'b']).map((r) => r.id)).toEqual(['c', 'a', 'b'])
+  })
+  it('ignore un id disparu et range un nouvel arrivant à la fin', () => {
+    expect(keepOrder(rows, (r) => r.id, ['z', 'b', 'a']).map((r) => r.id)).toEqual(['b', 'a', 'c'])
   })
 })

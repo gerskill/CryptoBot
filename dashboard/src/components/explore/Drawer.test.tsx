@@ -10,9 +10,10 @@ function Harness() {
   const drawer = useDrawer<string>()
   return (
     <div>
-      <button onClick={drawer.openFrom('alpha')}>ouvrir alpha</button>
+      <main data-testid="fond"><button onClick={drawer.openFrom('alpha')}>ouvrir alpha</button></main>
       <button>autre</button>
       <Drawer open={drawer.item !== null} onClose={drawer.close} title={`Détail ${drawer.item}`}>
+        <p>texte non focalisable</p>
         <button>premier</button>
         <button>dernier</button>
       </Drawer>
@@ -55,6 +56,38 @@ describe('Drawer', () => {
     premier.focus()
     fireEvent.keyDown(premier, { key: 'Tab', shiftKey: true })
     expect(document.activeElement).toBe(dernier)
+  })
+
+  it('Échap ferme même après un clic dans le tiroir (focus perdu sur body)', async () => {
+    render(<Harness />)
+    fireEvent.click(screen.getByText('ouvrir alpha'))
+    await screen.findByRole('dialog')
+    ;(document.activeElement as HTMLElement).blur()
+    fireEvent.click(screen.getByText('texte non focalisable'))
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+
+  it('Tab depuis body (focus perdu) est ramené dans le tiroir', async () => {
+    render(<Harness />)
+    fireEvent.click(screen.getByText('ouvrir alpha'))
+    const dialog = await screen.findByRole('dialog')
+    ;(document.activeElement as HTMLElement).blur()
+    fireEvent.keyDown(document.body, { key: 'Tab' })
+    expect(dialog.contains(document.activeElement)).toBe(true)
+  })
+
+  it('verrouille le défilement et rend le fond inerte, puis restaure', async () => {
+    document.body.style.overflow = 'auto'
+    render(<Harness />)
+    fireEvent.click(screen.getByText('ouvrir alpha'))
+    await screen.findByRole('dialog')
+    expect(document.body.style.overflow).toBe('hidden')
+    expect(screen.getByTestId('fond').closest('[inert]') ?? screen.getByTestId('fond').parentElement?.hasAttribute('inert')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Fermer' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(document.body.style.overflow).toBe('auto')
+    expect(document.querySelector('[inert]')).toBeNull()
   })
 
   it('le bouton Fermer ferme le tiroir', async () => {

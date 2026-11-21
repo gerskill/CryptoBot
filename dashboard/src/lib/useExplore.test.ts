@@ -56,4 +56,11 @@ describe('useExplore', () => {
     expect(result.current.visible).toHaveLength(3)
     expect(appels).toBe(1)
   })
+
+  it('descFirst : la première pression trie en décroissant', () => {
+    const { result } = renderHook(() => useExplore({ ...options, descFirst: ['pnl'] }))
+    act(() => result.current.toggleSort('pnl'))
+    expect(result.current.visible.map((r) => r.pnl)).toEqual([9, 5, -2])
+    expect(result.current.ariaSort('pnl')).toBe('descending')
+  })
 })

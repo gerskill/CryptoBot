@@ -15,3 +15,6 @@ export const BET_ACCESSORS: Accessors<PredictionBet> = {
   pnl: (b) => b.pnl_net,
 }
 
+
+/** Colonnes dont le premier clic trie le plus grand (ou le plus récent) d'abord. */
+export const BET_DESC_FIRST = ['entree', 'paye', 'estime', 'pnl']

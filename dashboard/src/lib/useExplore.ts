@@ -1,12 +1,13 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useDeferredValue, useMemo, useState } from 'react'
 import {
-  ariaSortOf, matchesQuery, nextSort, sortRows,
+  ariaSortOf, matchesWords, nextSort, queryWords, searchText, sortRows,
   type Accessors, type SortState,
 } from './explore'
 
 type Options<T> = {
   rows: readonly T[]
-  /** Champs dans lesquels la recherche texte cherche. */
+  /** Champs de la recherche texte. Constante de module ou `useCallback` : sa
+   *  référence pilote le précalcul du texte normalisé. */
   searchOf: (row: T) => ReadonlyArray<string | number | null | undefined>
   accessors: Accessors<T>
   /** Filtre propre au panneau (statut, bras…), appliqué en plus de la recherche. */
@@ -15,21 +16,37 @@ type Options<T> = {
   filterActive?: boolean
   /** Remet à zéro les filtres que le panneau possède lui-même. */
   onReset?: () => void
+  /** Colonnes qui se trient d'abord en décroissant (P&L, mise, durée…). */
+  descFirst?: readonly string[]
 }
 
 /**
  * État d'exploration d'une liste : recherche, tri, compteur, réinitialisation.
  * Le panneau garde la main sur ses filtres propres (`predicate`) ; le hook ne
  * possède que la requête et le tri, communs à toutes les listes.
+ *
+ * Le texte normalisé de chaque ligne est calculé une fois par changement de
+ * données, pas à chaque frappe ; la requête est différée pour que la saisie
+ * reste fluide sur de longues listes.
  */
-export function useExplore<T>({ rows, searchOf, accessors, predicate, filterActive = false, onReset }: Options<T>) {
+export function useExplore<T>({
+  rows, searchOf, accessors, predicate, filterActive = false, onReset, descFirst,
+}: Options<T>) {
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<SortState | null>(null)
+  const deferredQuery = useDeferredValue(query)
 
-  const matching = rows.filter((row) => (predicate ? predicate(row) : true) && matchesQuery(searchOf(row), query))
-  const visible = sortRows(matching, accessors, sort)
+  const index = useMemo(() => rows.map((row) => searchText(searchOf(row))), [rows, searchOf])
+  const visible = useMemo(() => {
+    const words = queryWords(deferredQuery)
+    const matching = rows.filter((row, i) => (predicate ? predicate(row) : true) && matchesWords(index[i], words))
+    return sortRows(matching, accessors, sort)
+  }, [rows, index, deferredQuery, predicate, accessors, sort])
 
-  const toggleSort = useCallback((key: string) => setSort((current) => nextSort(current, key)), [])
+  const toggleSort = useCallback(
+    (key: string) => setSort((current) => nextSort(current, key, descFirst?.includes(key) ? 'desc' : 'asc')),
+    [descFirst],
+  )
   const ariaSort = (key: string) => ariaSortOf(sort, key)
   const reset = () => {
     setQuery('')

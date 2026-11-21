@@ -51,9 +51,9 @@ describe('stratégies : explorer', () => {
   it('tri par P&L bascule asc/desc', () => {
     render(<TheArms />)
     fireEvent.click(screen.getByRole('button', { name: /P&L/ }))
-    expect(noms()).toEqual(['runner', 'consensus', 'sniper'])
-    fireEvent.click(screen.getByRole('button', { name: /P&L/ }))
     expect(noms()).toEqual(['sniper', 'consensus', 'runner'])
+    fireEvent.click(screen.getByRole('button', { name: /P&L/ }))
+    expect(noms()).toEqual(['runner', 'consensus', 'sniper'])
   })
 
   it('filtre « en position »', () => {

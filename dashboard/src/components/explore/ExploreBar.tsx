@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { ReactNode, Ref } from 'react'
 import { countLabel } from '../../lib/explore'
 
 /**
@@ -8,8 +8,10 @@ import { countLabel } from '../../lib/explore'
  * résultat d'un filtre sans avoir à chercher où il s'affiche.
  */
 export function ExploreBar({
-  label, placeholder, query, onQuery, shown, total, isFiltered, onReset, children,
+  label, placeholder, query, onQuery, shown, total, isFiltered, onReset, inputRef, children,
 }: {
+  /** Pour y replacer le focus quand l'élément consulté a disparu. */
+  inputRef?: Ref<HTMLInputElement>
   label: string
   placeholder?: string
   query: string
@@ -23,12 +25,13 @@ export function ExploreBar({
   return (
     <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 px-1">
       <input
+        ref={inputRef}
         type="search"
         aria-label={label}
         value={query}
         onChange={(event) => onQuery(event.target.value)}
         placeholder={placeholder ?? label}
-        className="min-h-11 w-full min-w-0 rounded-md bg-void px-2.5 text-xs text-ink ring-1 ring-edge placeholder:text-dim sm:min-h-8 sm:w-48"
+        className="min-h-11 w-full min-w-0 rounded-md bg-void px-2.5 text-xs text-ink ring-1 ring-edge placeholder:text-dim sm:w-48"
       />
       {children}
       <span aria-live="polite" className="font-mono text-[11px] tabular-nums text-muted">
@@ -38,7 +41,7 @@ export function ExploreBar({
         <button
           type="button"
           onClick={onReset}
-          className="min-h-11 rounded-md px-3 text-[11px] text-muted ring-1 ring-edge transition-colors hover:text-ink sm:min-h-8"
+          className="min-h-11 rounded-md px-3 text-[11px] text-muted ring-1 ring-edge transition-colors hover:text-ink "
         >
           Réinitialiser
         </button>

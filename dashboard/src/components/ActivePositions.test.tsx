@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { ActivePositions } from './ActivePositions'
 import { useStore } from '../lib/store'
 import type { Position } from '../lib/types'
@@ -50,12 +50,12 @@ describe('positions ouvertes : explorer', () => {
     expect(symboles()).toHaveLength(3)
   })
 
-  it('tri par P&L : ascendant puis descendant', () => {
+  it('tri par P&L : le plus gros d’abord, puis bascule', () => {
     render(<ActivePositions />)
     fireEvent.click(screen.getByRole('button', { name: /P&L/ }))
-    expect(symboles()).toEqual(['DOGE', 'PEPE', 'WIF'])
-    fireEvent.click(screen.getByRole('button', { name: /P&L/ }))
     expect(symboles()).toEqual(['WIF', 'PEPE', 'DOGE'])
+    fireEvent.click(screen.getByRole('button', { name: /P&L/ }))
+    expect(symboles()).toEqual(['DOGE', 'PEPE', 'WIF'])
   })
 
   it('filtre par bras', async () => {
@@ -67,10 +67,37 @@ describe('positions ouvertes : explorer', () => {
 
   it('un clic ouvre le détail, sans inventer les champs absents', () => {
     render(<ActivePositions />)
-    fireEvent.click(screen.getAllByRole('article')[0])
+    // vrai bouton (pas d'aria-label sur l'article, qui masquerait son contenu)
+    expect(screen.getAllByRole('article')[0].getAttribute('aria-label')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /Détail de PEPE/ }))
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).getByText('Prix d’entrée')).toBeTruthy()
     // holders_at_entry est null : aucune ligne « Holders »
     expect(within(dialog).queryByText(/Holders/)).toBeNull()
+  })
+
+  it('position clôturée pendant le détail : tiroir fermé, avis, focus sur la recherche, pas de réouverture', async () => {
+    render(<ActivePositions />)
+    fireEvent.click(screen.getByRole('button', { name: /Détail de PEPE/ }))
+    await screen.findByRole('dialog')
+    act(() => seed([position('2', 'DOGE', 'runner', -12), position('3', 'WIF', 'sniper', 30)]))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(screen.getByRole('status').textContent).toMatch(/PEPE.*clôturée/)
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('searchbox')))
+    // l'id réapparaît : rien ne se rouvre tout seul
+    act(() => seed([position('1', 'PEPE', 'sniper', 5), position('2', 'DOGE', 'runner', -12)]))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('l’ordre est figé pendant le survol, rétabli ensuite', async () => {
+    render(<ActivePositions />)
+    fireEvent.click(screen.getByRole('button', { name: /P&L/ })) // desc : WIF, PEPE, DOGE
+    await waitFor(() => expect(symboles()).toEqual(['WIF', 'PEPE', 'DOGE']))
+    const liste = screen.getByTestId('positions-list')
+    fireEvent.mouseEnter(liste)
+    act(() => seed([position('1', 'PEPE', 'sniper', 99), position('2', 'DOGE', 'runner', -12), position('3', 'WIF', 'sniper', 30)]))
+    await waitFor(() => expect(symboles()).toEqual(['WIF', 'PEPE', 'DOGE']))
+    fireEvent.mouseLeave(liste)
+    await waitFor(() => expect(symboles()).toEqual(['PEPE', 'WIF', 'DOGE']))
   })
 })
