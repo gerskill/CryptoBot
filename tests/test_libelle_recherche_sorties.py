@@ -12,7 +12,7 @@ from contextlib import redirect_stdout
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.core.learning import LearningEngine  # noqa: E402
+from src.core.learning import LearningEngine
 
 
 class TestLibelle(unittest.TestCase):
