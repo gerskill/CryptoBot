@@ -145,7 +145,8 @@ class TestModelesLaunchd(unittest.TestCase):
         modeles = glob.glob(os.path.join(RACINE, "scripts", "launchd", "*.plist.modele"))
         self.assertEqual(len(modeles), 5)
         for chemin in modeles:
-            texte = open(chemin, encoding="utf-8").read()
+            with open(chemin, encoding="utf-8") as fh:
+                texte = fh.read()
             for cle in ("__PROJET__", "__PYTHON__", "__PATH__"):
                 texte = texte.replace(cle, "/x")
             document = plistlib.loads(texte.encode("utf-8"))
