@@ -1,6 +1,13 @@
 import { useState } from 'react'
 import { Panel, Stat, Empty } from '../Panel'
-import { pnlColor, utc, prob } from '../../lib/format'
+import { useExplore } from '../../lib/useExplore'
+import { ExploreBar } from '../explore/ExploreBar'
+import { Drawer } from '../explore/Drawer'
+import { BetDetail } from '../explore/BetDetail'
+import { useDrawer } from '../explore/useDrawer'
+import { BetTable } from './BetTable'
+import { BET_ACCESSORS, issueLabel } from './betSort'
+import { pnlColor, prob } from '../../lib/format'
 import { useBetPrices } from '../../lib/usePrediction'
 import type { PredictionArm, PredictionBet, PredictionSummary } from '../../lib/predictionTypes'
 import { BetChart } from './BetChart'
@@ -54,51 +61,6 @@ function ArmTable({ arms, selected, onSelect }: {
     </div>
   )
 }
-
-function BetTable({ bets, selectedId, onSelect }: {
-  bets: PredictionBet[]; selectedId: string | null; onSelect: (id: string) => void
-}) {
-  if (bets.length === 0) return <Empty>Aucun pari pour ce bras.</Empty>
-  return (
-    <div className="max-h-[420px] overflow-auto">
-      <table className="w-full min-w-[640px] whitespace-nowrap text-left text-[11px]">
-        <thead className="sticky top-0 bg-surface text-[11px] uppercase tracking-wider text-dim">
-          <tr>
-            <th className="px-2 py-1.5 font-medium">Entrée (UTC)</th>
-            <th className="px-2 py-1.5 font-medium">Marché</th>
-            <th className="px-2 py-1.5 font-medium">Côté</th>
-            <th className="px-2 py-1.5 text-right font-medium">Prix payé</th>
-            <th className="px-2 py-1.5 text-right font-medium">Estimé</th>
-            <th className="px-2 py-1.5 text-right font-medium">Issue</th>
-            <th className="px-2 py-1.5 text-right font-medium">P&L net</th>
-          </tr>
-        </thead>
-        <tbody className="font-mono tabular-nums">
-          {bets.map((bet) => {
-            const active = bet.id === selectedId
-            return (
-              <tr key={bet.id} onClick={() => onSelect(bet.id)}
-                className={`cursor-pointer border-t border-edge/40 transition-colors hover:bg-raised ${active ? 'bg-raised' : ''}`}>
-                <td className="whitespace-nowrap px-2 py-2 text-muted">{utc(bet.entry_time)}</td>
-                <td className="whitespace-normal px-2 py-2 font-sans text-ink">{bet.title}</td>
-                <td className="px-2 py-2 text-muted">{bet.side_name}</td>
-                <td className="px-2 py-2 text-right text-ink">{prob(bet.entry_price)}</td>
-                <td className="px-2 py-2 text-right text-muted">{prob(bet.prob_estimee)}</td>
-                <td className="px-2 py-2 text-right text-muted">
-                  {bet.status === 'regle' ? (bet.won ? 'gagné' : 'perdu') : bet.status === 'ouvert' ? 'ouvert' : 'indéterminé'}
-                </td>
-                <td className={`px-2 py-2 text-right ${bet.pnl_net == null ? 'text-dim' : pnlColor(bet.pnl_net)}`}>
-                  {bet.pnl_net == null ? '—' : signed(bet.pnl_net)}
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
 
 function Calibration({ arm }: { arm: PredictionArm }) {
   const rows = arm.stats.calibration.filter((r) => r.paris > 0)
@@ -156,9 +118,24 @@ export function LiquidBets({ summary, bets, demo }: {
   const [domaine, setDomaine] = useState('tous')
   const allArmBets = bets.filter((b) => b.arm === armName).slice().reverse()
   const armDomains = [...new Set(allArmBets.map((b) => b.domain))]
-  const armBets = allArmBets.filter((b) =>
-    (statut === 'tous' || b.status === statut) && (domaine === 'tous' || b.domain === domaine))
+  const domaineActif = armDomains.includes(domaine) ? domaine : 'tous'
+  const explore = useExplore({
+    rows: allArmBets,
+    searchOf: (b) => [b.title, b.side_name, DOMAIN_LABEL[b.domain] ?? b.domain, b.venue, b.coin, issueLabel(b)],
+    accessors: BET_ACCESSORS,
+    predicate: (b) => (statut === 'tous' || b.status === statut) && (domaineActif === 'tous' || b.domain === domaineActif),
+    filterActive: statut !== 'tous' || domaineActif !== 'tous',
+    onReset: () => { setStatut('tous'); setDomaine('tous') },
+  })
+  const armBets = explore.visible
   const bet = armBets.find((b) => b.id === betChoice) ?? armBets[0] ?? null
+  const drawer = useDrawer<string>()
+  const detail = bets.find((b) => b.id === drawer.item) ?? null
+  // Une ligne sélectionne le pari (graphique de la page) ET ouvre son détail.
+  const openBet = (id: string) => (event: Parameters<ReturnType<typeof drawer.openFrom>>[0]) => {
+    setBetChoice(id)
+    drawer.openFrom(id)(event)
+  }
   const prices = useBetPrices(bet?.coin ?? null, demo)
 
   const s = arm?.stats
@@ -233,26 +210,31 @@ export function LiquidBets({ summary, bets, demo }: {
         </Panel>
 
         <Panel title={`Paris du bras ${armName ?? '—'}`} count={armBets.length}
-          hint="Clique une ligne : son entrée et son règlement se posent sur le graphique, à la même date et au même prix.">
-          <div className="mb-2 flex flex-wrap gap-2 px-1 text-[11px] uppercase tracking-wider text-dim">
-            <label className="flex items-center gap-1.5">Statut
-              <select value={statut} onChange={(e) => setStatut(e.target.value)}
-                className="rounded bg-void px-1.5 py-1 font-mono text-[11px] normal-case text-ink ring-1 ring-edge/60">
-                <option value="tous">tous</option><option value="ouvert">ouverts</option>
-                <option value="regle">réglés</option><option value="indetermine">indéterminés</option>
-              </select>
-            </label>
-            <label className="flex items-center gap-1.5">Domaine
-              <select value={armDomains.includes(domaine) ? domaine : 'tous'} onChange={(e) => setDomaine(e.target.value)}
-                className="rounded bg-void px-1.5 py-1 font-mono text-[11px] normal-case text-ink ring-1 ring-edge/60">
-                <option value="tous">tous</option>
-                {armDomains.map((d) => <option key={d} value={d}>{DOMAIN_LABEL[d] ?? d}</option>)}
-              </select>
-            </label>
-          </div>
-          <BetTable bets={armBets} selectedId={bet?.id ?? null} onSelect={setBetChoice} />
+          hint="Clique une ligne : son détail s’ouvre, et son entrée et son règlement se posent sur le graphique, à la même date et au même prix.">
+          <ExploreBar label="Chercher un pari" placeholder="Marché, côté, domaine"
+            query={explore.query} onQuery={explore.setQuery} shown={armBets.length}
+            total={explore.total} isFiltered={explore.isFiltered} onReset={explore.reset}>
+            <select aria-label="Statut" value={statut} onChange={(e) => setStatut(e.target.value)}
+              className="min-h-11 rounded-md bg-void px-2 font-mono text-xs text-ink ring-1 ring-edge sm:min-h-8">
+              <option value="tous">tous les statuts</option><option value="ouvert">ouverts</option>
+              <option value="regle">réglés</option><option value="indetermine">indéterminés</option>
+            </select>
+            <select aria-label="Domaine" value={domaineActif} onChange={(e) => setDomaine(e.target.value)}
+              className="min-h-11 rounded-md bg-void px-2 font-mono text-xs text-ink ring-1 ring-edge sm:min-h-8">
+              <option value="tous">tous les domaines</option>
+              {armDomains.map((d) => <option key={d} value={d}>{DOMAIN_LABEL[d] ?? d}</option>)}
+            </select>
+          </ExploreBar>
+          <BetTable bets={armBets} total={explore.total} query={explore.query}
+            label={`Paris du bras ${armName ?? '—'}`} selectedId={bet?.id ?? null}
+            ariaSort={explore.ariaSort} onSort={explore.toggleSort} onOpen={openBet} />
         </Panel>
       </div>
+
+      <Drawer open={detail !== null} onClose={drawer.close}
+        title={detail?.title ?? ''} subtitle={detail ? `bras ${detail.arm} — côté ${detail.side_name}` : undefined}>
+        {detail && <BetDetail bet={detail} demo={demo} />}
+      </Drawer>
     </div>
   )
 }

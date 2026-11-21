@@ -1,5 +1,9 @@
 import { useState } from 'react'
 import { Panel, Empty } from '../Panel'
+import { EMPTY_ARRAY } from '../../lib/empty'
+import { useExplore } from '../../lib/useExplore'
+import { ExploreBar, NoResults } from '../explore/ExploreBar'
+import { SortableTh } from '../explore/SortControls'
 import { usePolled } from '../../lib/usePrediction'
 import type { Catalogue, CatalogueMarket } from '../../lib/predictionTypes'
 import { utc, prob } from '../../lib/format'
@@ -36,13 +40,30 @@ function group(markets: CatalogueMarket[]): Row[] {
     row.items.push(m)
     rows.set(key, row)
   }
-  return [...rows.values()].sort((a, b) => (a.when ?? '9').localeCompare(b.when ?? '9'))
+  // L'ordre d'arrivée est conservé : date par défaut, ou le tri choisi.
+  return [...rows.values()]
 }
 
+const whenOf = (m: CatalogueMarket) => m.start ?? m.expiry
+const DEFAULT_FAMILLE = 'prix'
+const ACCESSORS = {
+  marche: (m: CatalogueMarket) => m.question ? (m.group ?? m.title) : m.title,
+  prob: (m: CatalogueMarket) => m.sides[0]?.mid,
+  date: whenOf,
+}
+const byDate = (a: CatalogueMarket, b: CatalogueMarket) => (whenOf(a) ?? '9').localeCompare(whenOf(b) ?? '9')
+
 export function LiquidMarkets({ demo }: { demo: boolean }) {
-  const [famille, setFamille] = useState<string>('prix')
-  const [query, setQuery] = useState('')
+  const [famille, setFamille] = useState<string>(DEFAULT_FAMILLE)
   const { data, error } = usePolled<Catalogue>(`/api/prediction/markets${demo ? '?demo=true' : ''}`, 30_000)
+  const inFamille = (data?.markets ?? EMPTY_ARRAY).filter((m) => m.famille === famille).sort(byDate)
+  const explore = useExplore({
+    rows: inFamille,
+    searchOf: (m) => [m.title, m.group, m.label, m.venue, m.underlying, DOMAIN_LABEL[m.domain]],
+    accessors: ACCESSORS,
+    filterActive: famille !== DEFAULT_FAMILLE,
+    onReset: () => setFamille(DEFAULT_FAMILLE),
+  })
 
   if (!data) return <Empty>{error ? `Catalogue illisible (${error}).` : 'Chargement…'}</Empty>
   if (data.total === 0) {
@@ -55,9 +76,7 @@ export function LiquidMarkets({ demo }: { demo: boolean }) {
     )
   }
 
-  const needle = query.trim().toLowerCase()
-  const inFamille = data.markets.filter((m) => m.famille === famille)
-  const shown = needle ? inFamille.filter((m) => m.title.toLowerCase().includes(needle)) : inFamille
+  const shown = explore.visible
   const domains = [...new Set(shown.map((m) => m.domain))]
 
   return (
@@ -70,24 +89,22 @@ export function LiquidMarkets({ demo }: { demo: boolean }) {
             const active = id === famille
             return (
               <button key={id} onClick={() => setFamille(id)}
-                className={`rounded-md px-3 py-1.5 text-[11px] ring-1 transition-colors ${active ? 'bg-tide/10 text-tide ring-tide/40' : 'text-muted ring-edge hover:text-ink'}`}>
+                className={`min-h-11 rounded-md px-3 py-1.5 text-[11px] ring-1 transition-colors sm:min-h-0 ${active ? 'bg-tide/10 text-tide ring-tide/40' : 'text-muted ring-edge hover:text-ink'}`}>
                 {FAMILLE_LABEL[id]} <span className="ml-1 font-mono text-[11px] opacity-70">{count}</span>
               </button>
             )
           })}
         </div>
-        <label className="flex items-center gap-2 text-[11px] text-dim">
-          Chercher
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="BTC, Arsenal, NVDA…"
-            className="w-44 rounded-md bg-surface px-2.5 py-1.5 text-[11px] text-ink ring-1 ring-edge placeholder:text-dim focus:outline-none focus:ring-tide/50" />
-        </label>
+        <ExploreBar label="Chercher un marché" placeholder="BTC, Arsenal, NVDA…"
+          query={explore.query} onQuery={explore.setQuery} shown={shown.length}
+          total={explore.total} isFiltered={explore.isFiltered} onReset={explore.reset} />
       </div>
       <p className="mb-3 text-[11px] text-muted">
         Prix relevés le {utc(data.updated_at_iso)}. Le pourcentage est le prix milieu du côté affiché, pas un
         prix auquel on peut forcément acheter.
       </p>
 
-      {domains.length === 0 && <Empty>Aucun marché ne correspond.</Empty>}
+      {domains.length === 0 && <NoResults query={explore.query} />}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         {domains.map((domain) => {
           const rows = group(shown.filter((m) => m.domain === domain))
@@ -97,10 +114,10 @@ export function LiquidMarkets({ demo }: { demo: boolean }) {
                 <table className="w-full min-w-[460px] text-left text-[11px]">
                   <thead className="sticky top-0 bg-surface text-[11px] uppercase tracking-wider text-dim">
                     <tr>
-                      <th className="px-2 py-1.5 font-medium">Marché</th>
+                      <SortableTh label="Marché" sortKey="marche" ariaSort={explore.ariaSort('marche')} onSort={explore.toggleSort} />
                       <th className="px-2 py-1.5 font-medium">Côté</th>
-                      <th className="px-2 py-1.5 text-right font-medium">Probabilité</th>
-                      <th className="px-2 py-1.5 font-medium">Date (UTC)</th>
+                      <SortableTh label="Probabilité" sortKey="prob" align="right" ariaSort={explore.ariaSort('prob')} onSort={explore.toggleSort} />
+                      <SortableTh label="Date (UTC)" sortKey="date" ariaSort={explore.ariaSort('date')} onSort={explore.toggleSort} />
                     </tr>
                   </thead>
                   <tbody className="font-mono tabular-nums">

@@ -1,10 +1,32 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { useStore } from '../lib/store'
 import { EMPTY_ARRAY } from '../lib/empty'
+import { useState } from 'react'
 import { Panel, Empty } from './Panel'
+import { useExplore } from '../lib/useExplore'
+import { ExploreBar, NoResults } from './explore/ExploreBar'
+import { SortBar } from './explore/SortControls'
+import { Drawer } from './explore/Drawer'
+import { PositionDetail } from './explore/PositionDetail'
+import { useDrawer, rowProps } from './explore/useDrawer'
 import { price, usd, pct, multiple, duration, compact, pnlColor } from '../lib/format'
 import { usePulse } from '../lib/useLiveState'
 import type { Position } from '../lib/types'
+
+type OpenHandler = Parameters<typeof rowProps>[0]
+
+const SORT_OPTIONS = [
+  { key: 'symbole', label: 'Symbole' },
+  { key: 'pnl', label: 'P&L' },
+  { key: 'mise', label: 'Mise' },
+  { key: 'duree', label: 'Durée' },
+]
+const ACCESSORS = {
+  symbole: (p: Position) => p.symbol,
+  pnl: (p: Position) => p.pnl_pct,
+  mise: (p: Position) => p.size_usd,
+  duree: (p: Position) => p.duration_min,
+}
 
 /**
  * Barre de progression entre le stop loss et TP1.
@@ -55,7 +77,7 @@ const PROXIMITE_TP1_RATIO = 0.7
 // Au-dessus, c'est du bruit permanent — la barre suffit.
 const TIME_STOP_ALERT_RATIO = 0.8
 
-function PositionCard({ position }: { position: Position }) {
+function PositionCard({ position, onOpen }: { position: Position; onOpen: OpenHandler }) {
   const pulse = usePulse(position.current_price)
   const timeRatio = Math.min(1, position.duration_min / position.max_hold_time_minutes)
   const timeRemaining = Math.max(0, position.max_hold_time_minutes - position.duration_min)
@@ -76,7 +98,9 @@ function PositionCard({ position }: { position: Position }) {
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.35 } }}
       transition={{ type: 'spring', stiffness: 300, damping: 26 }}
-      className={`mb-3 rounded-xl border px-4 py-3 ${pulseClass} ${
+      {...rowProps(onOpen)}
+      aria-label={`Détail de ${position.symbol}${position.arm ? ` (${position.arm})` : ''}`}
+      className={`mb-3 cursor-pointer rounded-xl border px-4 py-3 ${pulseClass} ${
         position.pnl_pct >= 0
           ? 'border-toxic/35 bg-toxic/[0.03]'
           : 'border-blood/35 bg-blood/[0.03]'
@@ -162,6 +186,20 @@ export function ActivePositions() {
   // Le compteur porte sur TOUTES les stratégies. Il n'affichait que celles du
   // témoin : deux bras détenaient une position chacun et le panneau annonçait
   // « 1 ». Un tableau de bord qui sous-estime l'exposition est pire qu'absent.
+  const [arm, setArm] = useState('tous')
+  const arms = [...new Set(positions.map((p) => p.arm).filter((a): a is string => !!a))].sort()
+  const explore = useExplore({
+    rows: positions,
+    searchOf: (p) => [p.symbol, p.arm, p.token_address],
+    accessors: ACCESSORS,
+    predicate: (p) => arm === 'tous' || p.arm === arm,
+    filterActive: arm !== 'tous',
+    onReset: () => setArm('tous'),
+  })
+  const drawer = useDrawer<string>()
+  // Cherché par identifiant à chaque rendu : le détail suit les cours en direct.
+  const selected = positions.find((p) => p.id === drawer.item) ?? null
+
   const exposure = aggregate?.exposure_usd ?? 0
   const armsTrading = aggregate?.arms_trading ?? 0
 
@@ -190,12 +228,51 @@ export function ActivePositions() {
           Le bot n'entre que si le score absolu franchit le seuil ET que la structure de prix valide.
         </Empty>
       ) : (
-        <AnimatePresence initial={false}>
-          {positions.map((position) => (
-            <PositionCard key={position.id} position={position} />
-          ))}
-        </AnimatePresence>
+        <>
+          <ExploreBar
+            label="Chercher une position"
+            placeholder="Symbole ou stratégie"
+            query={explore.query}
+            onQuery={explore.setQuery}
+            shown={explore.visible.length}
+            total={explore.total}
+            isFiltered={explore.isFiltered}
+            onReset={explore.reset}
+          >
+            {arms.length > 1 && (
+              <select
+                aria-label="Bras"
+                value={arm}
+                onChange={(event) => setArm(event.target.value)}
+                className="min-h-11 rounded-md bg-void px-2 font-mono text-xs text-ink ring-1 ring-edge sm:min-h-8"
+              >
+                <option value="tous">tous les bras</option>
+                {arms.map((name) => <option key={name} value={name}>{name}</option>)}
+              </select>
+            )}
+          </ExploreBar>
+          <div className="mb-3 px-1">
+            <SortBar options={SORT_OPTIONS} sort={explore.sort} onSort={explore.toggleSort} />
+          </div>
+          {explore.visible.length === 0 ? (
+            <NoResults query={explore.query} />
+          ) : (
+            <AnimatePresence initial={false}>
+              {explore.visible.map((position) => (
+                <PositionCard key={position.id} position={position} onOpen={drawer.openFrom(position.id)} />
+              ))}
+            </AnimatePresence>
+          )}
+        </>
       )}
+      <Drawer
+        open={selected !== null}
+        onClose={drawer.close}
+        title={selected ? `${selected.symbol}` : ''}
+        subtitle={selected?.arm ? `stratégie ${selected.arm}` : undefined}
+      >
+        {selected && <PositionDetail position={selected} />}
+      </Drawer>
     </Panel>
   )
 }

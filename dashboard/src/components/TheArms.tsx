@@ -1,9 +1,15 @@
 import { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { useStore } from '../lib/store'
 import { EMPTY_ARRAY } from '../lib/empty'
 import { Panel } from './Panel'
-import { usd, pct, pnlColor } from '../lib/format'
+import { usd, pnlColor } from '../lib/format'
+import { useExplore } from '../lib/useExplore'
+import { ExploreBar, NoResults } from './explore/ExploreBar'
+import { SortBar } from './explore/SortControls'
+import { Drawer } from './explore/Drawer'
+import { ArmDetail } from './explore/ArmDetail'
+import { useDrawer } from './explore/useDrawer'
 import type { Arm } from '../lib/types'
 
 /**
@@ -14,6 +20,24 @@ import type { Arm } from '../lib/types'
  * bras invisible est un bras qu'on ne débogue pas — c'est ainsi que trois
  * d'entre eux ont pu rejeter 100 % des candidats sans que ça se voie.
  */
+
+type OpenHandler = ReturnType<ReturnType<typeof useDrawer<string>>['openFrom']>
+
+const SORT_OPTIONS = [
+  { key: 'nom', label: 'Nom' },
+  { key: 'pnl', label: 'P&L' },
+  { key: 'trades', label: 'Trades' },
+  { key: 'positions', label: 'Positions' },
+]
+const ACCESSORS = {
+  nom: (a: Arm) => a.name,
+  pnl: (a: Arm) => (a.stats ? a.stats.total_pnl_usd : null),
+  trades: (a: Arm) => a.stats?.total_trades ?? a.trades,
+  positions: (a: Arm) => a.stats?.open_positions ?? 0,
+}
+type Statut = 'tous' | 'position' | 'sans'
+const inStatut = (arm: Arm, statut: Statut) =>
+  statut === 'tous' || ((arm.stats?.open_positions ?? 0) > 0) === (statut === 'position')
 
 /** Barre d'entonnoir : vu -> retenu -> qualifié. La chute EST l'information. */
 function Funnel({ arm }: { arm: Arm }) {
@@ -90,7 +114,7 @@ function MicroBars({ winRate, profitFactor }: { winRate: number; profitFactor: n
   )
 }
 
-function ArmRow({ arm, open, onToggle }: { arm: Arm; open: boolean; onToggle: () => void }) {
+function ArmRow({ arm, onOpen }: { arm: Arm; onOpen: OpenHandler }) {
   const stats = arm.stats
   const pnl = stats?.total_pnl_usd ?? 0
   const trades = stats?.total_trades ?? arm.trades ?? 0
@@ -99,10 +123,12 @@ function ArmRow({ arm, open, onToggle }: { arm: Arm; open: boolean; onToggle: ()
   return (
     <div className="border-b border-white/5 last:border-0">
       <button
-        onClick={onToggle}
-        className="group w-full px-1 py-2 text-left transition-colors hover:bg-white/[0.03]"
-        aria-expanded={open}
+        type="button"
+        onClick={onOpen}
+        aria-haspopup="dialog"
+        className="group min-h-11 w-full px-1 py-2 text-left transition-colors hover:bg-white/[0.03]"
       >
+        <span className="sr-only">Détail de </span>
         <div className="flex items-baseline gap-2">
           <span className="w-[4.5rem] shrink-0 truncate font-mono text-xs text-ink">
             {arm.name}
@@ -132,52 +158,6 @@ function ArmRow({ arm, open, onToggle }: { arm: Arm; open: boolean; onToggle: ()
           <Funnel arm={arm} />
         </div>
       </button>
-
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.18 }}
-            className="overflow-hidden"
-          >
-            <div className="space-y-2 px-1 pb-3 pl-[4.5rem] text-[11px] leading-snug">
-              {arm.description && <p className="text-dim">{arm.description}</p>}
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[11px]">
-                <div className="flex justify-between">
-                  <dt className="text-dim">stop loss</dt>
-                  <dd className="text-blood">{arm.stop_loss_pct}%</dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-dim">take profit 1</dt>
-                  <dd className="text-toxic">+{arm.take_profit_1}%</dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-dim">seuil alpha</dt>
-                  <dd className="text-ink">{arm.entry_threshold}</dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-dim">durée max</dt>
-                  <dd className="text-ink">{arm.max_hold_time_minutes} min</dd>
-                </div>
-                {stats && trades > 0 && (
-                  <>
-                    <div className="flex justify-between">
-                      <dt className="text-dim">win rate</dt>
-                      <dd className="text-ink">{pct(stats.win_rate)}</dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-dim">profit factor</dt>
-                      <dd className="text-ink">{stats.profit_factor}</dd>
-                    </div>
-                  </>
-                )}
-              </dl>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   )
 }
@@ -218,7 +198,17 @@ function Confluence() {
 
 export function TheArms() {
   const arms = useStore((s) => s.state.arms ?? EMPTY_ARRAY)
-  const [open, setOpen] = useState<string | null>(null)
+  const [statut, setStatut] = useState<Statut>('tous')
+  const explore = useExplore({
+    rows: arms,
+    searchOf: (a) => [a.name, a.role, a.description],
+    accessors: ACCESSORS,
+    predicate: (a) => inStatut(a, statut),
+    filterActive: statut !== 'tous',
+    onReset: () => setStatut('tous'),
+  })
+  const drawer = useDrawer<string>()
+  const selected = arms.find((a) => a.name === drawer.item) ?? null
 
   if (!arms.length) {
     return (
@@ -245,18 +235,42 @@ export function TheArms() {
         <span>{active} en position</span>
       </div>
 
-      {/* Chaque bras est dépliable : la vue reste lisible à 7 stratégies,
-          et le détail des règles arrive à la demande. */}
-      <div>
-        {arms.map((arm) => (
-          <ArmRow
-            key={arm.name}
-            arm={arm}
-            open={open === arm.name}
-            onToggle={() => setOpen(open === arm.name ? null : arm.name)}
-          />
-        ))}
+      <ExploreBar
+        label="Chercher une stratégie"
+        placeholder="Nom ou rôle"
+        query={explore.query}
+        onQuery={explore.setQuery}
+        shown={explore.visible.length}
+        total={explore.total}
+        isFiltered={explore.isFiltered}
+        onReset={explore.reset}
+      >
+        <select
+          aria-label="Statut"
+          value={statut}
+          onChange={(event) => setStatut(event.target.value as Statut)}
+          className="min-h-11 rounded-md bg-void px-2 font-mono text-xs text-ink ring-1 ring-edge sm:min-h-8"
+        >
+          <option value="tous">tous les statuts</option>
+          <option value="position">en position</option>
+          <option value="sans">sans position</option>
+        </select>
+      </ExploreBar>
+      <div className="mb-2 px-1">
+        <SortBar options={SORT_OPTIONS} sort={explore.sort} onSort={explore.toggleSort} />
       </div>
+
+      {/* Le détail des règles s'ouvre dans un tiroir : la liste reste lisible
+          à 7 stratégies et garde sa place pendant la consultation. */}
+      {explore.visible.length === 0 ? (
+        <NoResults query={explore.query} />
+      ) : (
+        <div>
+          {explore.visible.map((arm) => (
+            <ArmRow key={arm.name} arm={arm} onOpen={drawer.openFrom(arm.name)} />
+          ))}
+        </div>
+      )}
 
       <p className="mt-2 px-1 text-[11px] leading-snug text-dim">
         barre&nbsp;: vus → retenus → au-dessus du seuil. La chute est
@@ -265,6 +279,15 @@ export function TheArms() {
 
       <h3 className="mb-1 mt-4 text-[11px] uppercase tracking-wide text-dim">Confluence</h3>
       <Confluence />
+
+      <Drawer
+        open={selected !== null}
+        onClose={drawer.close}
+        title={selected?.name ?? ''}
+        subtitle={selected ? (selected.enabled ? 'stratégie' : 'stratégie désactivée') : undefined}
+      >
+        {selected && <ArmDetail arm={selected} />}
+      </Drawer>
     </Panel>
   )
 }
