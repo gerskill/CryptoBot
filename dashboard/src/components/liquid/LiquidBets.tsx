@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useFilter } from '../../lib/useFilter'
 import { Panel, Stat, Empty } from '../Panel'
 import { pnlColor, utc, prob } from '../../lib/format'
 import { useBetPrices } from '../../lib/usePrediction'
@@ -152,8 +153,8 @@ export function LiquidBets({ summary, bets, demo }: {
   const arm = arms.find((a) => a.arm === armName) ?? null
 
   // Plus récents en premier : c'est ce qu'on vient regarder.
-  const [statut, setStatut] = useState('tous')
-  const [domaine, setDomaine] = useState('tous')
+  const [statut, setStatut] = useFilter('statut', 'tous')
+  const [domaine, setDomaine] = useFilter('domaine', 'tous')
   const allArmBets = bets.filter((b) => b.arm === armName).slice().reverse()
   const armDomains = [...new Set(allArmBets.map((b) => b.domain))]
   const armBets = allArmBets.filter((b) =>

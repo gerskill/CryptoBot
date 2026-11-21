@@ -10,6 +10,11 @@ import { WeeklyReport } from './components/weekly/WeeklyReport'
 import { ConfigEditor } from './components/config/ConfigEditor'
 import { Backtester } from './components/backtester/Backtester'
 import { LiquidDashboard } from './components/liquid/LiquidDashboard'
+import { CommandPalette } from './components/CommandPalette'
+import { ShortcutsHelp } from './components/ShortcutsHelp'
+import { Announcer } from './components/Announcer'
+import { useUrlSync } from './lib/useUrlSync'
+import { useGlobalShortcuts } from './lib/useShortcuts'
 
 /** Bandeau d'alerte quand le bot ne tourne pas — un dashboard figé doit le dire. */
 function OfflineBanner() {
@@ -48,6 +53,8 @@ function DashboardView() {
 
 export default function App() {
   useLiveState()
+  useUrlSync()
+  useGlobalShortcuts()
   const view = useStore((s) => s.view)
   const space = useStore((s) => s.space)
 
@@ -59,6 +66,9 @@ export default function App() {
       {space === 'memecoins' && view === 'weekly' && <WeeklyReport />}
       {space === 'memecoins' && view === 'config' && <ConfigEditor />}
       {space === 'memecoins' && view === 'backtester' && <Backtester />}
+      <CommandPalette />
+      <ShortcutsHelp />
+      <Announcer />
     </Shell>
   )
 }
