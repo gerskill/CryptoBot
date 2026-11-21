@@ -48,6 +48,7 @@ export function snapshots(maintenant, { ageMin = 1, cycleMin = 1 } = {}) {
       publie_a,
       lignes: [
         { quand: iso(maintenant, 35), type: 'PANNE', bras: null, texte: 'liquid_runner en panne depuis 35 min' },
+        { quand: iso(maintenant, 130), type: 'SANS_PRIX', bras: 'sniper', texte: 'OGTA : aucun prix depuis 130 min' },
         { quand: iso(maintenant, 190), type: 'ZOMBIE', bras: 'runner', texte: 'MOODENG : sortie ZOMBIE_NO_PRICE' },
         { quand: iso(maintenant, 600), type: 'PANIC_STOP', bras: 'sniper', texte: 'GOAT : sortie PANIC_STOP' },
       ],

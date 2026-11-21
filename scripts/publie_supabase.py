@@ -46,7 +46,8 @@ import requests  # noqa: E402
 
 from contextlib import redirect_stdout  # noqa: E402
 
-from src import settings  # noqa: E402
+from src import settings
+from src.core.sans_prix import SANS_PRIX_ALERTE_MINUTES  # noqa: E402
 from src.core import commandes as boite_bot  # noqa: E402
 
 # api/server.py affiche un avertissement à l'import (jeton du site absent) :
@@ -198,6 +199,19 @@ def _alertes(maintenant: datetime) -> dict:
             "type": "PANNE",
             "bras": None,
             "texte": f"{nom} en panne depuis {minutes} min",
+        }))
+    # Positions ouvertes sans prix depuis 2 h ou plus : une panne en cours, pas une sortie.
+    # `sans_prix_depuis_min` est écrit par le bot (src/core/sans_prix.py) ; absent = pas d'alerte.
+    for p in server._state().get("positions") or []:
+        minutes = p.get("sans_prix_depuis_min")
+        if not isinstance(minutes, (int, float)) or minutes < SANS_PRIX_ALERTE_MINUTES:
+            continue
+        depuis = maintenant - timedelta(minutes=minutes)
+        pannes.append((depuis, {
+            "quand": depuis.astimezone(timezone.utc).isoformat(),
+            "type": "SANS_PRIX",
+            "bras": p.get("arm"),
+            "texte": f"{p.get('symbol') or '?'} : aucun prix depuis {int(minutes)} min",
         }))
     # Les pannes EN COURS d'abord : vingt sorties récentes ne doivent pas
     # chasser du haut de la liste un service toujours à l'arrêt.

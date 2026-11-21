@@ -190,8 +190,8 @@ async function main() {
       const etat = await texte(page, '#vue-etat');
       ok(etat.includes('Liquid') && etat.includes('il y a 3 min'), 'État : boucle Liquid et âge de son cycle');
       ok(etat.includes('PAPER'), 'État : mode PAPER affiché');
-      ok((await page.locator('#liste-alertes > li').count()) === 3, 'État : 3 alertes');
-      ok(etat.includes('Panne') && etat.includes('Zombie') && etat.includes("Arrêt d'urgence"), 'État : types d\'alerte en français');
+      ok((await page.locator('#liste-alertes > li').count()) === 4, 'État : 4 alertes');
+      ok(etat.includes('Panne') && etat.includes('Zombie') && etat.includes("Arrêt d'urgence") && etat.includes('Sans prix'), 'État : types d\'alerte en français');
       ok(etat.includes('runner') && etat.includes('MOODENG : sortie ZOMBIE_NO_PRICE'), 'État : alerte nomme son bras et son texte');
       ok(await page.locator('nav [data-onglet="etat"]').getAttribute('aria-current') === 'page', 'aria-current sur l\'onglet actif');
       await capture(page, '1-etat');
