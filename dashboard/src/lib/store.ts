@@ -23,6 +23,10 @@ type Store = {
   equitySeries: number[]
   shadow: { total: number; missed: number; missed_rate: number }
   connected: boolean
+  /** Réception LOCALE de la dernière trame d'état (null = aucune reçue : état inconnu, pas « bot arrêté »). */
+  lastFrameAt: number | null
+  /** Dernière (re)connexion du WebSocket, horloge locale. */
+  connectedAt: number | null
   view: View
   space: Space
   liquidView: LiquidView
@@ -63,6 +67,8 @@ export const useStore = create<Store>((set) => ({
   equitySeries: [],
   shadow: { total: 0, missed: 0, missed_rate: 0 },
   connected: false,
+  lastFrameAt: null,
+  connectedAt: null,
   view: 'dashboard',
   space: 'memecoins',
   liquidView: 'apercu',
@@ -89,11 +95,12 @@ export const useStore = create<Store>((set) => ({
   setHelpOpen: (helpOpen) => set({ helpOpen }),
   setShortcutsEnabled: (shortcutsEnabled) => set({ shortcutsEnabled }),
   announce: (announcement) => set({ announcement }),
-  setState: (state) => set({ state }),
+  setState: (state) => set({ state, lastFrameAt: Date.now() }),
   setTrades: (trades) => set({ trades }),
   setEquitySeries: (equitySeries) => set({ equitySeries }),
   setShadow: (shadow) => set({ shadow }),
-  setConnected: (connected) => set({ connected }),
+  setConnected: (connected) =>
+    set(connected ? { connected, connectedAt: Date.now() } : { connected }),
   // Changer d'onglet ou d'espace efface le contexte local (panneau, filtres) :
   // il n'a de sens que dans la vue où il a été posé.
   setView: (view) => set((s) => (s.view === view ? {} : { view, panel: null, filters: {} })),

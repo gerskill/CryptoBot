@@ -17,13 +17,14 @@ export function ArmToggle({ arms, colors, visible, onToggle }: Props) {
             key={arm}
             onClick={() => onToggle(arm)}
             aria-pressed={checked}
-            className="rounded border px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-wide transition-[color,background-color,border-color,transform] duration-150 active:scale-[0.94]"
+            className="min-h-11 rounded border px-3 font-mono text-[11px] uppercase tracking-wide transition-[color,background-color,border-color,transform] duration-150 active:scale-[0.94]"
             style={{
               color: checked ? color : 'var(--color-dim)',
               borderColor: checked ? color : 'var(--color-edge)',
               backgroundColor: checked ? `color-mix(in srgb, ${color} 14%, transparent)` : 'transparent',
             }}
           >
+            {checked ? '✓ ' : ''}
             {arm}
           </button>
         )

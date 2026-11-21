@@ -1,4 +1,5 @@
 import { useLiveState } from './lib/useLiveState'
+import { useAlertMonitor } from './lib/useAlertMonitor'
 import { useStore } from './lib/store'
 import { Shell } from './components/Shell'
 import { TheHunt } from './components/TheHunt'
@@ -54,6 +55,7 @@ function DashboardView() {
 
 export default function App() {
   useLiveState()
+  useAlertMonitor()
   useUrlSync()
   useGlobalShortcuts()
   const view = useStore((s) => s.view)

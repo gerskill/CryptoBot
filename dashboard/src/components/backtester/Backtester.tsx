@@ -3,12 +3,14 @@ import { useStore } from '../../lib/store'
 import { EMPTY_ARRAY } from '../../lib/empty'
 import { Panel, Empty } from '../Panel'
 import { useArmEquity } from '../../lib/useArmEquity'
-import { computeDrawdownSeries, computeMaxDrawdown } from '../../lib/drawdown'
+import { computeDrawdownSeries } from '../../lib/drawdown'
 import { armColor } from '../../lib/armColors'
 import { ArmToggle } from './ArmToggle'
 import { MultiCurveChart } from './MultiCurveChart'
 import { DrawdownChart } from './DrawdownChart'
 import { ArmSummaryTable } from './ArmSummaryTable'
+import { ArmCompare } from '../compare/ArmCompare'
+import { summarizeArm } from '../../lib/armSummary'
 import type { ArmSummary } from './ArmSummaryTable'
 
 const DEFAULT_BASELINE = 1000
@@ -52,21 +54,9 @@ export function Backtester() {
 
   const summaries: ArmSummary[] = useMemo(
     () =>
-      results.map((result) => {
-        const baseline = armByName.get(result.arm)?.stats?.baseline ?? DEFAULT_BASELINE
-        const wins = result.series.filter((v) => v > 0)
-        const losses = result.series.filter((v) => v < 0)
-        const grossWin = wins.reduce((sum, v) => sum + v, 0)
-        const grossLoss = Math.abs(losses.reduce((sum, v) => sum + v, 0))
-        return {
-          arm: result.arm,
-          trades: result.series.length,
-          winRate: result.series.length ? (100 * wins.length) / result.series.length : 0,
-          profitFactor: grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : 0,
-          pnlTotal: result.series.reduce((sum, v) => sum + v, 0),
-          maxDrawdownPct: computeMaxDrawdown(result.series, baseline),
-        }
-      }),
+      results.map((result) =>
+        summarizeArm(result.arm, result.series, armByName.get(result.arm)?.stats?.baseline ?? DEFAULT_BASELINE),
+      ),
     [results, armByName],
   )
 
@@ -135,6 +125,8 @@ export function Backtester() {
           </Panel>
         </>
       )}
+
+      <ArmCompare />
     </div>
   )
 }
