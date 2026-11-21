@@ -21,6 +21,7 @@ from typing import Any, Optional
 
 from fastapi import Body, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import PlainTextResponse
 
 from src import settings
@@ -70,7 +71,7 @@ def _require_token(token: Optional[str] = None, authorization: Optional[str] = N
     if API_TOKEN is None:
         return
     candidate = _extract_bearer(authorization) or token
-    if candidate is None or not secrets.compare_digest(candidate, API_TOKEN):
+    if candidate is None or not secrets.compare_digest(candidate.encode(), API_TOKEN.encode()):
         raise HTTPException(status_code=401, detail="jeton invalide ou absent")
 
 
@@ -93,7 +94,28 @@ STALE_AFTER_SECONDS = 180
 
 app = FastAPI(title="Alpha Loop Meme API", version="3.0")
 
+LOCAL_HOSTS = ("localhost", "127.0.0.1")
+
+
+def parse_allowed_hosts(raw: Optional[str]) -> list[str]:
+    """Hôtes acceptés dans l'en-tête Host : local, plus `DASHBOARD_ALLOWED_HOSTS`
+    (séparés par des virgules, pour le domaine d'un tunnel). Pas de joker : un
+    `*` rouvrirait le rebinding DNS qu'on ferme ici."""
+    extra = [h.strip().lower() for h in (raw or "").split(",")]
+    return list(LOCAL_HOSTS) + [h for h in extra if h and "*" not in h and h not in LOCAL_HOSTS]
+
+
+def _hote_local(host: Optional[str]) -> bool:
+    """Vrai si l'en-tête Host désigne cette machine (port ignoré), exactement."""
+    if not host:
+        return False
+    return host.split(":")[0].lower() in LOCAL_HOSTS
+
+
 # Le dashboard tourne sur un autre port en dev (Vite sur 5173).
+# Rebinding DNS : une page tierce dont le nom pointe vers 127.0.0.1 enverrait
+# des requêtes « même origine » avec SON Host. On refuse tout Host inconnu.
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=parse_allowed_hosts(os.getenv("DASHBOARD_ALLOWED_HOSTS")))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -616,9 +638,6 @@ def deposer_demande_prediction(payload: dict[str, Any]) -> dict[str, Any]:
 # fichier, la boucle (seule propriétaire de son état) le lit au cycle suivant.
 # Rien ici n'ouvre une position ni n'accepte un ordre.
 
-MAX_COMMANDES_EN_ATTENTE = 20
-
-
 def _data_dir_bot() -> str:
     return os.path.join(settings.BASE_DIR, "data")
 
@@ -638,6 +657,7 @@ def post_bot_commande(
     authorization: Optional[str] = Header(default=None),
     x_cryptobbot: Optional[str] = Header(default=None),
     content_type: Optional[str] = Header(default=None),
+    host: Optional[str] = Header(default=None),
 ) -> dict[str, Any]:
     """Dépose UNE commande `stop` ou `resume` dans la boîte de la boucle.
 
@@ -646,6 +666,9 @@ def post_bot_commande(
     passer par un preflight que le CORS refuse). Liste d'actions fermée.
     """
     _require_token(None, authorization)
+    if API_TOKEN is None and not _hote_local(host):
+        # Sans jeton, seul l'accès local est admis : un tunnel sans jeton ne pilote pas le bot.
+        raise HTTPException(status_code=403, detail="sans DASHBOARD_TOKEN, commande refusée hors accès local")
     if x_cryptobbot != "1" or not (content_type or "").lower().startswith("application/json"):
         raise HTTPException(status_code=400, detail="en-tête X-CryptobBot ou type JSON manquant")
     if not isinstance(payload, dict):
@@ -653,8 +676,12 @@ def post_bot_commande(
     action = payload.get("action")
     if not isinstance(action, str) or action not in boite_bot.COMMANDES:
         raise HTTPException(status_code=422, detail="action inconnue : stop ou resume seulement")
-    if boite_bot.en_attente(_data_dir_bot()) >= MAX_COMMANDES_EN_ATTENTE:
-        raise HTTPException(status_code=429, detail="trop de commandes en attente : la boucle tourne-t-elle ?")
+    # Pas de plafond global (il pourrait bloquer un `stop`) : un doublon valide
+    # est simplement signalé. Au plus deux commandes valides en attente (stop, resume).
+    existante = boite_bot.deja_en_attente(_data_dir_bot(), action)
+    if existante:
+        return {"ok": True, "id": existante, "statut": "en attente",
+                "note": "déjà en attente : la boucle la lira à son prochain cycle"}
     ident = f"{int(time.time() * 1000):013d}-site{secrets.token_hex(3)}"
     boite_bot.deposer(_data_dir_bot(), action, ident)
     quoi = "arrêt d'urgence" if action == "stop" else "reprise des entrées"

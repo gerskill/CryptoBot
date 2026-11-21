@@ -976,7 +976,12 @@ class AlphaLoop:
         # Telegram puis l'iPhone (boîte `data/commandes_bot/`, ADR 021) : mêmes
         # commandes, même traitement.
         commands = list(self.telegram.poll_commands())
-        from_phone = bot_commands.lire_et_vider(os.path.join(settings.BASE_DIR, "data"))
+        lecture = bot_commands.lire(os.path.join(settings.BASE_DIR, "data"))
+        from_phone = lecture.commandes
+        for command in lecture.perimees:
+            # Jamais en silence : un /STOP ignoré, l'utilisateur doit le savoir.
+            print(f"⚠️ commande {command} périmée ignorée (> 15 min)")
+            self.telegram.send(f"⚠️ commande {command} périmée ignorée (> 15 min) : renvoyez-la si besoin.")
         if from_phone:
             self.telegram.send("📱 Commande reçue depuis l'iPhone : " + ", ".join(from_phone))
         for command in commands + from_phone:

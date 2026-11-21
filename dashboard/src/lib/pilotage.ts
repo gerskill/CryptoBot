@@ -35,6 +35,9 @@ export function describeFailure(status: number | null, detail?: string): string 
   if (status === 401) {
     return 'Commande refusée : jeton requis ou invalide (DASHBOARD_TOKEN). Saisissez le jeton du site puis réessayez.'
   }
+  if (status === 403) {
+    return `Commande refusée : accès non autorisé.${serveur} Définissez DASHBOARD_TOKEN pour piloter à distance, ou ouvrez le site en local.`
+  }
   if (status === 400) {
     return `Commande refusée : requête incomplète.${serveur} Rechargez la page puis réessayez.`
   }

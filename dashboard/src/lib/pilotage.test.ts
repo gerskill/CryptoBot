@@ -22,6 +22,11 @@ describe('describeFailure', () => {
   it('401 : jeton requis', () => {
     expect(describeFailure(401, 'jeton invalide ou absent')).toMatch(/DASHBOARD_TOKEN/)
   })
+  it('403 : accès local requis sans jeton', () => {
+    const msg = describeFailure(403, 'sans DASHBOARD_TOKEN, commande refusée hors accès local')
+    expect(msg).toMatch(/DASHBOARD_TOKEN/)
+    expect(msg).not.toMatch(/erreur serveur/)
+  })
   it('422 : relaie le détail du serveur', () => {
     expect(describeFailure(422, 'action inconnue : stop ou resume seulement')).toMatch(/action inconnue/)
   })

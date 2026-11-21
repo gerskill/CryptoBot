@@ -52,8 +52,9 @@ aucun relâchement de `rugcheck` / `authority`, aucune suppression de données.
 L'onglet « Pilotage » du dashboard dépose `stop` et `resume` par
 `POST /api/bot/commandes` : même boîte (`data/commandes_bot/`), mêmes deux
 actions, mêmes garde-fous que les demandes Liquid (jeton `DASHBOARD_TOKEN` en
-`Authorization` si défini, en-tête `X-CryptobBot`, type JSON, 20 commandes en
-attente au plus). Les bras Liquid (activer, désactiver, fork) gardent
+`Authorization` si défini, en-tête `X-CryptobBot`, type JSON, une seule commande valide par action en attente ;
+Host validé, `DASHBOARD_ALLOWED_HOSTS` pour un tunnel ; sans jeton, 403 hors accès local). Les bras Liquid (activer, désactiver, fork) gardent
 `POST /api/prediction/requests`. La péremption de 15 min est désormais aussi
 appliquée par la boucle à la lecture (`commandes.lire_et_vider`), donc pour
-toutes les origines : une commande datée de plus de 15 min est supprimée sans effet.
+toutes les origines : une commande de plus de 15 min est supprimée sans effet, mais signalée (journal et
+Telegram). Sans `t` valide, l'âge du fichier fait foi.
