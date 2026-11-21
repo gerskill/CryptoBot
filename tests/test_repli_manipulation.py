@@ -165,5 +165,33 @@ class TestJournal(unittest.TestCase):
         self.assertEqual(contexte["entry_manipulation_source"], "gmgn_token_info")
 
 
+
+LIGNE_TRENDING = {"address": "mint1", "symbol": "TOK", "liquidity": 50000, "volume": 20000, "price": 1}
+
+
+class TestNomDuChampInsider(unittest.TestCase):
+    """GMGN renvoie `rat_trader_amount_rate`, pas `insider_rate` : 100 % de champs vides mesurés le
+    2026-11-21 dans la Santé des données, et `max_insider_rate` ne filtrait rien."""
+
+
+    def test_rat_trader_amount_rate_remplit_insider_rate(self):
+        c = pipeline.gmgn_to_candidate({**LIGNE_TRENDING, "rat_trader_amount_rate": 0.42})
+        self.assertEqual(c.insider_rate, 0.42)
+        self.assertEqual(c.manipulation_source, "gmgn_trending")
+
+    def test_l_ancien_nom_reste_lu(self):
+        c = pipeline.gmgn_to_candidate({**LIGNE_TRENDING, "insider_rate": 0.1, "rat_trader_amount_rate": 0.9})
+        self.assertEqual(c.insider_rate, 0.1)
+
+    def test_zero_est_garde(self):
+        c = pipeline.gmgn_to_candidate({**LIGNE_TRENDING, "rat_trader_amount_rate": 0})
+        self.assertEqual(c.insider_rate, 0.0)
+
+    def test_le_filtre_max_insider_rate_joue_enfin(self):
+        c = pipeline.gmgn_to_candidate({**LIGNE_TRENDING, "rat_trader_amount_rate": 0.5})
+        raison = pipeline.ScanPipeline._manipulation_reason(c, {"max_insider_rate": 0.3})
+        self.assertTrue(raison.startswith("insiders"))
+
+
 if __name__ == "__main__":
     unittest.main()
