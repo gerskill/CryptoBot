@@ -80,7 +80,7 @@ export function MultiCurveChart({ curves, visible, highlighted, aggregate }: Pro
           )
         })}
       </svg>
-      <div className="mt-1 flex justify-between font-mono text-[10px] text-dim tabular-nums">
+      <div className="mt-1 flex justify-between font-mono text-[11px] text-dim tabular-nums">
         <span>$0</span>
         <span>{usd(finalLabel, 0)}</span>
       </div>

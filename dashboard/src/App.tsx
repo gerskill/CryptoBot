@@ -36,7 +36,7 @@ function DashboardView() {
       {/* 4 colonnes sur très grand écran, 2 sur laptop, empilées en dessous.
           Les stratégies viennent en second : ce sont elles qui décident, et
           `state.candidates` ne montre que le bras témoin. */}
-      <div className="grid gap-4 xl:h-[calc(100vh-11rem)] md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-4 xl:h-[calc(100vh-11rem)] md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,1fr)]">
         <TheHunt />
         <TheArms />
         <ActivePositions />

@@ -36,7 +36,7 @@ function RiskBar({ position }: { position: Position }) {
           style={{ left: `calc(${ratio * 100}% - 6px)` }}
         />
       </div>
-      <div className="mt-1 flex justify-between font-mono text-[10px] text-dim tabular-nums">
+      <div className="mt-1 flex justify-between font-mono text-[11px] text-dim tabular-nums">
         <span className={position.breakeven_moved ? 'text-toxic' : ''}>
           {position.breakeven_moved ? 'BE protégé' : `SL ${low}%`}
         </span>
@@ -90,17 +90,17 @@ function PositionCard({ position }: { position: Position }) {
                 avec des stop loss opposés. Sans le bras, deux cartes
                 identiques afficheraient des règles contradictoires. */}
             {position.arm && (
-              <span className="rounded bg-white/10 px-1.5 py-px font-mono text-[9px] text-muted">
+              <span className="rounded bg-white/10 px-1.5 py-px font-mono text-[11px] text-muted">
                 {position.arm}
               </span>
             )}
             {position.trailing_active && (
-              <span className="rounded bg-gem/15 px-1.5 py-px text-[9px] font-bold uppercase text-gem">
+              <span className="rounded bg-gem/15 px-1.5 py-px text-[11px] font-bold uppercase text-gem">
                 trailing
               </span>
             )}
             {position.tp1_hit && (
-              <span className="rounded bg-toxic/15 px-1.5 py-px text-[9px] font-bold uppercase text-toxic">
+              <span className="rounded bg-toxic/15 px-1.5 py-px text-[11px] font-bold uppercase text-toxic">
                 TP1 pris
               </span>
             )}
@@ -125,7 +125,7 @@ function PositionCard({ position }: { position: Position }) {
       {/* Pic et creux depuis l'entrée : la donnée existe déjà côté monitoring
           (`high_water_pct`/`low_water_pct`), elle manquait juste à la carte.
           C'est ce qui dit si un P&L calme cache une trajectoire agitée. */}
-      <div className="mt-2 flex items-center gap-3 font-mono text-[10px] tabular-nums text-dim">
+      <div className="mt-2 flex items-center gap-3 font-mono text-[11px] tabular-nums text-dim">
         <span>
           pic <span className="text-toxic">{pct(position.high_water_pct)}</span>
         </span>
@@ -134,7 +134,7 @@ function PositionCard({ position }: { position: Position }) {
         </span>
       </div>
 
-      <div className="mt-2 flex items-center justify-between font-mono text-[10px] text-dim tabular-nums">
+      <div className="mt-2 flex items-center justify-between font-mono text-[11px] text-dim tabular-nums">
         <span>mise {usd(position.size_usd, 2)}</span>
         <span>reste {Math.round(position.remaining_fraction * 100)}%</span>
         <span>liq ${compact(position.liquidity_at_entry)}</span>

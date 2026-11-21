@@ -20,7 +20,7 @@ function Funnel({ arm }: { arm: Arm }) {
   const seen = (arm.kept ?? 0) + (arm.rejected ?? 0)
   const kept = arm.kept ?? 0
   const qualified = arm.qualified ?? 0
-  if (!seen) return <span className="text-[10px] text-dim">aucun candidat ce cycle</span>
+  if (!seen) return <span className="text-[11px] text-dim">aucun candidat ce cycle</span>
 
   const keptPct = (kept / seen) * 100
   const qualPct = (qualified / seen) * 100
@@ -41,7 +41,7 @@ function Funnel({ arm }: { arm: Arm }) {
           transition={{ duration: 0.4 }}
         />
       </div>
-      <span className="shrink-0 font-mono text-[10px] tabular-nums text-dim">
+      <span className="shrink-0 font-mono text-[11px] tabular-nums text-dim">
         {seen}→{kept}→<span className={qualified ? 'text-toxic' : ''}>{qualified}</span>
       </span>
     </div>
@@ -108,12 +108,12 @@ function ArmRow({ arm, open, onToggle }: { arm: Arm; open: boolean; onToggle: ()
             {arm.name}
           </span>
           {arm.role === 'consensus' && (
-            <span className="shrink-0 rounded bg-white/10 px-1 text-[9px] text-dim">
+            <span className="shrink-0 rounded bg-white/10 px-1 text-[11px] text-dim">
               ≥{arm.min_confluence}
             </span>
           )}
           {positions > 0 && (
-            <span className="shrink-0 rounded bg-toxic/20 px-1 text-[9px] text-toxic">
+            <span className="shrink-0 rounded bg-toxic/20 px-1 text-[11px] text-toxic">
               {positions} en cours
             </span>
           )}
@@ -121,7 +121,7 @@ function ArmRow({ arm, open, onToggle }: { arm: Arm; open: boolean; onToggle: ()
           {stats && trades > 0 && (
             <MicroBars winRate={stats.win_rate} profitFactor={stats.profit_factor} />
           )}
-          <span className="shrink-0 font-mono text-[10px] tabular-nums text-dim">
+          <span className="shrink-0 font-mono text-[11px] tabular-nums text-dim">
             {trades} trades
           </span>
           <span className={`w-16 shrink-0 text-right font-mono text-xs tabular-nums ${pnlColor(pnl)}`}>
@@ -144,7 +144,7 @@ function ArmRow({ arm, open, onToggle }: { arm: Arm; open: boolean; onToggle: ()
           >
             <div className="space-y-2 px-1 pb-3 pl-[4.5rem] text-[11px] leading-snug">
               {arm.description && <p className="text-dim">{arm.description}</p>}
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[10px]">
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[11px]">
                 <div className="flex justify-between">
                   <dt className="text-dim">stop loss</dt>
                   <dd className="text-blood">{arm.stop_loss_pct}%</dd>
@@ -204,10 +204,10 @@ function Confluence() {
       {agreed.slice(0, 6).map((row) => (
         <li key={row.token_address} className="flex items-baseline gap-2 text-[11px]">
           <span className="w-20 shrink-0 truncate font-mono text-ink">{row.symbol}</span>
-          <span className="shrink-0 rounded bg-toxic/20 px-1 font-mono text-[9px] text-toxic">
+          <span className="shrink-0 rounded bg-toxic/20 px-1 font-mono text-[11px] text-toxic">
             {row.above_threshold_count}
           </span>
-          <span className="truncate text-[10px] text-dim">
+          <span className="truncate text-[11px] text-dim">
             {row.above_threshold_by.join(' · ')}
           </span>
         </li>
@@ -236,7 +236,7 @@ export function TheArms() {
 
   return (
     <Panel title={`Stratégies · ${arms.length}`}>
-      <div className="mb-2 flex items-baseline gap-3 px-1 font-mono text-[10px] text-dim">
+      <div className="mb-2 flex items-baseline gap-3 px-1 font-mono text-[11px] text-dim">
         <span>
           {totalTrades} trades cumulés
         </span>
@@ -258,12 +258,12 @@ export function TheArms() {
         ))}
       </div>
 
-      <p className="mt-2 px-1 text-[9px] leading-snug text-dim">
+      <p className="mt-2 px-1 text-[11px] leading-snug text-dim">
         barre&nbsp;: vus → retenus → au-dessus du seuil. La chute est
         l'information&nbsp;— un bras qui ne qualifie rien a un filtre à revoir.
       </p>
 
-      <h3 className="mb-1 mt-4 text-[10px] uppercase tracking-wide text-dim">Confluence</h3>
+      <h3 className="mb-1 mt-4 text-[11px] uppercase tracking-wide text-dim">Confluence</h3>
       <Confluence />
     </Panel>
   )

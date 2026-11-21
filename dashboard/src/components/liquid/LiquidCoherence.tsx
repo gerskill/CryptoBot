@@ -33,7 +33,7 @@ export function LiquidCoherence({ demo }: { demo: boolean }) {
       {rows.length === 0 ? <Empty>Aucune incohérence relevée pour l’instant.</Empty> : (
         <div className="max-h-[640px] overflow-auto">
           <table className="w-full min-w-[620px] text-left text-[11px]">
-            <thead className="sticky top-0 bg-surface text-[10px] uppercase tracking-wider text-dim">
+            <thead className="sticky top-0 bg-surface text-[11px] uppercase tracking-wider text-dim">
               <tr>
                 <th className="px-2 py-1.5 font-medium">Relevé (UTC)</th>
                 <th className="px-2 py-1.5 font-medium">Type</th>

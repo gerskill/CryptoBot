@@ -17,45 +17,45 @@ function ArmCard({ arm, need, onToggle }: {
     <div className={`rounded-md bg-raised/60 px-3 py-2.5 ring-1 ring-edge/60 ${arm.enabled ? '' : 'opacity-50'}`}>
       <div className="flex items-baseline justify-between gap-2">
         <span className="font-mono text-[12px] text-ink">{arm.arm}</span>
-        <span className="shrink-0 rounded bg-tide/10 px-1.5 py-px text-[9px] uppercase tracking-wider text-tide">
+        <span className="shrink-0 rounded bg-tide/10 px-1.5 py-px text-[11px] uppercase tracking-wider text-tide">
           {arm.enabled ? (ROLE_LABEL[arm.role] ?? arm.role) : 'désactivé'}
         </span>
       </div>
       {arm.cree_depuis_le_site && (
-        <div className="mt-1 text-[10px] text-warn">
+        <div className="mt-1 text-[11px] text-warn">
           {arm.origine === 'apprentissage' ? 'créé par l’agent d’apprentissage' : 'créé depuis le site'}
         </div>
       )}
       {arm.parent && (
-        <div className="mt-1 font-mono text-[10px] text-dim">
+        <div className="mt-1 font-mono text-[11px] text-dim">
           ↳ fork de {arm.parent} · variable : {arm.variable ?? '—'}
         </div>
       )}
       <p className="mt-1.5 text-[11px] leading-snug text-muted">{arm.description}</p>
-      <div className="mt-2 text-[10px] text-dim">
+      <div className="mt-2 text-[11px] text-dim">
         {arm.domaines.map((d) => DOMAIN_LABEL[d] ?? d).join(' · ')}
       </div>
       {observer ? (
-        <div className="mt-2 text-[10px] text-dim">Ne parie pas : voir l’onglet Incohérences.</div>
+        <div className="mt-2 text-[11px] text-dim">Ne parie pas : voir l’onglet Incohérences.</div>
       ) : (
         <>
           <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-edge">
             <div className="h-full rounded-full bg-tide" style={{ width: `${progress * 100}%` }} />
           </div>
-          <div className="mt-1.5 flex items-baseline justify-between font-mono text-[10px] tabular-nums">
+          <div className="mt-1.5 flex items-baseline justify-between font-mono text-[11px] tabular-nums">
             <span className="text-muted">{done} / {need} réglés · {arm.ouverts} ouverts</span>
             <span className={done ? pnlColor(arm.stats.pnl_net) : 'text-dim'}>
               {done ? signed(arm.stats.pnl_net) : '—'}
             </span>
           </div>
           {arm.compte && (
-            <div className="mt-1 flex items-baseline justify-between font-mono text-[10px] tabular-nums text-dim">
+            <div className="mt-1 flex items-baseline justify-between font-mono text-[11px] tabular-nums text-dim">
               <span>compte {arm.compte.valeur.toFixed(2)} $</span>
               <span>solde {arm.compte.solde.toFixed(2)} $ · engagé {arm.compte.engage.toFixed(2)} $</span>
             </div>
           )}
           {arm.apprentissage?.decision && (
-            <div className="mt-1.5 text-[10px] leading-snug text-muted">
+            <div className="mt-1.5 text-[11px] leading-snug text-muted">
               <span className="text-tide">Agent :</span> {arm.apprentissage.decision}
             </div>
           )}
@@ -63,7 +63,7 @@ function ArmCard({ arm, need, onToggle }: {
       )}
       {onToggle && (
         <button onClick={() => onToggle(arm)}
-          className="mt-2.5 rounded px-2 py-1 font-mono text-[9px] uppercase tracking-wider text-muted ring-1 ring-edge transition-colors hover:text-ink">
+          className="mt-2.5 rounded px-2 py-1 font-mono text-[11px] uppercase tracking-wider text-muted ring-1 ring-edge transition-colors hover:text-ink">
           {arm.enabled ? 'Désactiver' : 'Activer'}
         </button>
       )}
@@ -101,7 +101,7 @@ export function LiquidOverview({ summary }: { summary: PredictionSummary }) {
               : 'Issue douteuse = « indéterminé », hors de tous les chiffres.')],
           ].map(([title, text]) => (
             <li key={title} className="rounded-md px-3 py-2.5 ring-1 ring-edge/50">
-              <div className="font-mono text-[10px] uppercase tracking-wider text-tide">{title}</div>
+              <div className="font-mono text-[11px] uppercase tracking-wider text-tide">{title}</div>
               <div className="mt-1">{text}</div>
             </li>
           ))}

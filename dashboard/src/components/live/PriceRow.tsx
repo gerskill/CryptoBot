@@ -15,12 +15,12 @@ export function PositionRow({ position }: PositionRowProps) {
         <div className="flex items-center gap-2">
           <span className="font-mono text-xs font-medium text-ink">{position.symbol}</span>
           {position.arm && (
-            <span className="rounded bg-white/10 px-1.5 py-px font-mono text-[9px] text-muted">
+            <span className="rounded bg-white/10 px-1.5 py-px font-mono text-[11px] text-muted">
               {position.arm}
             </span>
           )}
         </div>
-        <div className="mt-0.5 font-mono text-[10px] text-dim">
+        <div className="mt-0.5 font-mono text-[11px] text-dim">
           entrée {price(position.entry_price)}
         </div>
       </div>
@@ -29,7 +29,7 @@ export function PositionRow({ position }: PositionRowProps) {
         <div className={`font-mono text-xs tabular-nums ${pulse}`}>
           {position.current_price != null ? price(position.current_price) : '—'}
         </div>
-        <div className={`font-mono text-[10px] tabular-nums ${pnlColor(position.pnl_pct)}`}>
+        <div className={`font-mono text-[11px] tabular-nums ${pnlColor(position.pnl_pct)}`}>
           {pct(position.pnl_pct)} · {position.pnl_usd >= 0 ? '+' : ''}{usd(position.pnl_usd, 2)}
         </div>
       </div>
@@ -48,7 +48,7 @@ export function CandidateRow({ candidate }: CandidateRowProps) {
     <li className="flex items-baseline justify-between gap-2 rounded-lg border border-edge/50 px-3 py-2">
       <div className="min-w-0 flex-1">
         <span className="font-mono text-xs font-medium text-ink">{candidate.symbol}</span>
-        <div className="mt-0.5 flex items-center gap-2 font-mono text-[10px] text-dim">
+        <div className="mt-0.5 flex items-center gap-2 font-mono text-[11px] text-dim">
           <span>α {candidate.alpha_score.toFixed(2)}</span>
           <span>liq ${compact(candidate.liquidity_usd)}</span>
         </div>
@@ -59,10 +59,10 @@ export function CandidateRow({ candidate }: CandidateRowProps) {
           {price(candidate.price_usd)}
         </div>
         <div className="flex gap-2">
-          <span className={`font-mono text-[10px] tabular-nums ${pnlColor(candidate.price_change_5m)}`}>
+          <span className={`font-mono text-[11px] tabular-nums ${pnlColor(candidate.price_change_5m)}`}>
             {pct(candidate.price_change_5m)} 5m
           </span>
-          <span className={`font-mono text-[10px] tabular-nums ${pnlColor(candidate.price_change_1h)}`}>
+          <span className={`font-mono text-[11px] tabular-nums ${pnlColor(candidate.price_change_1h)}`}>
             {pct(candidate.price_change_1h)} 1h
           </span>
         </div>

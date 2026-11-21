@@ -12,11 +12,11 @@ function Section({ title, entries }: { title: string; entries: Entry[] }) {
   if (entries.length === 0) return null
   return (
     <div className="mb-4">
-      <h3 className="mb-1.5 text-[10px] uppercase tracking-wide text-dim">{title}</h3>
+      <h3 className="mb-1.5 text-[11px] uppercase tracking-wide text-dim">{title}</h3>
       <dl className="space-y-1 rounded-lg px-3 py-2 ring-1 ring-edge/50">
         {entries.map(([key, value]) => (
           <div key={key} className="flex items-baseline gap-3 border-b border-edge/30 py-1 last:border-0">
-            <dt className="w-40 shrink-0 truncate font-mono text-[10px] text-dim">{key}</dt>
+            <dt className="w-40 shrink-0 truncate font-mono text-[11px] text-dim">{key}</dt>
             <dd className="min-w-0 flex-1 text-[11px]">
               <ParamValue value={value} />
             </dd>

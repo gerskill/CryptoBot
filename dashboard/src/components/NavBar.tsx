@@ -35,7 +35,7 @@ function Tabs<T extends string>({ tabs, current, onPick, accent }: {
             onClick={() => onPick(tab.id)}
             aria-current={active ? 'page' : undefined}
             className={[
-              'relative shrink-0 px-4 py-3 font-mono text-[10px] uppercase tracking-[0.15em]',
+              'relative shrink-0 px-4 py-3 font-mono text-[11px] uppercase tracking-[0.15em]',
               'transition-[color,transform] duration-150 active:scale-[0.97]',
               active ? 'text-ink' : 'text-dim hover:text-ink',
             ].join(' ')}
@@ -73,7 +73,7 @@ export function SpaceSwitch() {
               <span className={`h-1.5 w-1.5 rounded-full ${active ? dot : 'bg-edge-strong'}`} />
               {item.label}
             </span>
-            <span className="hidden text-[10px] text-dim sm:block">{item.sub}</span>
+            <span className="hidden text-[11px] text-dim sm:block">{item.sub}</span>
           </button>
         )
       })}

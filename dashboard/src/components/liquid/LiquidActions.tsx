@@ -57,19 +57,19 @@ function ForkForm({ arms, token, onSent }: { arms: PredictionArm[]; token: strin
 
   return (
     <form onSubmit={submit} className="grid grid-cols-1 gap-3 px-1 sm:grid-cols-2 xl:grid-cols-4">
-      <label className="text-[10px] uppercase tracking-wider text-dim">
+      <label className="text-[11px] uppercase tracking-wider text-dim">
         Bras parent
         <select value={parent.arm} onChange={(e) => { setParentName(e.target.value); setMessage(null) }} className={`mt-1 ${field}`}>
           {parents.map((a) => <option key={a.arm} value={a.arm}>{a.arm}</option>)}
         </select>
       </label>
-      <label className="text-[10px] uppercase tracking-wider text-dim">
+      <label className="text-[11px] uppercase tracking-wider text-dim">
         La seule variable changée
         <select value={variable} onChange={(e) => { setVariable(e.target.value); setText('') }} className={`mt-1 ${field}`}>
           {parent.variables_forkables.map((v) => <option key={v} value={v}>{VARIABLE_LABEL[v] ?? v}</option>)}
         </select>
       </label>
-      <div className="text-[10px] uppercase tracking-wider text-dim">
+      <div className="text-[11px] uppercase tracking-wider text-dim">
         Nouvelle valeur <span className="normal-case tracking-normal text-muted">(parent : {currentText})</span>
         {variable === 'fourchette' ? (
           <div className="mt-1 flex items-center gap-2">
@@ -87,7 +87,7 @@ function ForkForm({ arms, token, onSent }: { arms: PredictionArm[]; token: strin
             className={`mt-1 ${field}`} />
         )}
       </div>
-      <label className="text-[10px] uppercase tracking-wider text-dim">
+      <label className="text-[11px] uppercase tracking-wider text-dim">
         Nom du nouveau bras
         <input required value={name} onChange={(e) => setName(e.target.value.toLowerCase())} placeholder="pm_sport_favori_70"
           pattern="pm_[a-z0-9_]{3,30}" className={`mt-1 ${field}`} />
@@ -114,7 +114,7 @@ export function LiquidActions({ arms, token, setToken, reloadKey, onSent }: {
       <Panel title="Créer un bras de test (fork)"
         hint="Un bras existant ne se modifie pas : ses paris déjà pris ne seraient plus comparables. On crée un fork qui ne change qu’une variable, dans des bornes fixes. Capital fictif, aucun pari réel.">
         <ForkForm arms={arms} token={token} onSent={onSent} />
-        <label className="mt-4 block px-1 text-[10px] uppercase tracking-wider text-dim">
+        <label className="mt-4 block px-1 text-[11px] uppercase tracking-wider text-dim">
           Jeton du site <span className="normal-case tracking-normal text-muted">(seulement si DASHBOARD_TOKEN est défini ; gardé en mémoire, jamais enregistré)</span>
           <input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)}
             className={`mt-1 max-w-xs ${field}`} />
@@ -132,7 +132,7 @@ export function LiquidActions({ arms, token, setToken, reloadKey, onSent }: {
                 <span className={r.statut === 'appliquée' ? 'text-toxic' : r.statut === 'refusée' ? 'text-blood' : 'text-warn'}>
                   {r.statut}{r.raison ? ` : ${REASON_LABEL[r.raison] ?? r.raison}` : ''}
                 </span>
-                <span className="w-full font-mono text-[10px] text-dim">{utc(r.t)}</span>
+                <span className="w-full font-mono text-[11px] text-dim">{utc(r.t)}</span>
               </li>
             ))}
           </ul>

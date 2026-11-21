@@ -73,7 +73,7 @@ export function ParamValue({ value, depth = 0 }: Props) {
       <dl className="space-y-0.5 pl-3">
         {entries.map(([key, entryValue]) => (
           <div key={key} className="flex items-baseline gap-2">
-            <dt className="shrink-0 font-mono text-[10px] text-dim">{key}</dt>
+            <dt className="shrink-0 font-mono text-[11px] text-dim">{key}</dt>
             <dd className="min-w-0">
               <ParamValue value={entryValue} depth={depth + 1} />
             </dd>

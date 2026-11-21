@@ -33,7 +33,7 @@ export function LivePrices() {
         </div>
       )}
 
-      <div className="mb-3 font-mono text-[10px] text-dim">
+      <div className="mb-3 font-mono text-[11px] text-dim">
         {positionsCount} position{positionsCount > 1 ? 's' : ''} · {candidatesCount} candidat
         {candidatesCount > 1 ? 's' : ''}
         {secondsAgo != null && <> · mis à jour il y a {secondsAgo}s</>}

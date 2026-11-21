@@ -64,7 +64,7 @@ export function DrawdownChart({ curves, visible, highlighted }: Props) {
           )
         })}
       </svg>
-      <div className="mt-1 flex justify-between font-mono text-[10px] text-dim tabular-nums">
+      <div className="mt-1 flex justify-between font-mono text-[11px] text-dim tabular-nums">
         <span>0%</span>
         <span className="text-blood">-{max.toFixed(1)}%</span>
       </div>

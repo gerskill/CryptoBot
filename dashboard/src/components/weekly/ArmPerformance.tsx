@@ -24,7 +24,7 @@ function WinRate({ row }: { row: ArmPerf }) {
     <span title={ic ? `IC95 ${ic.low.toFixed(0)}–${ic.high.toFixed(0)} %` : undefined}>
       {row.win_rate.toFixed(0)}%
       {ic && (
-        <span className="text-[9px] text-dim/70"> [{ic.low.toFixed(0)}–{ic.high.toFixed(0)}]</span>
+        <span className="text-[11px] text-dim/70"> [{ic.low.toFixed(0)}–{ic.high.toFixed(0)}]</span>
       )}
     </span>
   )
@@ -68,7 +68,7 @@ export function ArmPerformance() {
           role="tab"
           aria-selected={periode === w.key}
           onClick={() => setPeriode(w.key)}
-          className={`rounded px-2 py-0.5 font-mono text-[10px] ${
+          className={`rounded px-2 py-0.5 font-mono text-[11px] ${
             periode === w.key ? 'bg-toxic/20 text-toxic' : 'bg-white/5 text-dim hover:text-ink'
           }`}
         >
@@ -100,7 +100,7 @@ export function ArmPerformance() {
             au lieu d'écraser WR, PF et P&L les uns contre les autres. */}
         <table className="w-full min-w-[38rem] border-collapse font-mono text-[11px] [&_td+td]:pl-3 [&_td]:whitespace-nowrap [&_th+th]:pl-3 [&_th]:whitespace-nowrap">
           <thead>
-            <tr className="text-left text-[10px] uppercase tracking-wide text-dim">
+            <tr className="text-left text-[11px] uppercase tracking-wide text-dim">
               <th className="pb-1.5 font-medium">Bras</th>
               <th className="pb-1.5 text-right font-medium">P&amp;L</th>
               <th className="pb-1.5 text-right font-medium">Trades</th>
@@ -132,13 +132,13 @@ export function ArmPerformance() {
                   <td className="py-1.5 text-right tabular-nums text-blood/80">
                     {row.trades ? `-${row.max_drawdown_pct.toFixed(1)}%` : '—'}
                   </td>
-                  <td className="py-1.5 pl-2 text-[10px] text-dim">
+                  <td className="py-1.5 pl-2 text-[11px] text-dim">
                     {row.verdict ? row.verdict.verdict : 'référence'}
                   </td>
                 </tr>
                 {open === row.arm && (
                   <tr>
-                    <td colSpan={7} className="pb-2 pt-1 text-[10px]">
+                    <td colSpan={7} className="pb-2 pt-1 text-[11px]">
                       <DailyRows row={row} />
                     </td>
                   </tr>
@@ -160,7 +160,7 @@ export function ArmPerformance() {
                   : '—'}
               </td>
               <td className="py-1.5 text-right">—</td>
-              <td className="py-1.5 pl-2 text-[10px]">non agrégeable</td>
+              <td className="py-1.5 pl-2 text-[11px]">non agrégeable</td>
             </tr>
           </tbody>
         </table>

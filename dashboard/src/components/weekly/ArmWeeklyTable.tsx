@@ -16,7 +16,7 @@ export function ArmWeeklyTable({ stats }: Props) {
   return (
     <table className="w-full border-collapse font-mono text-[11px]">
       <thead>
-        <tr className="text-left text-[10px] uppercase tracking-wide text-dim">
+        <tr className="text-left text-[11px] uppercase tracking-wide text-dim">
           <th className="pb-1.5 font-medium">Stratégie</th>
           <th className="pb-1.5 text-right font-medium">Trades</th>
           <th className="pb-1.5 text-right font-medium">WR</th>

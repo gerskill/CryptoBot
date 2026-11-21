@@ -31,12 +31,12 @@ function HistoryList({ history }: { history: unknown[] }) {
 
   return (
     <div className="mt-4">
-      <h3 className="mb-1.5 text-[10px] uppercase tracking-wide text-dim">Derniers ajustements</h3>
+      <h3 className="mb-1.5 text-[11px] uppercase tracking-wide text-dim">Derniers ajustements</h3>
       <ul className="space-y-1">
         {visible.map((entry, index) => (
           <li
             key={index}
-            className="flex items-center gap-2 rounded-md border border-gem/25 bg-gem/[0.04] px-2 py-1 font-mono text-[10px]"
+            className="flex items-center gap-2 rounded-md border border-gem/25 bg-gem/[0.04] px-2 py-1 font-mono text-[11px]"
           >
             <span className="text-gem">↗</span>
             <span className="tabular-nums text-ink">
