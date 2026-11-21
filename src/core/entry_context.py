@@ -44,7 +44,7 @@ CANDIDATE_FIELDS = (
     "insider_rate", "entrapment_ratio", "rug_ratio", "is_wash_trading",
     "bluechip_owner_pct", "creator_token_status", "twitter_rename_count",
     "twitter_create_token_count", "launchpad", "initial_liquidity",
-    "history_highest_market_cap", "dexscreener_paid",
+    "history_highest_market_cap", "dexscreener_paid", "manipulation_source",
 )
 
 

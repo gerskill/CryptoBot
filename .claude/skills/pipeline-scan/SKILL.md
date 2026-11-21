@@ -57,6 +57,7 @@ mesure — ce sont des gardes de sécurité, pas des seuils de performance.
 | source | rôle | limite |
 |---|---|---|
 | GMGN `market trending` | découverte principale, filtrage **serveur**, 30 champs en 1 appel | ~60/min |
+| GMGN `token info` | repli des signaux de manipulation pour un token vu par DexScreener seulement (`_repli_manipulation`, ≤ 10/cycle, source notée `entry_manipulation_source`) | même quota GMGN |
 | Jupiter | prix par lot (50 mints), devis, coût A/R, honeypot | **1 req/s** |
 | DexScreener | découverte secondaire, `pair_address` | 270/min |
 | RugCheck | sécurité | 60/min |
