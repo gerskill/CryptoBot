@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { BotState, Trade } from './types'
 
-export type View = 'dashboard' | 'live' | 'weekly' | 'config' | 'backtester'
+export type View = 'dashboard' | 'live' | 'weekly' | 'config' | 'backtester' | 'pilotage'
 /** Les deux espaces du site : le bot memecoins et Liquid. Chacun a ses onglets. */
 export type Space = 'memecoins' | 'liquid'
 export type LiquidView = 'apercu' | 'predictions' | 'marches' | 'paris' | 'incoherences'

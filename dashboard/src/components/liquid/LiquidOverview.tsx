@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Panel, Stat, Empty } from '../Panel'
 import { LiquidActions } from './LiquidActions'
-import { sendRequest } from './liquidRequests'
+import { sendLiquidAction } from '../../lib/pilotage'
+import { usePilotageStore } from '../../lib/pilotageStore'
 import type { PredictionArm, PredictionSummary } from '../../lib/predictionTypes'
 import { pnlColor } from '../../lib/format'
 import { DOMAIN_LABEL, FAMILLES, ROLE_LABEL, signed } from './liquidLabels'
@@ -78,9 +79,11 @@ export function LiquidOverview({ summary }: { summary: PredictionSummary }) {
   const [notice, setNotice] = useState<string | null>(null)
   // Aucune modification possible sur l'exemple fictif : ce ne sont pas de vrais bras.
   const editable = !summary.exemple_fictif
+  const record = usePilotageStore((st) => st.record)
   const toggle = async (arm: PredictionArm) => {
-    const error = await sendRequest({ action: 'toggle', arm: arm.arm, enabled: !arm.enabled }, token)
-    setNotice(error ? `Refusé : ${error}`
+    const outcome = await sendLiquidAction({ action: 'toggle', arm: arm.arm, enabled: !arm.enabled }, token)
+    record({ label: `${arm.enabled ? 'Désactiver' : 'Activer'} ${arm.arm}`, kind: 'liquid', ok: outcome.ok, detail: outcome.detail })
+    setNotice(!outcome.ok ? outcome.detail
       : `Demande déposée : ${arm.enabled ? 'désactiver' : 'activer'} ${arm.arm}. Prise en compte au prochain cycle ; les paris déjà ouverts seront réglés normalement.`)
     setReloadKey((k) => k + 1)
   }
