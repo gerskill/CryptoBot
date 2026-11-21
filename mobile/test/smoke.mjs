@@ -296,7 +296,7 @@ async function main() {
       await page.click('nav [data-onglet="bras"]');
       ok(await page.locator('#bandeau-perime').isVisible(), 'périmé : bandeau visible sur les autres onglets');
       const couleur = await page.locator('#liste-bras > li', { hasText: 'sniper' }).locator('.montant').evaluate(e => getComputedStyle(e).color);
-      ok(couleur === 'rgb(154, 166, 192)', `périmé : P&L en gris secondaire (${couleur})`);
+      ok(couleur === 'rgb(139, 141, 155)', `périmé : P&L en gris secondaire (${couleur})`);
       const mutations = await page.evaluate(async () => {
         let n = 0;
         const obs = new MutationObserver(m => { n += m.length; });
