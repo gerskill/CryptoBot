@@ -12,7 +12,7 @@ function ArmTable({ arms, selected, onSelect }: {
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[620px] whitespace-nowrap text-left text-[11px]">
-        <thead className="text-[10px] uppercase tracking-wider text-dim">
+        <thead className="text-[11px] uppercase tracking-wider text-dim">
           <tr>
             <th className="px-2 py-1.5 font-medium">Bras</th>
             <th className="px-2 py-1.5 font-medium">Rôle</th>
@@ -62,7 +62,7 @@ function BetTable({ bets, selectedId, onSelect }: {
   return (
     <div className="max-h-[420px] overflow-auto">
       <table className="w-full min-w-[640px] whitespace-nowrap text-left text-[11px]">
-        <thead className="sticky top-0 bg-surface text-[10px] uppercase tracking-wider text-dim">
+        <thead className="sticky top-0 bg-surface text-[11px] uppercase tracking-wider text-dim">
           <tr>
             <th className="px-2 py-1.5 font-medium">Entrée (UTC)</th>
             <th className="px-2 py-1.5 font-medium">Marché</th>
@@ -105,11 +105,11 @@ function Calibration({ arm }: { arm: PredictionArm }) {
   if (rows.length === 0) return null
   return (
     <div className="mt-4 overflow-x-auto px-1">
-      <div className="mb-1.5 text-[10px] uppercase tracking-wider text-dim">
+      <div className="mb-1.5 text-[11px] uppercase tracking-wider text-dim">
         Par tranche de prix payé — bras {arm.arm}
       </div>
       <table className="w-full min-w-[420px] whitespace-nowrap text-left text-[11px]">
-        <thead className="text-[10px] uppercase tracking-wider text-dim">
+        <thead className="text-[11px] uppercase tracking-wider text-dim">
           <tr>
             <th className="px-2 py-1 font-medium">Tranche</th>
             <th className="px-2 py-1 text-right font-medium">Paris</th>
@@ -130,7 +130,7 @@ function Calibration({ arm }: { arm: PredictionArm }) {
           ))}
         </tbody>
       </table>
-      <p className="mt-1.5 text-[10px] leading-snug text-dim">
+      <p className="mt-1.5 text-[11px] leading-snug text-dim">
         Si la part gagnée est au-dessus du prix moyen payé, la tranche était sous-cotée. Sous 10 paris par
         tranche, c’est du bruit.
       </p>
@@ -234,17 +234,17 @@ export function LiquidBets({ summary, bets, demo }: {
 
         <Panel title={`Paris du bras ${armName ?? '—'}`} count={armBets.length}
           hint="Clique une ligne : son entrée et son règlement se posent sur le graphique, à la même date et au même prix.">
-          <div className="mb-2 flex flex-wrap gap-2 px-1 text-[10px] uppercase tracking-wider text-dim">
+          <div className="mb-2 flex flex-wrap gap-2 px-1 text-[11px] uppercase tracking-wider text-dim">
             <label className="flex items-center gap-1.5">Statut
               <select value={statut} onChange={(e) => setStatut(e.target.value)}
-                className="rounded bg-void px-1.5 py-1 font-mono text-[10px] normal-case text-ink ring-1 ring-edge/60">
+                className="rounded bg-void px-1.5 py-1 font-mono text-[11px] normal-case text-ink ring-1 ring-edge/60">
                 <option value="tous">tous</option><option value="ouvert">ouverts</option>
                 <option value="regle">réglés</option><option value="indetermine">indéterminés</option>
               </select>
             </label>
             <label className="flex items-center gap-1.5">Domaine
               <select value={armDomains.includes(domaine) ? domaine : 'tous'} onChange={(e) => setDomaine(e.target.value)}
-                className="rounded bg-void px-1.5 py-1 font-mono text-[10px] normal-case text-ink ring-1 ring-edge/60">
+                className="rounded bg-void px-1.5 py-1 font-mono text-[11px] normal-case text-ink ring-1 ring-edge/60">
                 <option value="tous">tous</option>
                 {armDomains.map((d) => <option key={d} value={d}>{DOMAIN_LABEL[d] ?? d}</option>)}
               </select>

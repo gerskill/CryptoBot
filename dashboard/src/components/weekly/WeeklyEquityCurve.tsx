@@ -45,7 +45,7 @@ export function WeeklyEquityCurve({ series }: Props) {
           transition={{ duration: 0.6 }}
         />
       </svg>
-      <div className="mt-1 flex justify-between font-mono text-[10px] text-dim tabular-nums">
+      <div className="mt-1 flex justify-between font-mono text-[11px] text-dim tabular-nums">
         <span>{usd(series[0], 0)}</span>
         <span className={pnlColor(series[series.length - 1] - series[0])}>
           {usd(series[series.length - 1], 2)}

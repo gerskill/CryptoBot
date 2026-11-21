@@ -43,7 +43,7 @@ export function LiquidDashboard() {
 
   const toggle = (
     <button onClick={() => setDemo(!demo)}
-      className="rounded-md px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-muted ring-1 ring-edge transition-colors hover:text-ink">
+      className="rounded-md px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-muted ring-1 ring-edge transition-colors hover:text-ink">
       {demo ? 'Revenir aux données réelles' : "Voir l'exemple fictif"}
     </button>
   )

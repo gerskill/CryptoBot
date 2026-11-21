@@ -31,7 +31,7 @@ export function LiquidPerps() {
             <button key={id} onClick={() => setDex(id)}
               className={`rounded-md px-3 py-1.5 text-[11px] ring-1 transition-colors ${id === dex ? 'bg-tide/10 text-tide ring-tide/40' : 'text-muted ring-edge hover:text-ink'}`}>
               {DEX_LABEL[id] ?? id}
-              <span className="ml-1 font-mono text-[10px] opacity-70">{data.markets.filter((m) => m.dex === id).length}</span>
+              <span className="ml-1 font-mono text-[11px] opacity-70">{data.markets.filter((m) => m.dex === id).length}</span>
             </button>
           ))}
         </div>
@@ -41,7 +41,7 @@ export function LiquidPerps() {
         hint="Affichage seul. Aucun bras ne trade ces marchés : c’est le prix des sous-jacents sur lesquels portent les paris de seuil. Classés par volume sur 24 h, les 120 premiers toutes bourses confondues.">
         <div className="max-h-[640px] overflow-auto">
           <table className="w-full min-w-[640px] whitespace-nowrap text-left text-[11px]">
-            <thead className="sticky top-0 bg-surface text-[10px] uppercase tracking-wider text-dim">
+            <thead className="sticky top-0 bg-surface text-[11px] uppercase tracking-wider text-dim">
               <tr>
                 <th className="px-2 py-1.5 font-medium">Marché</th>
                 <th className="px-2 py-1.5 text-right font-medium">Prix</th>

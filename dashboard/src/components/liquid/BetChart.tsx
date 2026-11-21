@@ -50,7 +50,7 @@ export function BetChart({ bet, points }: { bet: PredictionBet; points: PricePoi
             <line x1={PAD.left} x2={W - PAD.right} y1={py(level)} y2={py(level)}
               stroke="var(--color-edge)" strokeWidth="1" />
             <text x={PAD.left - 6} y={py(level) + 3} textAnchor="end"
-              className="fill-dim font-mono text-[10px]">{level * 100}%</text>
+              className="fill-dim font-mono text-[11px]">{level * 100}%</text>
           </g>
         ))}
         {/* Niveau du prix d'entrée, sur toute la largeur. */}
@@ -63,10 +63,10 @@ export function BetChart({ bet, points }: { bet: PredictionBet; points: PricePoi
           <circle cx={px(settleX)} cy={py(bet.settle_value as number)} r="5" fill={settleColor}
             stroke="var(--color-void)" strokeWidth="1.5" />
         )}
-        <text x={PAD.left} y={H - 8} className="fill-dim font-mono text-[10px]">
+        <text x={PAD.left} y={H - 8} className="fill-dim font-mono text-[11px]">
           {utc(new Date(minX).toISOString())}
         </text>
-        <text x={W - PAD.right} y={H - 8} textAnchor="end" className="fill-dim font-mono text-[10px]">
+        <text x={W - PAD.right} y={H - 8} textAnchor="end" className="fill-dim font-mono text-[11px]">
           {utc(new Date(maxX).toISOString())}
         </text>
       </svg>

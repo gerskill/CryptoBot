@@ -16,7 +16,7 @@ export function ArmPicker({ arms, selected, onSelect }: Props) {
           <button
             key={arm.name}
             onClick={() => onSelect(arm.name)}
-            className={`relative px-3 py-3 font-mono text-[10px] uppercase tracking-[0.15em] transition-[color,transform] duration-150 active:scale-[0.97] ${
+            className={`relative px-3 py-3 font-mono text-[11px] uppercase tracking-[0.15em] transition-[color,transform] duration-150 active:scale-[0.97] ${
               active ? 'text-ink' : 'text-dim hover:text-ink'
             }`}
           >

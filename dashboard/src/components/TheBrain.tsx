@@ -84,7 +84,7 @@ function EquityCurve() {
           transition={{ duration: 0.6 }}
         />
       </svg>
-      <div className="mt-1 flex justify-between font-mono text-[10px] text-dim tabular-nums">
+      <div className="mt-1 flex justify-between font-mono text-[11px] text-dim tabular-nums">
         <span>{usd(points[0], 0)}</span>
         <span className={pnlColor(points[points.length - 1] - points[0])}>
           {usd(points[points.length - 1], 2)}
@@ -146,9 +146,9 @@ function StatGrid() {
       <dl className="grid grid-cols-2 gap-2">
         {cells.map((cell) => (
           <div key={cell.label} className="rounded-lg ring-1 ring-edge/50 px-3 py-2">
-            <dt className="text-[10px] uppercase tracking-wide text-dim">{cell.label}</dt>
+            <dt className="text-[11px] uppercase tracking-wide text-dim">{cell.label}</dt>
             <dd className="font-mono text-[17px] leading-none tabular-nums">{cell.value}</dd>
-            <dd className="mt-0.5 text-[10px] leading-snug text-dim">{cell.hint}</dd>
+            <dd className="mt-0.5 text-[11px] leading-snug text-dim">{cell.hint}</dd>
           </div>
         ))}
       </dl>
@@ -178,8 +178,8 @@ function GhostMode() {
   return (
     <div className="rounded-lg ring-1 ring-edge/50 px-3 py-2.5">
       <div className="flex items-baseline justify-between">
-        <span className="text-[10px] uppercase tracking-wide text-dim">Ghost mode</span>
-        <span className="font-mono text-[10px] text-dim tabular-nums">
+        <span className="text-[11px] uppercase tracking-wide text-dim">Ghost mode</span>
+        <span className="font-mono text-[11px] text-dim tabular-nums">
           {tracked} en cours · {shadow.total} jugés
         </span>
       </div>
@@ -200,7 +200,7 @@ function GhostMode() {
           {families.length > 0 && (
             <ul className="mt-2 space-y-1">
               {families.map(([family, stat]) => (
-                <li key={family} className="flex justify-between font-mono text-[10px] tabular-nums">
+                <li key={family} className="flex justify-between font-mono text-[11px] tabular-nums">
                   <span className="text-dim">{family}</span>
                   <span className={stat.missed_rate > 25 ? 'text-warn' : 'text-dim'}>
                     {stat.missed_rate}% · n={stat.sample}
@@ -276,7 +276,7 @@ function LearningFeed() {
             <li
               key={index}
               title={entry.reason}
-              className={`flex items-center gap-2 rounded-md border px-2 py-1 font-mono text-[10px] ${
+              className={`flex items-center gap-2 rounded-md border px-2 py-1 font-mono text-[11px] ${
                 annule ? 'border-edge/40 bg-white/[0.02] text-dim' : 'border-gem/25 bg-gem/[0.04]'
               }`}
             >
@@ -295,7 +295,7 @@ function LearningFeed() {
       {chronological.length > LEARNING_FEED_COLLAPSED_COUNT && (
         <button
           onClick={() => setExpanded((v) => !v)}
-          className="mt-1.5 text-[10px] text-dim underline decoration-dotted hover:text-ink"
+          className="mt-1.5 text-[11px] text-dim underline decoration-dotted hover:text-ink"
         >
           {expanded ? 'réduire' : `voir tout (${chronological.length})`}
         </button>
@@ -337,24 +337,24 @@ function RecentTrades() {
             {/* Sans le bras, une liste mêlant 7 stratégies est illisible : on
                 ne sait pas QUI a gagné, donc rien n'est comparable. */}
             {trade.arm && (
-              <span className="shrink-0 rounded bg-white/10 px-1 py-px font-mono text-[9px] text-muted">
+              <span className="shrink-0 rounded bg-white/10 px-1 py-px font-mono text-[11px] text-muted">
                 {trade.arm}
               </span>
             )}
-            <span className="truncate font-mono text-[10px] text-dim">{trade.exit_reason}</span>
+            <span className="truncate font-mono text-[11px] text-dim">{trade.exit_reason}</span>
             <span className={`shrink-0 font-mono text-xs tabular-nums ${pnlColor(trade.pnl_pct)}`}>
               {pct(trade.pnl_pct)}
             </span>
             {peak != null && (
               <span
-                className="shrink-0 font-mono text-[10px] tabular-nums text-dim"
+                className="shrink-0 font-mono text-[11px] tabular-nums text-dim"
                 title="Plus haut atteint pendant la détention"
               >
                 {pct(peak)}
                 {picManque && <span className="ml-0.5">🔥</span>}
               </span>
             )}
-            <span className="shrink-0 font-mono text-[10px] text-dim tabular-nums">
+            <span className="shrink-0 font-mono text-[11px] text-dim tabular-nums">
               {duration(trade.duration_min)}
             </span>
           </li>
@@ -376,16 +376,16 @@ export function TheBrain() {
       <StatGrid />
       <div className="mt-3"><EquityCurve /></div>
 
-      <h3 className="mb-1.5 mt-3 text-[10px] uppercase tracking-wide text-dim">Apprentissage</h3>
+      <h3 className="mb-1.5 mt-3 text-[11px] uppercase tracking-wide text-dim">Apprentissage</h3>
       <LearningFeed />
 
-      <h3 className="mb-1.5 mt-4 text-[10px] uppercase tracking-wide text-dim">Derniers trades</h3>
+      <h3 className="mb-1.5 mt-4 text-[11px] uppercase tracking-wide text-dim">Derniers trades</h3>
       <RecentTrades />
 
-      <h3 className="mb-1.5 mt-4 text-[10px] uppercase tracking-wide text-dim">Ce que le bot a raté</h3>
+      <h3 className="mb-1.5 mt-4 text-[11px] uppercase tracking-wide text-dim">Ce que le bot a raté</h3>
       <GhostMode />
 
-      <h3 className="mb-1.5 mt-4 text-[10px] uppercase tracking-wide text-dim">Sources absentes</h3>
+      <h3 className="mb-1.5 mt-4 text-[11px] uppercase tracking-wide text-dim">Sources absentes</h3>
       <div className="space-y-2">
         {/* Piloté par l'état réel : un panneau codé en dur devient un mensonge
             dès qu'une source est branchée. */}

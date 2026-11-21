@@ -71,7 +71,7 @@ export function LiquidMarkets({ demo }: { demo: boolean }) {
             return (
               <button key={id} onClick={() => setFamille(id)}
                 className={`rounded-md px-3 py-1.5 text-[11px] ring-1 transition-colors ${active ? 'bg-tide/10 text-tide ring-tide/40' : 'text-muted ring-edge hover:text-ink'}`}>
-                {FAMILLE_LABEL[id]} <span className="ml-1 font-mono text-[10px] opacity-70">{count}</span>
+                {FAMILLE_LABEL[id]} <span className="ml-1 font-mono text-[11px] opacity-70">{count}</span>
               </button>
             )
           })}
@@ -95,7 +95,7 @@ export function LiquidMarkets({ demo }: { demo: boolean }) {
             <Panel key={domain} title={DOMAIN_LABEL[domain] ?? domain} count={rows.length}>
               <div className="max-h-[520px] overflow-auto">
                 <table className="w-full min-w-[460px] text-left text-[11px]">
-                  <thead className="sticky top-0 bg-surface text-[10px] uppercase tracking-wider text-dim">
+                  <thead className="sticky top-0 bg-surface text-[11px] uppercase tracking-wider text-dim">
                     <tr>
                       <th className="px-2 py-1.5 font-medium">Marché</th>
                       <th className="px-2 py-1.5 font-medium">Côté</th>
@@ -113,7 +113,7 @@ export function LiquidMarkets({ demo }: { demo: boolean }) {
                           <td className="px-2 py-1.5 font-sans text-ink">
                             {index === 0 && s === 0 ? row.title : ''}
                             {index === 0 && s === 0 && row.venue && (
-                              <span className="ml-1.5 font-mono text-[9px] uppercase text-dim">{row.venue}</span>
+                              <span className="ml-1.5 font-mono text-[11px] uppercase text-dim">{row.venue}</span>
                             )}
                           </td>
                           <td className="whitespace-nowrap px-2 py-1.5 text-muted">

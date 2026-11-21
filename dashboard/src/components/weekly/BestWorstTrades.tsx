@@ -11,13 +11,13 @@ function TradeCard({ trade, tone }: { trade: Trade; tone: 'gain' | 'loss' }) {
         <span className="truncate font-mono text-xs font-medium text-ink">{trade.token}</span>
         <span className={`font-mono text-xs tabular-nums ${pnlColor(trade.pnl_pct)}`}>{pct(trade.pnl_pct)}</span>
       </div>
-      <div className="mt-1 flex items-center gap-2 font-mono text-[10px] text-dim">
+      <div className="mt-1 flex items-center gap-2 font-mono text-[11px] text-dim">
         {trade.arm && <span className="shrink-0 rounded bg-white/10 px-1 py-px text-muted">{trade.arm}</span>}
         <span className="truncate">{trade.exit_reason}</span>
         <span className="ml-auto shrink-0">{duration(trade.duration_min)}</span>
       </div>
       {trade.peak_pct != null && (
-        <div className="mt-1 font-mono text-[10px] text-dim">pic {pct(trade.peak_pct)}</div>
+        <div className="mt-1 font-mono text-[11px] text-dim">pic {pct(trade.peak_pct)}</div>
       )}
     </div>
   )
@@ -39,7 +39,7 @@ export function BestWorstTrades({ trades }: Props) {
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <div>
-        <h3 className="mb-1.5 text-[10px] uppercase tracking-wide text-dim">Meilleurs trades</h3>
+        <h3 className="mb-1.5 text-[11px] uppercase tracking-wide text-dim">Meilleurs trades</h3>
         <div className="space-y-1.5">
           {winners.length === 0 ? (
             <p className="text-[11px] text-dim">Aucun gagnant cette semaine.</p>
@@ -49,7 +49,7 @@ export function BestWorstTrades({ trades }: Props) {
         </div>
       </div>
       <div>
-        <h3 className="mb-1.5 text-[10px] uppercase tracking-wide text-dim">Pires trades</h3>
+        <h3 className="mb-1.5 text-[11px] uppercase tracking-wide text-dim">Pires trades</h3>
         <div className="space-y-1.5">
           {losers.length === 0 ? (
             <p className="text-[11px] text-dim">Aucun perdant cette semaine.</p>

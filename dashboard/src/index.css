@@ -29,8 +29,8 @@
 
   /* --- Texte : trois niveaux, écart franc --- */
   --color-ink: #edeef2;
-  --color-muted: #8b8d9b;
-  --color-dim: #5a5c6a;
+  --color-muted: #a4a6b4;
+  --color-dim: #7f8191;
 
   /* --- Sémantique. Rien d'autre ne porte ces couleurs. --- */
   --color-toxic: #2ee56b;   /* gain */
@@ -122,9 +122,16 @@ p { text-wrap: pretty; }
   border-radius: 4px;
 }
 
+/* Mouvement réduit. La durée seule ne suffit pas : une animation `infinite`
+   (animate-ping, pulse-danger, pulse-target) boucle alors à 0,01 ms et
+   SCINTILLE, pire que l'original. On la limite à une itération. Les
+   animations de framer-motion (JS) ne lisent pas ce CSS : voir MotionConfig
+   dans main.tsx. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

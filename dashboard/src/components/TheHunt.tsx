@@ -19,7 +19,7 @@ function ScoreBadge({ candidate, threshold }: { candidate: Candidate; threshold:
         {candidate.alpha_score_absolute.toFixed(0)}
       </div>
       <div
-        className="mt-0.5 font-mono text-[10px] text-dim tabular-nums"
+        className="mt-0.5 font-mono text-[11px] text-dim tabular-nums"
         title={`Score de classement ${candidate.alpha_score} — sert au tri`}
       >
         rang {candidate.alpha_score.toFixed(0)}
@@ -56,7 +56,7 @@ function GemCard({ candidate, threshold }: { candidate: Candidate; threshold: nu
           <div className="flex items-center gap-2">
             <span className="truncate font-semibold">{candidate.symbol}</span>
             {passes && (
-              <span className="shrink-0 rounded bg-toxic/15 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-toxic">
+              <span className="shrink-0 rounded bg-toxic/15 px-1.5 py-px text-[11px] font-bold uppercase tracking-wide text-toxic">
                 qualifié
               </span>
             )}
@@ -73,19 +73,19 @@ function GemCard({ candidate, threshold }: { candidate: Candidate; threshold: nu
 
       <dl className="mt-2 grid grid-cols-4 gap-2 font-mono text-[11px] tabular-nums">
         <div>
-          <dt className="text-[9px] uppercase tracking-wide text-dim">liq</dt>
+          <dt className="text-[11px] uppercase tracking-wide text-dim">liq</dt>
           <dd>${compact(candidate.liquidity_usd)}</dd>
         </div>
         <div>
-          <dt className="text-[9px] uppercase tracking-wide text-dim">vol 1h</dt>
+          <dt className="text-[11px] uppercase tracking-wide text-dim">vol 1h</dt>
           <dd>${compact(candidate.volume_1h)}</dd>
         </div>
         <div>
-          <dt className="text-[9px] uppercase tracking-wide text-dim">âge</dt>
+          <dt className="text-[11px] uppercase tracking-wide text-dim">âge</dt>
           <dd>{age(candidate.age_hours)}</dd>
         </div>
         <div>
-          <dt className="text-[9px] uppercase tracking-wide text-dim">holders</dt>
+          <dt className="text-[11px] uppercase tracking-wide text-dim">holders</dt>
           <dd title={candidate.holders_is_exact === false ? 'borne inférieure' : undefined}>
             {candidate.holders == null
               ? '—'
@@ -94,7 +94,7 @@ function GemCard({ candidate, threshold }: { candidate: Candidate; threshold: nu
         </div>
       </dl>
 
-      <div className="mt-2 flex items-center gap-3 text-[10px] text-dim">
+      <div className="mt-2 flex items-center gap-3 text-[11px] text-dim">
         {candidate.rugcheck_score != null && (
           <span
             className={

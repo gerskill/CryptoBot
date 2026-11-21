@@ -119,13 +119,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <div>
               <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] text-dim">
                 Alpha Loop
-                <span className={`rounded px-1.5 py-px text-[10px] font-semibold tracking-normal ${
+                <span className={`rounded px-1.5 py-px text-[11px] font-semibold tracking-normal ${
                   mode === 'PAPER' ? 'bg-toxic/15 text-toxic' : 'bg-warn/15 text-warn'
                 }`}>
                   {mode}
                 </span>
                 {paused && (
-                  <span className="rounded bg-blood/15 px-1.5 py-px text-[10px] font-semibold tracking-normal text-blood">
+                  <span className="rounded bg-blood/15 px-1.5 py-px text-[11px] font-semibold tracking-normal text-blood">
                     EN PAUSE
                   </span>
                 )}
@@ -166,7 +166,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           {/* Rail d'état : tout ce qui n'est pas une décision, à voix basse. */}
           <div className="flex items-center gap-4 pb-1.5 text-[11px]">
             {nightWatch && (
-              <span className="rounded-full bg-gem/10 px-2.5 py-1 text-[10px] text-gem ring-1 ring-gem/25">
+              <span className="rounded-full bg-gem/10 px-2.5 py-1 text-[11px] text-gem ring-1 ring-gem/25">
                 Night Watch
               </span>
             )}

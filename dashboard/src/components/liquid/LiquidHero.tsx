@@ -29,11 +29,11 @@ export function LiquidHero() {
       <div>
         <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] text-dim">
           Liquid
-          <span className="rounded bg-toxic/15 px-1.5 py-px text-[10px] font-semibold tracking-normal text-toxic">
+          <span className="rounded bg-toxic/15 px-1.5 py-px text-[11px] font-semibold tracking-normal text-toxic">
             PAPER
           </span>
           {demo && (
-            <span className="rounded bg-warn/15 px-1.5 py-px text-[10px] font-semibold tracking-normal text-warn">
+            <span className="rounded bg-warn/15 px-1.5 py-px text-[11px] font-semibold tracking-normal text-warn">
               EXEMPLE FICTIF
             </span>
           )}
@@ -44,7 +44,7 @@ export function LiquidHero() {
               <div className="font-mono text-[1.75rem] font-semibold leading-none tracking-tight text-ink tabular-nums">
                 {cell.value}
               </div>
-              <div className="mt-1 text-[10px] uppercase tracking-wider text-dim">{cell.label}</div>
+              <div className="mt-1 text-[11px] uppercase tracking-wider text-dim">{cell.label}</div>
             </div>
           ))}
         </div>
