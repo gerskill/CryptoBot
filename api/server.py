@@ -27,6 +27,7 @@ from fastapi.responses import PlainTextResponse
 from src import settings
 from src.core import commandes as boite_bot
 from src.core.arm import load_manifest
+from src.core.compte import compte_actuel  # noqa: E402
 from src.core.journal import TradeJournal
 from src.monitoring.metrics import generate_metrics_text
 from src.prediction import overlay as prediction_overlay
@@ -203,6 +204,11 @@ def _collect_positions(arm: Optional[str]) -> list[dict[str, Any]]:
         for row in positions:
             row["arm"] = name
 
+    # Compte paper courant : seules les positions ouvertes depuis son début sont affichées. Les
+    # anciennes restent dans les journaux (et l'apprentissage les lit), pas dans les chiffres.
+    compte = compte_actuel()
+    if compte is not None:
+        positions = [p for p in positions if compte.contient(p)]
     return positions
 
 
@@ -336,6 +342,9 @@ PAPER_DEFAULT_CAPITAL = 1000.0
 
 
 def _starting_capital() -> float:
+    compte = compte_actuel()
+    if compte is not None:
+        return compte.capital
     params = _read_json(settings.PARAMS_PATH) or {}
     try:
         capital = float(params.get("capital_total") or 0)

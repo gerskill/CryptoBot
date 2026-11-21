@@ -79,6 +79,12 @@ leur gain : mesuré sur 40 lignes réelles, 1 gagnant visible au lieu de 4
 (docstring de `src/core/journal.py::read_positions`). Dashboard, rapport hebdo,
 `/api/arms/performance` et `voir_bras.py --perf` lisent `read_positions()`.
 
+### Compte paper
+Période de mesure de chaque bras : date de début et solde (100 $ par bras depuis le
+2026-11-21), dans `data/compte.json`. Les chiffres affichés ne comptent que les
+positions ouvertes depuis ; les journaux et l'apprentissage gardent tout l'historique
+(ADR 023, `src/core/compte.py`).
+
 ### Position zombie
 Position restée sans prix exploitable au-delà de son time stop + 30 min :
 fermée à -100 % de sa part restante, raison `ZOMBIE (sans prix depuis le

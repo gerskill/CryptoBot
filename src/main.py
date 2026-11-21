@@ -53,6 +53,7 @@ from src.apis.jupiter import SOL_MINT, JupiterAPI
 from src.core import correlation, economics
 from src.core.risk import is_soft_reject, pre_trade_check
 from src.core.budget import load_budgets
+from src.core.compte import compte_actuel
 from src.core.sans_prix import SuiviSansPrix
 from src.core.dev_watchdog import DevWatchdog
 from src.core.capabilities import build_registry
@@ -361,6 +362,7 @@ class AlphaLoop:
             ),
             exit_fee_measurer=self._measure_exit_cost,
             scale_in_checker_factory=self._make_scale_in_checker,
+            depuis=compte.depuis if (compte := compte_actuel()) else None,
         )
         # `self.portfolio` reste celui du témoin : le dashboard, l'API et les
         # 36 trades historiques continuent de le lire sans migration.
@@ -418,6 +420,10 @@ class AlphaLoop:
         self._last_cycle_duration_sec = 0.0
 
     def _starting_capital(self) -> float:
+        # Compte paper courant (data/compte.json, 2026-11-21) : prime sur capital_total.
+        compte = compte_actuel()
+        if compte is not None:
+            return compte.capital
         capital = float(self.params.get("capital_total", 0) or 0)
         if capital > 0:
             return capital

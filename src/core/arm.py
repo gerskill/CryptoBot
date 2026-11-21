@@ -328,8 +328,11 @@ def attach_portfolios(
     max_drawdown_stop_pct: float = 0.0,
     exit_fee_measurer: Optional[Any] = None,
     scale_in_checker_factory: Optional[Any] = None,
+    depuis: Optional[float] = None,
 ) -> None:
     """Donne à chaque stratégie son portefeuille.
+
+    `depuis` : début du compte paper courant (src/core/compte.py) ; None = tout le journal.
 
     `scale_in_checker_factory(arm)` (opt-in) : vérificateur d'ajout donné
     UNIQUEMENT aux bras dont le document configure une entrée progressive
@@ -383,6 +386,7 @@ def attach_portfolios(
                 if scale_in_checker_factory is not None and _scales_in(arm)
                 else None
             ),
+            depuis=depuis,
         )
         if _scales_in(arm):
             max_pct = float(arm.params.get("entry_rules.scale_in_max_pct", 0) or 0)
