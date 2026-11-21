@@ -1,4 +1,5 @@
-import { Fragment, useState } from 'react'
+import { Fragment } from 'react'
+import { useStore } from '../../lib/store'
 import { Panel, Empty } from '../Panel'
 import { usd, pnlColor } from '../../lib/format'
 import { useArmPerformance } from '../../lib/useArmPerformance'
@@ -56,8 +57,10 @@ function DailyRows({ row }: { row: ArmPerf }) {
  * somme. Le drawdown n'y figure pas : il ne s'additionne pas entre bras.
  */
 export function ArmPerformance() {
-  const [periode, setPeriode] = useState<PerformanceWindow>('7d')
-  const [open, setOpen] = useState<string | null>(null)
+  const periode = useStore((s) => s.window)
+  const setPeriode = useStore((s) => s.setWindow)
+  const open = useStore((s) => s.panel)
+  const setOpen = useStore((s) => s.setPanel)
   const { data, error } = useArmPerformance(periode)
 
   const selector = (
