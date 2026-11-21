@@ -96,11 +96,26 @@ class TestSourceOnchain(unittest.TestCase):
         ligne = self._ligne(entrees)
         self.assertEqual(ligne["etat"], "inconnu")
 
-    def test_quota_et_absente_comptent_comme_defauts(self):
-        ligne = self._ligne(lot(6, onchain="budget") + lot(6, onchain="missing") + lot(1, onchain="ok"))
+    def test_absente_compte_comme_defaut(self):
+        ligne = self._ligne(lot(12, onchain="missing") + lot(1, onchain="ok"))
         self.assertEqual(ligne["etat"], "coupe")
-        self.assertIn("quota 6", ligne["detail"])
-        self.assertIn("absente 6", ligne["detail"])
+        self.assertIn("absente 12", ligne["detail"])
+
+    def test_quota_du_mois_est_degrade_pas_coupe(self):
+        # Une limite d'abonnement connue, reprise automatique : pas une panne à signaler.
+        ligne = self._ligne(lot(8, onchain="budget") + lot(4, onchain="error") + lot(1, onchain="ok"))
+        self.assertEqual(ligne["etat"], "degrade")
+        self.assertIn("quota Helius du mois", ligne["detail"])
+
+    def test_quota_annonce_par_l_observateur_est_degrade_meme_avec_des_erreurs(self):
+        # Entrées d'avant la pause : notées « error ». L'observateur dit maintenant « quota épuisé ».
+        ligne = sd._source_onchain(lot(15, onchain="error"), {"quota_epuise": True, "reprise_dans_min": 42})
+        self.assertEqual(ligne["etat"], "degrade")
+        self.assertIn("nouvel essai dans 42 min", ligne["detail"])
+
+    def test_des_erreurs_sans_quota_restent_coupees(self):
+        ligne = sd._source_onchain(lot(15, onchain="error"), {"quota_epuise": False})
+        self.assertEqual(ligne["etat"], "coupe")
 
     def test_trop_peu_d_entrees_donne_inconnu(self):
         ligne = self._ligne(lot(3, onchain="error"))
@@ -109,19 +124,32 @@ class TestSourceOnchain(unittest.TestCase):
 
 
 class TestSourceGmgn(unittest.TestCase):
+    """Mesurée sur les entrées écrites après le correctif du 21/11 (clé `entry_manipulation_source`)."""
+
+    @staticmethod
+    def _apres_correctif(n, **champs):
+        return lot(n, entry_manipulation_source=None, **champs)
+
     def test_signaux_tous_vides_est_coupe(self):
-        entrees = lot(12, entry_bundler_rate=None, entry_insider_rate=None, entry_sniper_count=None,
-                      entry_entrapment_ratio=None)
-        ligne = sd._source_gmgn(sd.champs_vides(entrees), len(entrees))
-        self.assertEqual(ligne["etat"], "coupe")
+        entrees = self._apres_correctif(12, entry_bundler_rate=None, entry_insider_rate=None,
+                                        entry_sniper_count=None, entry_entrapment_ratio=None)
+        self.assertEqual(sd._source_gmgn(entrees)["etat"], "coupe")
 
     def test_signaux_remplis_est_ok(self):
-        entrees = lot(12)
-        self.assertEqual(sd._source_gmgn(sd.champs_vides(entrees), 12)["etat"], "ok")
+        self.assertEqual(sd._source_gmgn(self._apres_correctif(12))["etat"], "ok")
 
     def test_holders_et_smart_money_ne_pesent_pas_sur_gmgn(self):
-        entrees = lot(12, holders_at_entry=None, entry_smart_money_buys_30m=None)
-        self.assertEqual(sd._source_gmgn(sd.champs_vides(entrees), 12)["etat"], "ok")
+        entrees = self._apres_correctif(12, holders_at_entry=None, entry_smart_money_buys_30m=None)
+        self.assertEqual(sd._source_gmgn(entrees)["etat"], "ok")
+
+    def test_les_entrees_d_avant_le_correctif_ne_comptent_pas(self):
+        # 121 entrées réelles du 21/11 avant correctif : 98 % de vides, déjà corrigé. Sans ce tri,
+        # la veille sonnait « données en panne » 24 h de plus pour rien.
+        anciennes = lot(30, entry_bundler_rate=None, entry_insider_rate=None, entry_sniper_count=None,
+                        entry_entrapment_ratio=None)
+        ligne = sd._source_gmgn(anciennes)
+        self.assertEqual(ligne["etat"], "inconnu")
+        self.assertIn("correctif", ligne["detail"])
 
 
 class TestCapacites(unittest.TestCase):
@@ -136,6 +164,11 @@ class TestCapacites(unittest.TestCase):
         self.assertEqual(lignes[0]["etat"], "degrade")
         self.assertIn("gmgn", lignes[0]["detail"])
         self.assertIn("birdeye", lignes[0]["detail"])
+
+    def test_sans_source_recente_on_dit_ce_qui_est_disponible(self):
+        lignes = sd._sources_capacites([{"capability": "securite", "using": None, "degraded": False,
+                                         "available": ["rugcheck"], "down": [], "blind": False}])
+        self.assertEqual(lignes[0]["detail"], "disponible : rugcheck")
 
     def test_tout_vivant_est_ok(self):
         lignes = sd._sources_capacites([{"capability": "prix", "using": "jupiter", "degraded": False,

@@ -77,5 +77,29 @@ class TestQuotaDuMois(unittest.TestCase):
         self.assertEqual(self._appel(), {"ok": 1})
 
 
+
+class TestEtatPublic(unittest.TestCase):
+    def test_quota_epuise_et_reprise_annonces(self):
+        t = [1_000_000.0]
+        session = Session([Reponse(429, "max usage reached")])
+        obs = oo.OnchainObserver("k", session=session, start_thread=False, rdap_enabled=False,
+                                 clock=lambda: t[0])
+        self.assertEqual(obs.etat_public(), {"actif": True, "quota_epuise": False, "reprise_dans_min": None})
+        with redirect_stdout(io.StringIO()), self.assertRaises(oo._BudgetExceeded):
+            obs._rpc("getAccountInfo", ["mint"], 1)
+        etat = obs.etat_public()
+        self.assertTrue(etat["quota_epuise"])
+        self.assertEqual(etat["reprise_dans_min"], 60)
+
+    def test_le_state_ne_tombe_jamais_sur_l_etat_de_l_observateur(self):
+        from src.main import _etat_onchain
+
+        class Casse:
+            def etat_public(self):
+                raise RuntimeError("x")
+        self.assertIsNone(_etat_onchain(Casse()))
+        self.assertIsNone(_etat_onchain(None))
+
+
 if __name__ == "__main__":
     unittest.main()

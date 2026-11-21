@@ -464,6 +464,16 @@ class OnchainObserver:
 
     # ---------------------------------------------------- fil d'arrière-plan
 
+    def etat_public(self) -> dict[str, Any]:
+        """Ce que la santé des données doit savoir, sans rien de secret : module actif, quota du
+        mois épuisé (pause en cours) et dans combien de minutes il réessaie."""
+        restant = max(0.0, getattr(self, "_quota_pause_jusqu_a", 0.0) - self.clock())
+        return {
+            "actif": bool(self.enabled),
+            "quota_epuise": restant > 0,
+            "reprise_dans_min": round(restant / 60) if restant > 0 else None,
+        }
+
     def _worker(self) -> None:
         while True:
             token, website = self._queue.get()
