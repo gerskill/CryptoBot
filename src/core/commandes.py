@@ -16,19 +16,23 @@ position ni toucher aux réglages d'un bras.
 import json
 import os
 import re
+import time
 from typing import Optional
 
 # action de la boîte -> commande Telegram équivalente
 COMMANDES = {"stop": "/STOP", "resume": "/RESUME"}
 _NOM = re.compile(r"^[0-9A-Za-z_-]{1,64}\.json$")
+# Une commande plus vieille que ça n'est plus appliquée : un /STOP ne doit pas
+# partir des heures plus tard, au redémarrage de la boucle (ADR 021).
+EXPIRE_S = 15 * 60
 
 
 def dossier(data_dir: str) -> str:
     return os.path.join(data_dir, "commandes_bot")
 
 
-def deposer(data_dir: str, action: str, ident: str) -> str:
-    """Dépose une commande. Lève ValueError si l'action ou l'identifiant est invalide."""
+def deposer(data_dir: str, action: str, ident: str, maintenant: Optional[float] = None) -> str:
+    """Dépose une commande, datée. Lève ValueError si l'action ou l'identifiant est invalide."""
     if action not in COMMANDES:
         raise ValueError(f"action inconnue : {action}")
     nom = f"{ident}.json"
@@ -39,14 +43,29 @@ def deposer(data_dir: str, action: str, ident: str) -> str:
     chemin = os.path.join(racine, nom)
     tmp = os.path.join(racine, f".{ident}.tmp")
     with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump({"action": action, "id": ident}, fh)
+        json.dump({"action": action, "id": ident, "t": time.time() if maintenant is None else maintenant}, fh)
     os.replace(tmp, chemin)
     return chemin
 
 
-def lire_et_vider(data_dir: str) -> list[str]:
+def en_attente(data_dir: str) -> int:
+    """Nombre de commandes déposées et pas encore lues par la boucle (lecture seule)."""
+    try:
+        return sum(1 for n in os.listdir(dossier(data_dir)) if _NOM.match(n))
+    except OSError:
+        return 0
+
+
+def _perimee(contenu: dict, maintenant: float) -> bool:
+    """Datée de plus de 15 min. Sans date (ancien format) : appliquée, comme avant."""
+    t = contenu.get("t")
+    return isinstance(t, (int, float)) and maintenant - t > EXPIRE_S
+
+
+def lire_et_vider(data_dir: str, maintenant: Optional[float] = None) -> list[str]:
     """Commandes Telegram équivalentes, dans l'ordre de dépôt ; chaque fichier est
-    supprimé. Un fichier illisible ou inconnu est supprimé sans effet."""
+    supprimé. Un fichier illisible, inconnu ou périmé est supprimé sans effet."""
+    maintenant = time.time() if maintenant is None else maintenant
     racine = dossier(data_dir)
     try:
         noms = sorted(n for n in os.listdir(racine) if _NOM.match(n))
@@ -58,7 +77,9 @@ def lire_et_vider(data_dir: str) -> list[str]:
         commande: Optional[str] = None
         try:
             with open(chemin, encoding="utf-8") as fh:
-                commande = COMMANDES.get((json.load(fh) or {}).get("action"))
+                contenu = json.load(fh) or {}
+            if not _perimee(contenu, maintenant):
+                commande = COMMANDES.get(contenu.get("action"))
         except (OSError, ValueError, AttributeError):
             commande = None
         try:

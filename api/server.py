@@ -24,6 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
 from src import settings
+from src.core import commandes as boite_bot
 from src.core.arm import load_manifest
 from src.core.journal import TradeJournal
 from src.monitoring.metrics import generate_metrics_text
@@ -605,6 +606,60 @@ def deposer_demande_prediction(payload: dict[str, Any]) -> dict[str, Any]:
     _append_jsonl(prediction_overlay.requests_path(settings.PREDICTION_DATA_DIR), request)
     return {"ok": True, "id": request["id"], "statut": "en attente",
             "note": "appliquée au prochain cycle de la simulation"}
+
+
+# ---------------------------------------------------------------------------
+# Pilotage depuis le site : arrêt d'urgence et reprise (ADR 021)
+# ---------------------------------------------------------------------------
+# Même boîte, mêmes deux actions que l'iPhone (`scripts/publie_supabase.py`) et
+# que Telegram (/STOP, /RESUME). Le site ne PILOTE pas la boucle : il dépose un
+# fichier, la boucle (seule propriétaire de son état) le lit au cycle suivant.
+# Rien ici n'ouvre une position ni n'accepte un ordre.
+
+MAX_COMMANDES_EN_ATTENTE = 20
+
+
+def _data_dir_bot() -> str:
+    return os.path.join(settings.BASE_DIR, "data")
+
+
+@app.get("/api/bot/commandes")
+def get_bot_commandes(authorization: Optional[str] = Header(default=None)) -> dict[str, Any]:
+    """Commandes déposées que la boucle n'a pas encore lues, et le délai de péremption.
+    Jeton par `Authorization` seulement : jamais dans l'URL."""
+    _require_token(None, authorization)
+    return {"en_attente": boite_bot.en_attente(_data_dir_bot()),
+            "expire_apres_s": boite_bot.EXPIRE_S, "actions": sorted(boite_bot.COMMANDES)}
+
+
+@app.post("/api/bot/commandes")
+def post_bot_commande(
+    payload: dict[str, Any] = Body(...),
+    authorization: Optional[str] = Header(default=None),
+    x_cryptobbot: Optional[str] = Header(default=None),
+    content_type: Optional[str] = Header(default=None),
+) -> dict[str, Any]:
+    """Dépose UNE commande `stop` ou `resume` dans la boîte de la boucle.
+
+    Mêmes garde-fous que la boîte de demandes Liquid : jeton `DASHBOARD_TOKEN`
+    (si défini), en-tête `X-CryptobBot` et type JSON (un navigateur tiers doit
+    passer par un preflight que le CORS refuse). Liste d'actions fermée.
+    """
+    _require_token(None, authorization)
+    if x_cryptobbot != "1" or not (content_type or "").lower().startswith("application/json"):
+        raise HTTPException(status_code=400, detail="en-tête X-CryptobBot ou type JSON manquant")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="commande illisible")
+    action = payload.get("action")
+    if not isinstance(action, str) or action not in boite_bot.COMMANDES:
+        raise HTTPException(status_code=422, detail="action inconnue : stop ou resume seulement")
+    if boite_bot.en_attente(_data_dir_bot()) >= MAX_COMMANDES_EN_ATTENTE:
+        raise HTTPException(status_code=429, detail="trop de commandes en attente : la boucle tourne-t-elle ?")
+    ident = f"{int(time.time() * 1000):013d}-site{secrets.token_hex(3)}"
+    boite_bot.deposer(_data_dir_bot(), action, ident)
+    quoi = "arrêt d'urgence" if action == "stop" else "reprise des entrées"
+    return {"ok": True, "id": ident, "statut": "en attente",
+            "note": f"{quoi} transmis à la boucle (prochain cycle, périmé après 15 min)"}
 
 
 @app.get("/api/prediction/markets")
