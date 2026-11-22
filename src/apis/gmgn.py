@@ -29,7 +29,7 @@ from typing import Any, Iterable, Optional
 from src.core.ratelimit import RateLimiter
 
 COMMAND_TIMEOUT = 30
-CACHE_TTL_SECONDS = 120  # les achats smart money bougent vite, mais pas à 20s
+CACHE_TTL_SECONDS = 300  # 120 -> 300 le 2026-11-22 : moins de requêtes GMGN répétées sur les mêmes tokens
 NEGATIVE_CACHE_SECONDS = 60
 MIN_CALL_SPACING_SECONDS = 0.3
 BAN_SAFETY_MARGIN_SECONDS = 5
