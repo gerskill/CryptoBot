@@ -48,3 +48,11 @@ recherche sémantique. Voir `docs/agents/gbrain.md`.
 
 Mono-contexte : `CONTEXT.md` et `docs/adr/` à la racine, partagés par le bot
 et le dashboard. Voir `docs/agents/domain.md`.
+
+## 📊 Dashboard officiel (décidé par Killian le 2026-11-22)
+
+- Dashboard officiel : **http://127.0.0.1:8002** (service launchd `com.cryptobbot.ui-nouveau`, build `dashboard/dist`, Memecoins + Liquid).
+- Quand Killian demande « le dashboard », ouvrir/afficher **:8002**.
+- Ne pas remettre l'ancien War Room (build du 11/10/2026) sur :8000. Il est archivé dans `~/Backups/dashboard-20261122-1205/dist.ancien-warroom-20261011`.
+- Le port 8000 n'est plus utilisé : l'ancien service `com.cryptobbot.ui` est retiré, la veille (`scripts/veille.py`) surveille `http://127.0.0.1:8002/api/health`, et `scripts/installe_services.sh` installe `ui-nouveau`.
+- Après `npm run build` dans `dashboard/` : `launchctl kickstart -k gui/$(id -u)/com.cryptobbot.ui-nouveau`.

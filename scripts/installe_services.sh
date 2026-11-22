@@ -7,7 +7,7 @@
 # Gratuit, local, sans hébergeur : voir docs/HEBERGEMENT.md.
 #
 # Usage (depuis la racine du dépôt) :
-#   ./scripts/installe_services.sh                    # les cinq services
+#   ./scripts/installe_services.sh                    # les cinq services (site : ui-nouveau, port 8002)
 #   ./scripts/installe_services.sh bot veille         # seulement ceux-là
 #   ./scripts/installe_services.sh --desinstalle      # retire les cinq
 #   ./scripts/installe_services.sh --simule DOSSIER   # écrit les .plist sans rien charger
@@ -15,13 +15,13 @@
 # GARDE-FOU. Refuse de démarrer un service dont une copie lancée à la main
 # tourne déjà : deux boucles écriraient le même journal (le verrou de
 # src/core/lock.py ferait échouer la seconde en boucle), deux sites se
-# disputeraient le port 8000. Le script n'arrête RIEN lui-même.
+# disputeraient le port 8002. Le script n'arrête RIEN lui-même.
 set -eu
 
 PROJET=$(cd "$(dirname "$0")/.." && pwd)
 MODELES="$PROJET/scripts/launchd"
 AGENTS="$HOME/Library/LaunchAgents"
-TOUS="bot ui prediction veille publie"
+TOUS="bot ui-nouveau prediction veille publie"
 SIMULE=""
 DESINSTALLE=0
 
@@ -37,7 +37,9 @@ while [ $# -gt 0 ]; do
 	case "$1" in
 		--desinstalle) DESINSTALLE=1 ;;
 		--simule) shift; SIMULE="${1:?--simule demande un dossier}" ;;
-		bot|ui|prediction|veille|publie) SERVICES="$SERVICES $1" ;;
+		bot|ui-nouveau|prediction|veille|publie) SERVICES="$SERVICES $1" ;;
+		# Ancien nom : le site tourne désormais sous com.cryptobbot.ui-nouveau (port 8002).
+		ui) SERVICES="$SERVICES ui-nouveau" ;;
 		*) echo "Argument inconnu : $1" >&2; exit 2 ;;
 	esac
 	shift
@@ -47,7 +49,7 @@ done
 motif() {
 	case "$1" in
 		bot) echo "src\.main" ;;
-		ui) echo "scripts/run_ui\.py" ;;
+		ui-nouveau) echo "scripts/run_ui\.py" ;;
 		prediction) echo "scripts/run_prediction\.py" ;;
 		veille) echo "scripts/veille\.py" ;;
 		publie) echo "scripts/publie_supabase\.py" ;;
@@ -95,6 +97,19 @@ if [ "$DESINSTALLE" -eq 1 ]; then
 	done
 	exit 0
 fi
+
+# Ancien site com.cryptobbot.ui (port 8000), remplacé le 2026-11-22 par ui-nouveau
+# (port 8002) : on le retire pour qu'il ne revienne pas au redémarrage du Mac.
+case " $SERVICES " in
+	*" ui-nouveau "*)
+		if launchctl print "$DOMAINE/com.cryptobbot.ui" >/dev/null 2>&1 || [ -f "$AGENTS/com.cryptobbot.ui.plist" ]; then
+			launchctl bootout "$DOMAINE/com.cryptobbot.ui" 2>/dev/null || true
+			rm -f "$AGENTS/com.cryptobbot.ui.plist"
+			n=0
+			while launchctl print "$DOMAINE/com.cryptobbot.ui" >/dev/null 2>&1 && [ "$n" -lt 30 ]; do n=$((n + 1)); sleep 1; done
+			echo "retiré : ancien site com.cryptobbot.ui (port 8000)"
+		fi ;;
+esac
 
 # Garde-fou : une copie manuelle tourne-t-elle ? (hors service déjà installé)
 BLOQUE=0

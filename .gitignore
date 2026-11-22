@@ -55,3 +55,8 @@ data/gmgn_observe/
 data/prediction/
 data/prediction_demo/
 data/*.tmp
+.gstack/
+
+# Copies de secrets : jamais dans Git
+.env.*
+!.env.example

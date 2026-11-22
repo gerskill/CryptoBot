@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
-"""CryptobBot UI locale: API + WebSocket + dashboard sur un seul port (8000)."""
+"""CryptobBot UI locale: API + WebSocket + dashboard sur un seul port (8002)."""
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DIST = ROOT / "dashboard" / "dist"
+import os
+
+# Dossier du build et port : modifiables par CRYPTOBOT_UI_DIST (relatif à la
+# racine ou absolu) et CRYPTOBOT_UI_PORT. Sans ces variables : dashboard/dist sur 8002 (dashboard officiel).
+DIST = ROOT / os.environ.get("CRYPTOBOT_UI_DIST", "dashboard/dist")
 HOST = "127.0.0.1"
-PORT = 8000
+PORT = int(os.environ.get("CRYPTOBOT_UI_PORT", "8002"))
 
 sys.path.insert(0, str(ROOT))
 
