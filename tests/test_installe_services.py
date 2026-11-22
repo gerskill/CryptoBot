@@ -24,6 +24,14 @@ SCRIPT = os.path.join(RACINE, "scripts", "installe_services.sh")
 # fois de plus si demandé.
 FAUX_LAUNCHCTL = r"""#!/bin/sh
 E="$STATE"
+# Ancien site com.cryptobbot.ui (port 8000) : chargé seulement si le fichier ancien_ui existe.
+case "$2" in
+  */com.cryptobbot.ui)
+    case "$1" in
+      print) [ -f "$E/ancien_ui" ] && exit 0; exit 1 ;;
+      bootout) rm -f "$E/ancien_ui"; exit 0 ;;
+    esac ;;
+esac
 case "$1" in
   print)
     if [ -f "$E/teardown" ]; then
@@ -89,16 +97,33 @@ class TestInstalleurLaunchd(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(self.etat, "loaded")))
 
     def test_bootstrap_rejoue_apres_un_echec(self):
-        resultat = self.lance("ui", teardown=0, fail_bootstrap=2)
+        resultat = self.lance("ui-nouveau", teardown=0, fail_bootstrap=2)
         self.assertEqual(resultat.returncode, 0, resultat.stdout + resultat.stderr)
-        self.assertIn("démarré : ui", resultat.stdout)
+        self.assertIn("démarré : ui-nouveau", resultat.stdout)
 
     def test_un_echec_definitif_est_signale_et_n_arrete_pas_les_autres(self):
         # ui échoue 4 fois de suite ; prediction, derrière, doit quand même être tenté.
-        resultat = self.lance("ui", "prediction", teardown=0, fail_bootstrap=4)
+        resultat = self.lance("ui-nouveau", "prediction", teardown=0, fail_bootstrap=4)
         self.assertNotEqual(resultat.returncode, 0)
-        self.assertIn("ui n'a pas démarré", resultat.stderr)
+        self.assertIn("ui-nouveau n'a pas démarré", resultat.stderr)
         self.assertIn("démarré : prediction", resultat.stdout)
+
+    def test_l_ancien_nom_ui_installe_le_site_sur_8002_et_retire_l_ancien(self):
+        agents = os.path.join(self.tmp, "Library", "LaunchAgents")
+        os.makedirs(agents)
+        open(os.path.join(agents, "com.cryptobbot.ui.plist"), "w").close()
+        open(os.path.join(self.etat, "ancien_ui"), "w").close()
+        resultat = self.lance("ui", teardown=0)
+        self.assertIn("retiré : ancien site com.cryptobbot.ui (port 8000)", resultat.stdout)
+        self.assertFalse(os.path.exists(os.path.join(agents, "com.cryptobbot.ui.plist")))
+        self.assertFalse(os.path.exists(os.path.join(self.etat, "ancien_ui")))
+        self.assertEqual(resultat.returncode, 0, resultat.stdout + resultat.stderr)
+        self.assertIn("démarré : ui-nouveau", resultat.stdout)
+        plist = os.path.join(self.tmp, "Library", "LaunchAgents", "com.cryptobbot.ui-nouveau.plist")
+        with open(plist, encoding="utf-8") as fh:
+            contenu = fh.read()
+        self.assertIn("<string>8002</string>", contenu)
+        self.assertIn("<string>dashboard/dist</string>", contenu)
 
 
 if __name__ == "__main__":

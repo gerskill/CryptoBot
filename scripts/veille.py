@@ -10,7 +10,8 @@ pas suffi.
 CE QU'IL REGARDE, sans dépendre de l'API (qui peut être elle-même tombée) :
   - bot memecoin : âge de `data/state.json` (`updated_at`) ;
   - Liquid : âge de `data/prediction/state.json` ;
-  - site : réponse de http://127.0.0.1:8000/api/health ;
+  - site : réponse de http://127.0.0.1:8002/api/health (dashboard officiel,
+    modifiable par CRYPTOBOT_UI_HEALTH_URL) ;
   - données : une source du bot COUPÉE (plus aucun fournisseur, on-chain en erreur sur presque
     toutes les entrées, signaux GMGN vides) — voir src/core/sante_donnees.py. Un simple repli
     (source dégradée) ne prévient pas : il se lit dans l'app.
@@ -55,7 +56,8 @@ from src.notify.telegram import TelegramNotifier  # noqa: E402
 SEUIL_BOT_S = 600
 # `run_prediction.py` tourne toutes les 60 s par défaut.
 SEUIL_PREDICTION_S = 600
-URL_SANTE_UI = "http://127.0.0.1:8000/api/health"
+# Dashboard officiel sur 8002 depuis le 2026-11-22 (service com.cryptobbot.ui-nouveau).
+URL_SANTE_UI = os.getenv("CRYPTOBOT_UI_HEALTH_URL", "http://127.0.0.1:8002/api/health")
 RAPPEL_S = 6 * 3600
 VERIFICATIONS = ("bot", "ui", "prediction", "donnees")
 ETAT_PATH = os.path.join(settings.BASE_DIR, "data", "veille_etat.json")
