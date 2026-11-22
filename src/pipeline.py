@@ -256,9 +256,9 @@ CHAMPS_GMGN_GREFFES = (
 )
 # Signaux de manipulation : un candidat qui n'en a AUCUN passe les filtres correspondants sans contrôle.
 SIGNAUX_MANIPULATION = ("bundler_rate", "insider_rate", "sniper_count", "entrapment_ratio")
-# Repli `gmgn token info` : 1 appel par token (cache 120 s). GMGN tient ~60 appels/min et sert
+# Repli `gmgn token info` : 1 appel par token (cache 300 s). GMGN tient ~60 appels/min et sert
 # déjà la découverte, le smart money et la concentration : 10 par cycle de 90 s laisse de la marge.
-REPLI_MANIPULATION_MAX_PAR_CYCLE = 10
+REPLI_MANIPULATION_MAX_PAR_CYCLE = 4  # réduit le 2026-11-22 : GMGN saturait (2 206 refus 429 au journal)
 
 
 def manipulation_depuis_token_info(info: Any) -> dict[str, Any]:
