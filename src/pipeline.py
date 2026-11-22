@@ -851,10 +851,16 @@ class ScanPipeline:
         gmgn = getattr(self, "gmgn", None)
         if not (gmgn and gmgn.enabled) or not candidates:
             return candidates
+        # `blocked_seconds_remaining` est une PROPRIÉTÉ de GmgnAPI (un nombre). L'appeler comme une
+        # fonction levait un TypeError, avalé ici : le repli était sauté à chaque cycle sans un mot
+        # (mesuré le 2026-11-22 sur le Mac : 0 entrée sur 246 complétée par token info).
+        bloque = getattr(gmgn, "blocked_seconds_remaining", 0)
+        if callable(bloque):
+            bloque = bloque()
         try:
-            if gmgn.blocked_seconds_remaining() > 0:
+            if float(bloque or 0) > 0:
                 return candidates
-        except Exception:  # noqa: BLE001 — une sonde de quota ne doit pas casser la collecte
+        except (TypeError, ValueError):
             return candidates
         restant = REPLI_MANIPULATION_MAX_PAR_CYCLE
         sortie = []
