@@ -46,7 +46,9 @@ class FauxGmgn:
         self.appels.append(adresse)
         return self.info
 
+    @property
     def blocked_seconds_remaining(self):
+        # PROPRIÉTÉ, comme dans le vrai GmgnAPI : un faux en méthode a caché le bug du 2026-11-22.
         return self.bloque
 
 
@@ -191,6 +193,28 @@ class TestNomDuChampInsider(unittest.TestCase):
         c = pipeline.gmgn_to_candidate({**LIGNE_TRENDING, "rat_trader_amount_rate": 0.5})
         raison = pipeline.ScanPipeline._manipulation_reason(c, {"max_insider_rate": 0.3})
         self.assertTrue(raison.startswith("insiders"))
+
+
+
+class TestContratAvecLeVraiClient(unittest.TestCase):
+    """Le faux client doit avoir la même forme que le vrai, sinon les tests mentent."""
+
+    def test_blocked_seconds_remaining_est_une_propriete_du_vrai_client(self):
+        from src.apis.gmgn import GmgnAPI
+        self.assertIsInstance(GmgnAPI.__dict__["blocked_seconds_remaining"], property)
+        self.assertIsInstance(FauxGmgn.__dict__["blocked_seconds_remaining"], property)
+
+    def test_la_reponse_reelle_de_token_info_est_lue(self):
+        # Extrait réel de `gmgn-cli token info` (PushCoin, 2026-11-22) : valeurs en texte.
+        info = {"holder_count": 9236,
+                "stat": {"top_rat_trader_percentage": "0", "top_bundler_trader_percentage": "0.3791",
+                         "top_entrapment_trader_percentage": "0.0001", "bot_degen_count": 2},
+                "wallet_tags_stat": {"sniper_wallets": 39, "bundler_wallets": 30}}
+        champs = pipeline.manipulation_depuis_token_info(info)
+        self.assertEqual(champs["bundler_rate"], 0.3791)
+        self.assertEqual(champs["insider_rate"], 0.0)
+        self.assertEqual(champs["sniper_count"], 39)
+        self.assertEqual(champs["holders"], 9236)
 
 
 if __name__ == "__main__":
