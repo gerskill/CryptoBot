@@ -58,6 +58,12 @@ class TestRejets(unittest.TestCase):
         texte = "\n".join(ar.rapport_rejets(ar.resume_rejets([]), 7))
         self.assertIn("ÉCHANTILLON", texte)
         self.assertIn("trop peu pour juger", texte)
+        self.assertIn("aucune ligne", texte)
+
+    def test_periode_reellement_couverte(self):
+        lignes = [{"ts": 0.0, "token": "a", "reason": "x"}, {"ts": 7200.0, "token": "b", "reason": "x"}]
+        texte = "\n".join(ar.rapport_rejets(ar.resume_rejets(lignes), 7))
+        self.assertIn("2.0 h réellement couvertes", texte)
 
 
 class TestEntrees(unittest.TestCase):

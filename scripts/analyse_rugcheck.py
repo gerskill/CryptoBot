@@ -106,6 +106,10 @@ def resume_rejets(lignes: list[dict[str, Any]], bras: list[str] | None = None) -
         "critique": len(par_type["critique"]),
         "score": len(par_type["score"]),
         "motifs": sorted(exemples.items(), key=lambda kv: -kv[1])[:5],
+        # Période RÉELLEMENT couverte : l'entonnoir tourne par taille (quelques heures), bien moins
+        # que la fenêtre demandée.
+        "du": min((ligne["ts"] for ligne in lignes if "ts" in ligne), default=None),
+        "au": max((ligne["ts"] for ligne in lignes if "ts" in ligne), default=None),
     }
 
 
@@ -176,8 +180,15 @@ def _groupe(etiquette: str, g: dict[str, Any]) -> str:
 def rapport_rejets(r: dict[str, Any], jours: int) -> list[str]:
     part = (f"{100 * r['rugcheck'] / r['tokens_rejetes']:.1f} %"
             if r["tokens_rejetes"] >= MIN_REJETS else "trop peu pour juger")
+    if r["du"] is not None:
+        heures = (r["au"] - r["du"]) / 3600
+        debut = datetime.fromtimestamp(r["du"], timezone.utc)
+        couvert = f"{heures:.1f} h réellement couvertes depuis {debut:%d/%m %H:%M} UTC"
+    else:
+        couvert = "aucune ligne"
     lignes = [
-        f"1. Rejets avant l'entrée (entonnoir, {jours} derniers jours, ÉCHANTILLON 1 cycle sur {FILTER_SAMPLE_EVERY})",
+        f"1. Rejets avant l'entrée (entonnoir, ÉCHANTILLON 1 cycle sur {FILTER_SAMPLE_EVERY})",
+        f"   fenêtre demandée {jours} j ; {couvert} (l'entonnoir tourne par taille)",
         (f"   tokens distincts rejetés : {r['tokens_rejetes']} ; dont par RugCheck : {r['rugcheck']} ({part}) "
          f"— risque critique {r['critique']}, score sous le seuil {r['score']}"),
     ]
