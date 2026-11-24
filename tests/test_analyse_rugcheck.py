@@ -38,6 +38,16 @@ class TestRejets(unittest.TestCase):
         r = ar.resume_rejets(lignes)
         self.assertEqual((r["tokens_rejetes"], r["rugcheck"], r["critique"], r["score"]), (3, 2, 1, 1))
 
+    def test_porte_securite_complete(self):
+        lignes = [
+            {"gate": "securite", "token": "a", "reason": "rugcheck 40 < 70"},
+            {"gate": "securite", "token": "z", "reason": "Freeze authority active"},
+        ]
+        r = ar.resume_rejets(lignes)
+        self.assertTrue(r["complet"])
+        self.assertEqual((r["rugcheck"], r["authority"]), (1, 1))
+        self.assertFalse(ar.resume_rejets([])["complet"])
+
     def test_filtre_par_bras(self):
         lignes = [{"arm": "scalp", "token": "a", "reason": "rugcheck 40 < 70"}]
         self.assertEqual(ar.resume_rejets(lignes, ["sniper"])["rugcheck"], 0)

@@ -20,8 +20,9 @@ import json
 import os
 import time
 from collections import Counter, deque
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Iterator, Optional
+from typing import Any
 
 # Portes dans l'ordre où la boucle les applique. L'ordre est la donnée : un
 # token rejeté en « filtres » n'a jamais été soumis à la garde économique, et
@@ -73,6 +74,15 @@ FILTER_SAMPLE_EVERY = 10
 # par la fin réclame.
 FUNNEL_MAX_BYTES = 8 * 1024 * 1024
 ROTATED_SUFFIX = ".1"
+# GÉNÉRATIONS CONSERVÉES (2026-11-24, demande de Killian). Une seule génération ne gardait
+# qu'environ 6 h d'entonnoir sur le Mac : impossible de mesurer une semaine de rejets RugCheck.
+# 30 générations de 8 Mo ≈ 240 Mo ≈ 7 jours. `recent_flow` et `_iter_lines` ne lisent toujours que
+# `.1` et le fichier courant : seules les analyses remontent plus loin (`funnel_generations`).
+FUNNEL_GENERATIONS = 30
+# Rejets de SÉCURITÉ écrits à CHAQUE évaluation, sans échantillonnage, sous la porte `securite`.
+# Ils sont rares (2 tokens sur ~6 h mesurés le 2026-11-24) : le coût en lignes est négligeable,
+# et l'échantillon « 1 sur 10 » ne permettait pas de les compter.
+FAMILLES_SECURITE = ("rugcheck", "authority")
 
 # Lignes à remonter pour UN cycle d'UN bras. Mesuré : 61 922 lignes totales
 # pour 905 lignes `filtres_total` par bras, soit 68 lignes par cycle et par
@@ -98,7 +108,7 @@ class FunnelRecorder:
         gate: str,
         passed: bool,
         reason: str = "",
-        extra: Optional[dict[str, Any]] = None,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         row = {
             "ts": round(time.time(), 3),
@@ -131,6 +141,11 @@ class FunnelRecorder:
             )
 
         for candidate in evaluation.result.rejected:
+            if _est_securite(candidate.rejected_reason):
+                self.record(
+                    arm, candidate.token_address, candidate.symbol, "securite",
+                    False, candidate.rejected_reason or "?",
+                )
             if not sample:
                 continue
             self.record(
@@ -156,7 +171,7 @@ class FunnelRecorder:
         price: float,
         reason: str,
         pnl_pct: float,
-        liquidity_drop_pct: Optional[float] = None,
+        liquidity_drop_pct: float | None = None,
     ) -> None:
         """Une sortie, avec ce qu'on aurait pu prendre au lieu de ça.
 
@@ -203,10 +218,9 @@ class FunnelRecorder:
         os.makedirs(os.path.dirname(os.path.abspath(self.path)), exist_ok=True)
         written = len(self.rows)
         with open(self.path, "a", encoding="utf-8") as fh:
-            for row in self.rows:
-                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+            fh.writelines(json.dumps(row, ensure_ascii=False) + "\n" for row in self.rows)
         self.rows.clear()
-        rotate(self.path)
+        rotate(self.path, generations=FUNNEL_GENERATIONS)
         return written
 
     @property
@@ -218,13 +232,31 @@ class FunnelRecorder:
         )
 
 
+def _est_securite(raison: str | None) -> bool:
+    from src.core.shadow import reason_family
+
+    return reason_family(raison or "") in FAMILLES_SECURITE
+
+
+def generation_path(path: str, k: int) -> str:
+    """`data/funnel_log.jsonl`, 2 -> `data/funnel_log.2.jsonl`."""
+    base, ext = os.path.splitext(path)
+    return f"{base}.{k}{ext}"
+
+
 def rotated_path(path: str) -> str:
     """`data/funnel_log.jsonl` -> `data/funnel_log.1.jsonl`."""
-    base, ext = os.path.splitext(path)
-    return f"{base}{ROTATED_SUFFIX}{ext}"
+    return generation_path(path, 1)
 
 
-def rotate(path: str, max_bytes: Optional[int] = None) -> bool:
+def funnel_generations(path: str, generations: int | None = None) -> list[str]:
+    """Fichiers existants, du plus ancien au plus récent (le fichier courant en dernier)."""
+    total = FUNNEL_GENERATIONS if generations is None else generations
+    chemins = [generation_path(path, k) for k in range(total, 0, -1)] + [path]
+    return [c for c in chemins if os.path.exists(c)]
+
+
+def rotate(path: str, max_bytes: int | None = None, generations: int = 1) -> bool:
     """Bascule le journal s'il dépasse la taille. True si une bascule a eu lieu.
 
     `os.path.getsize` est en O(1) : le contrôle peut se faire à chaque flush
@@ -241,6 +273,11 @@ def rotate(path: str, max_bytes: Optional[int] = None) -> bool:
             return False
     except OSError:
         return False
+    # Décalage .k -> .k+1, du plus ancien au plus récent ; au-delà de `generations`, la plus
+    # ancienne est écrasée. Avec `generations=1` (défaut, autres journaux), seul `.1` existe.
+    for k in range(generations - 1, 0, -1):
+        if os.path.exists(generation_path(path, k)):
+            os.replace(generation_path(path, k), generation_path(path, k + 1))
     os.replace(path, rotated_path(path))
     return True
 
@@ -260,7 +297,7 @@ def _iter_lines(path: str) -> Iterator[str]:
 
 
 def read_funnel(
-    path: str, since: Optional[float] = None, tail: Optional[int] = None
+    path: str, since: float | None = None, tail: int | None = None
 ) -> list[dict[str, Any]]:
     """Lignes du journal d'entonnoir. Ligne corrompue ignorée.
 
@@ -297,8 +334,10 @@ def funnel_by_arm(rows: Iterable[dict[str, Any]]) -> dict[str, dict[str, dict[st
     for row in rows:
         arm = row.get("arm", "?")
         gate = row.get("gate", "?")
-        if gate == "filtres":
-            continue  # détail échantillonné : motifs uniquement
+        if gate in ("filtres", "securite"):
+            # détail : motifs uniquement. `securite` répète des rejets déjà comptés dans
+            # `filtres_total` : l'ajouter compterait deux fois.
+            continue
         if gate == "filtres_total":
             bucket = counts.setdefault(arm, {}).setdefault(
                 "filtres", {"passed": 0, "failed": 0}
@@ -312,7 +351,7 @@ def funnel_by_arm(rows: Iterable[dict[str, Any]]) -> dict[str, dict[str, dict[st
 
 
 def top_reasons(
-    rows: Iterable[dict[str, Any]], arm: Optional[str] = None, limit: int = 8
+    rows: Iterable[dict[str, Any]], arm: str | None = None, limit: int = 8
 ) -> list[tuple[str, int]]:
     """Motifs de rejet les plus fréquents, normalisés.
 
@@ -326,6 +365,10 @@ def top_reasons(
         # `filtres_total` est un compteur sans motif : l'inclure produirait
         # une ligne « ? » en tête du classement, qui n'apprend rien.
         if row.get("gate") == "filtres_total":
+            continue
+        # `securite` est exhaustive alors que `filtres` est échantillonné 1 sur 10 : les mêler
+        # gonflerait RugCheck d'un facteur 10 dans le classement des motifs.
+        if row.get("gate") == "securite":
             continue
         counter[_normalise(row.get("reason", "?"))] += 1
     return counter.most_common(limit)
@@ -341,7 +384,7 @@ def _normalise(reason: str) -> str:
     return re.sub(r"\s+", " ", sans_nombres).strip()
 
 
-def recent_flow(path: str, arm: str, cycles: int = 20) -> Optional[float]:
+def recent_flow(path: str, arm: str, cycles: int = 20) -> float | None:
     """Candidats retenus par cycle, médiane sur les derniers cycles.
 
     C'est la mesure qui manquait à l'apprentissage. Sans elle, resserrer un
@@ -368,8 +411,8 @@ def recent_flow(path: str, arm: str, cycles: int = 20) -> Optional[float]:
 
 
 def inactivity_snapshot(
-    path: str, arm: str, tail: Optional[int] = None, motifs: int = 5
-) -> tuple[Optional[int], list[str]]:
+    path: str, arm: str, tail: int | None = None, motifs: int = 5
+) -> tuple[int | None, list[str]]:
     """(cycles depuis la dernière entrée, motifs de rejet par ordre de poids).
 
     PLUSIEURS MOTIFS, PAS UN SEUL. Le motif dominant peut être déjà à sa borne
@@ -409,7 +452,7 @@ def inactivity_snapshot(
     return depuis, [motif for motif, _ in top_reasons(rows, arm=arm, limit=motifs)]
 
 
-def blocking_gate(counts: dict[str, dict[str, int]]) -> Optional[tuple[str, int, int]]:
+def blocking_gate(counts: dict[str, dict[str, int]]) -> tuple[str, int, int] | None:
     """La porte qui coûte le plus de candidats à ce bras.
 
     Cherche le plus gros DÉCROCHAGE en valeur absolue, pas le plus fort taux :
