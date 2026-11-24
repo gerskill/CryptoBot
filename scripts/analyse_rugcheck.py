@@ -6,11 +6,11 @@ CONSTAT DE DÉPART (Mac, 2026-11-24, 24 h) : 446 entrées, toutes avec un score 
 le seuil `filters.min_rugcheck_score` ne rejette donc presque jamais rien. Avant de changer quoi que
 ce soit, on mesure deux choses.
 
-  1. LES REJETS AVANT L'ENTRÉE, lus dans les journaux shadow : combien de candidats RugCheck a
-     écartés (risque critique ou score sous le seuil), quelle part de tous les rejets, et si ces
-     candidats « auraient gagné » plus ou moins souvent que les autres rejetés. Le shadow suit les
-     rejets pour arbitrer des seuils, pas pour mesurer une performance (ADR 007) : c'est un
-     indice, pas un P&L.
+  1. LES REJETS AVANT L'ENTRÉE, lus dans l'entonnoir (`data/funnel_log*.jsonl`) : combien de
+     tokens distincts RugCheck a écartés (risque critique ou score sous le seuil), et quelle part
+     de tous les tokens rejetés. L'entonnoir n'écrit le détail qu'un cycle sur 10 : ce sont des
+     proportions sur un échantillon, pas des totaux. Le shadow ne sert pas ici : il exclut exprès
+     les rejets RugCheck et Authority (verdict du juge du 2026-11-24).
   2. LES ENTRÉES PRISES, par bras : répartition des scores, puis P&L des positions avec des
      risques RugCheck listés contre sans, et score 99 contre score plus bas. Même méthode que
      `scripts/analyse_donnees_manquantes.py` : IC95 bootstrap, verdict seulement avec 30 positions
@@ -39,6 +39,7 @@ from scripts.analyse_donnees_manquantes import (
 )
 from src import settings
 from src.core.arm import load_manifest
+from src.core.funnel import FILTER_SAMPLE_EVERY, rotated_path
 from src.core.journal import TradeJournal
 from src.core.stats import compare
 
@@ -47,7 +48,7 @@ JOURS_DEFAUT = 7
 MIN_REJETS = 10
 
 
-# --- 1. Rejets avant l'entrée (shadow) -------------------------------------------------------
+# --- 1. Rejets avant l'entrée (entonnoir) -----------------------------------------------------
 
 def est_rejet_rugcheck(raison: Any) -> str | None:
     """`critique`, `score` ou `None` selon la raison de rejet écrite par le pipeline."""
@@ -59,30 +60,12 @@ def est_rejet_rugcheck(raison: Any) -> str | None:
     return None
 
 
-def _taux_gagnants(lignes: list[dict[str, Any]]) -> float | None:
-    jugees = [ligne for ligne in lignes if isinstance(ligne.get("would_have_won"), bool)]
-    if len(jugees) < MIN_REJETS:
-        return None
-    return round(100 * sum(1 for ligne in jugees if ligne["would_have_won"]) / len(jugees), 1)
+def lire_entonnoir(chemins: list[str], depuis: float) -> list[dict[str, Any]]:
+    """Lignes `filtres` refusées de l'entonnoir postérieures à `depuis` (epoch).
 
-
-def resume_rejets(lignes: list[dict[str, Any]]) -> dict[str, Any]:
-    """Rejets RugCheck parmi tous les rejets shadow, et taux « aurait gagné » de chaque côté."""
-    rugcheck = [ligne for ligne in lignes if est_rejet_rugcheck(ligne.get("reason"))]
-    autres = [ligne for ligne in lignes if not est_rejet_rugcheck(ligne.get("reason"))]
-    return {
-        "total": len(lignes),
-        "rugcheck": len(rugcheck),
-        "critique": sum(1 for ligne in rugcheck if est_rejet_rugcheck(ligne.get("reason")) == "critique"),
-        "score": sum(1 for ligne in rugcheck if est_rejet_rugcheck(ligne.get("reason")) == "score"),
-        "gagnants_rugcheck_pct": _taux_gagnants(rugcheck),
-        "gagnants_autres_pct": _taux_gagnants(autres),
-    }
-
-
-def lire_shadow(chemins: list[str], depuis: float) -> list[dict[str, Any]]:
-    """Lignes shadow postérieures à `depuis` (epoch), sans doublon entre journaux partagés."""
-    vues = set()
+    Le shadow ne sert à rien ici : il saute exprès les rejets RugCheck et Authority
+    (`src/core/shadow.py`, `record_rejections`). L'entonnoir, lui, écrit la raison de chaque rejet,
+    mais seulement sur un cycle d'évaluation sur `FILTER_SAMPLE_EVERY` : c'est un ÉCHANTILLON."""
     lignes = []
     for chemin in dict.fromkeys(chemins):
         if not os.path.exists(chemin):
@@ -93,15 +76,37 @@ def lire_shadow(chemins: list[str], depuis: float) -> list[dict[str, Any]]:
                     ligne = json.loads(brut)
                 except ValueError:
                     continue
-                moment = ligne.get("timestamp")
-                if not isinstance(moment, (int, float)) or moment < depuis:
+                moment = ligne.get("ts")
+                if (ligne.get("gate") != "filtres" or ligne.get("passed") is not False
+                        or not isinstance(moment, (int, float)) or moment < depuis):
                     continue
-                cle = (ligne.get("token_address"), moment, ligne.get("reason"))
-                if cle in vues:
-                    continue
-                vues.add(cle)
                 lignes.append(ligne)
     return lignes
+
+
+def resume_rejets(lignes: list[dict[str, Any]], bras: list[str] | None = None) -> dict[str, Any]:
+    """Tokens distincts rejetés (tout motif) et rejetés par RugCheck, dans l'échantillon.
+
+    Un rejet RugCheck se fait dans le pipeline commun : le même token apparaît une fois par bras.
+    On compte donc des TOKENS DISTINCTS, pas des lignes."""
+    if bras is not None:
+        lignes = [ligne for ligne in lignes if ligne.get("arm") in bras]
+    tous = {ligne.get("token") for ligne in lignes if ligne.get("token")}
+    par_type: dict[str, set] = {"critique": set(), "score": set()}
+    exemples: dict[str, int] = {}
+    for ligne in lignes:
+        genre = est_rejet_rugcheck(ligne.get("reason"))
+        if genre and ligne.get("token"):
+            par_type[genre].add(ligne["token"])
+            exemples[str(ligne.get("reason"))[:90]] = exemples.get(str(ligne.get("reason"))[:90], 0) + 1
+    rugcheck = par_type["critique"] | par_type["score"]
+    return {
+        "tokens_rejetes": len(tous),
+        "rugcheck": len(rugcheck),
+        "critique": len(par_type["critique"]),
+        "score": len(par_type["score"]),
+        "motifs": sorted(exemples.items(), key=lambda kv: -kv[1])[:5],
+    }
 
 
 # --- 2. Entrées prises -------------------------------------------------------------------------
@@ -160,10 +165,6 @@ def score_99(position: dict[str, Any]) -> bool:
 
 # --- Rapport -----------------------------------------------------------------------------------
 
-def _pct(valeur: float | None) -> str:
-    return f"{valeur:.0f} %" if valeur is not None else "trop peu pour juger"
-
-
 def _groupe(etiquette: str, g: dict[str, Any]) -> str:
     pnl = f"{g['pnl_moyen_pct']:+.2f} %" if g["pnl_moyen_pct"] is not None else "—"
     wr = f"{g['win_rate']:.0f} %" if g["win_rate"] is not None else "—"
@@ -173,15 +174,16 @@ def _groupe(etiquette: str, g: dict[str, Any]) -> str:
 
 
 def rapport_rejets(r: dict[str, Any], jours: int) -> list[str]:
-    part = f"{100 * r['rugcheck'] / r['total']:.1f} %" if r["total"] else "—"
-    return [
-        f"1. Rejets avant l'entrée (journaux shadow, {jours} derniers jours)",
-        (f"   rejets suivis : {r['total']} ; dont RugCheck : {r['rugcheck']} ({part}) "
+    part = (f"{100 * r['rugcheck'] / r['tokens_rejetes']:.1f} %"
+            if r["tokens_rejetes"] >= MIN_REJETS else "trop peu pour juger")
+    lignes = [
+        f"1. Rejets avant l'entrée (entonnoir, {jours} derniers jours, ÉCHANTILLON 1 cycle sur {FILTER_SAMPLE_EVERY})",
+        (f"   tokens distincts rejetés : {r['tokens_rejetes']} ; dont par RugCheck : {r['rugcheck']} ({part}) "
          f"— risque critique {r['critique']}, score sous le seuil {r['score']}"),
-        (f"   « aurait gagné » : rejetés par RugCheck {_pct(r['gagnants_rugcheck_pct'])}, "
-         f"autres rejetés {_pct(r['gagnants_autres_pct'])}"),
-        "   (indice seulement : le shadow arbitre des seuils, il ne mesure pas un P&L — ADR 007)",
     ]
+    lignes += [f"   {n:>5} × {motif}" for motif, n in r["motifs"]]
+    lignes.append("   (le shadow n'est pas utilisé : il exclut exprès les rejets RugCheck et Authority)")
+    return lignes
 
 
 def rapport_bras(nom: str, positions: list[dict[str, Any]]) -> list[str]:
@@ -217,8 +219,8 @@ def main() -> None:
         noms = [args.bras]
 
     depuis = time.time() - args.jours * 86400
-    shadow = lire_shadow([settings.arm_paths(n)["shadow"] for n in noms], depuis)
-    print("\n".join(rapport_rejets(resume_rejets(shadow), args.jours)))
+    entonnoir = lire_entonnoir([rotated_path(settings.FUNNEL_LOG_PATH), settings.FUNNEL_LOG_PATH], depuis)
+    print("\n".join(rapport_rejets(resume_rejets(entonnoir, noms), args.jours)))
 
     print(f"\n2. Entrées prises ({args.jours} derniers jours), par bras")
     print(f"   verdict seulement avec au moins {MIN_POSITIONS} positions par groupe et des IC95 disjoints")

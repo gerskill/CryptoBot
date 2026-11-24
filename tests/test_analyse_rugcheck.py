@@ -26,23 +26,38 @@ class TestRaisons(unittest.TestCase):
 
 
 class TestRejets(unittest.TestCase):
-    def test_comptes_et_trop_peu_pour_juger(self):
-        lignes = ([{"reason": "rugcheck 40 < 70", "would_have_won": True}] * 3
-                  + [{"reason": "liquidité", "would_have_won": False}] * 12)
-        r = ar.resume_rejets(lignes)
-        self.assertEqual((r["total"], r["rugcheck"], r["score"], r["critique"]), (15, 3, 3, 0))
-        self.assertIsNone(r["gagnants_rugcheck_pct"])  # 3 < MIN_REJETS
-        self.assertEqual(r["gagnants_autres_pct"], 0.0)
+    """Le shadow saute exprès les rejets RugCheck (verdict du juge du 2026-11-24) : on lit l'entonnoir."""
 
-    def test_lecture_shadow_fenetre_et_doublons(self):
+    def test_tokens_distincts_pas_les_lignes_par_bras(self):
+        lignes = [
+            {"arm": "sniper", "token": "a", "reason": "risque critique RugCheck : ('Mint',)"},
+            {"arm": "scalp", "token": "a", "reason": "risque critique RugCheck : ('Mint',)"},
+            {"arm": "sniper", "token": "b", "reason": "rugcheck 40 < 70"},
+            {"arm": "sniper", "token": "c", "reason": "liquidité 100$ < 60000$"},
+        ]
+        r = ar.resume_rejets(lignes)
+        self.assertEqual((r["tokens_rejetes"], r["rugcheck"], r["critique"], r["score"]), (3, 2, 1, 1))
+
+    def test_filtre_par_bras(self):
+        lignes = [{"arm": "scalp", "token": "a", "reason": "rugcheck 40 < 70"}]
+        self.assertEqual(ar.resume_rejets(lignes, ["sniper"])["rugcheck"], 0)
+
+    def test_lecture_entonnoir_garde_seulement_les_refus_filtres_de_la_fenetre(self):
         with tempfile.TemporaryDirectory() as dossier:
-            chemin = os.path.join(dossier, "shadow.jsonl")
-            ligne = {"timestamp": 2000.0, "token_address": "m", "reason": "rugcheck 40 < 70"}
+            chemin = os.path.join(dossier, "funnel.jsonl")
+            base = {"ts": 2000.0, "arm": "sniper", "token": "a", "gate": "filtres", "passed": False,
+                    "reason": "rugcheck 40 < 70"}
             with open(chemin, "w", encoding="utf-8") as fh:
-                fh.write(json.dumps(ligne) + "\n" + json.dumps(ligne) + "\n")
-                fh.write(json.dumps({**ligne, "timestamp": 10.0}) + "\npas du json\n")
-            lues = ar.lire_shadow([chemin, chemin, os.path.join(dossier, "absent")], depuis=1000.0)
+                fh.writelines(json.dumps(ligne) + "\n" for ligne in (base, {**base, "ts": 10.0}, {**base, "passed": True},
+                              {**base, "gate": "filtres_total"}))
+                fh.write("pas du json\n")
+            lues = ar.lire_entonnoir([chemin, chemin, os.path.join(dossier, "absent")], depuis=1000.0)
         self.assertEqual(len(lues), 1)
+
+    def test_rapport_dit_echantillon_et_trop_peu(self):
+        texte = "\n".join(ar.rapport_rejets(ar.resume_rejets([]), 7))
+        self.assertIn("ÉCHANTILLON", texte)
+        self.assertIn("trop peu pour juger", texte)
 
 
 class TestEntrees(unittest.TestCase):
