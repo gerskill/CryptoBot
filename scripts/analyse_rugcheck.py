@@ -39,7 +39,7 @@ from scripts.analyse_donnees_manquantes import (
 )
 from src import settings
 from src.core.arm import load_manifest
-from src.core.funnel import FILTER_SAMPLE_EVERY, rotated_path
+from src.core.funnel import FILTER_SAMPLE_EVERY, funnel_generations
 from src.core.journal import TradeJournal
 from src.core.stats import compare
 
@@ -77,7 +77,7 @@ def lire_entonnoir(chemins: list[str], depuis: float) -> list[dict[str, Any]]:
                 except ValueError:
                     continue
                 moment = ligne.get("ts")
-                if (ligne.get("gate") != "filtres" or ligne.get("passed") is not False
+                if (ligne.get("gate") not in ("filtres", "securite") or ligne.get("passed") is not False
                         or not isinstance(moment, (int, float)) or moment < depuis):
                     continue
                 lignes.append(ligne)
@@ -100,7 +100,13 @@ def resume_rejets(lignes: list[dict[str, Any]], bras: list[str] | None = None) -
             par_type[genre].add(ligne["token"])
             exemples[str(ligne.get("reason"))[:90]] = exemples.get(str(ligne.get("reason"))[:90], 0) + 1
     rugcheck = par_type["critique"] | par_type["score"]
+    # Porte `securite` (depuis le 2026-11-24) : chaque rejet RugCheck/Authority, sans échantillon.
+    securite = [ligne for ligne in lignes if ligne.get("gate") == "securite"]
+    authority = {ligne.get("token") for ligne in securite
+                 if ligne.get("token") and not est_rejet_rugcheck(ligne.get("reason"))}
     return {
+        "complet": bool(securite),
+        "authority": len(authority),
         "tokens_rejetes": len(tous),
         "rugcheck": len(rugcheck),
         "critique": len(par_type["critique"]),
@@ -189,8 +195,10 @@ def rapport_rejets(r: dict[str, Any], jours: int) -> list[str]:
     lignes = [
         f"1. Rejets avant l'entrée (entonnoir, ÉCHANTILLON 1 cycle sur {FILTER_SAMPLE_EVERY})",
         f"   fenêtre demandée {jours} j ; {couvert} (l'entonnoir tourne par taille)",
+        ("   rejets RugCheck/Authority : COMPLETS (porte `securite`, chaque cycle)" if r["complet"] else
+         "   rejets RugCheck/Authority : ÉCHANTILLON seulement (porte `securite` absente : bot pas encore à jour)"),
         (f"   tokens distincts rejetés : {r['tokens_rejetes']} ; dont par RugCheck : {r['rugcheck']} ({part}) "
-         f"— risque critique {r['critique']}, score sous le seuil {r['score']}"),
+         f"— risque critique {r['critique']}, score sous le seuil {r['score']}, autorité {r['authority']}"),
     ]
     lignes += [f"   {n:>5} ligne(s) × {motif}" for motif, n in r["motifs"]]
     lignes.append("   (lignes = cycles échantillonnés, un même token revient ; le shadow exclut exprès RugCheck et Authority)")
@@ -230,7 +238,7 @@ def main() -> None:
         noms = [args.bras]
 
     depuis = time.time() - args.jours * 86400
-    entonnoir = lire_entonnoir([rotated_path(settings.FUNNEL_LOG_PATH), settings.FUNNEL_LOG_PATH], depuis)
+    entonnoir = lire_entonnoir(funnel_generations(settings.FUNNEL_LOG_PATH), depuis)
     print("\n".join(rapport_rejets(resume_rejets(entonnoir, noms), args.jours)))
 
     print(f"\n2. Entrées prises ({args.jours} derniers jours), par bras")
