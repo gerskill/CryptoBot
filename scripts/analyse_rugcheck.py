@@ -192,8 +192,8 @@ def rapport_rejets(r: dict[str, Any], jours: int) -> list[str]:
         (f"   tokens distincts rejetés : {r['tokens_rejetes']} ; dont par RugCheck : {r['rugcheck']} ({part}) "
          f"— risque critique {r['critique']}, score sous le seuil {r['score']}"),
     ]
-    lignes += [f"   {n:>5} × {motif}" for motif, n in r["motifs"]]
-    lignes.append("   (le shadow n'est pas utilisé : il exclut exprès les rejets RugCheck et Authority)")
+    lignes += [f"   {n:>5} ligne(s) × {motif}" for motif, n in r["motifs"]]
+    lignes.append("   (lignes = cycles échantillonnés, un même token revient ; le shadow exclut exprès RugCheck et Authority)")
     return lignes
 
 
