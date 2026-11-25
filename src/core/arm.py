@@ -158,6 +158,46 @@ class StrategyArm:
     # l'arbitrage du quota partagé (un fork du témoin doublerait sinon la
     # « demande » sur les mêmes tokens et déplacerait les lookups des autres).
     social_wishlist: bool = True
+    # EN PAUSE (2026-11-23, doublons retirés) : le bras reste construit pour
+    # que ses positions ouvertes aillent jusqu'à leur sortie normale, mais il
+    # n'est plus évalué, ne vote plus, n'apprend plus et n'ouvre plus rien.
+    # Son journal et son historique sont gardés tels quels.
+    paused: bool = False
+    # Rôle lisible pour le tableau de bord (manifeste `role_label`).
+    role_label: str = ""
+
+    @property
+    def famille(self) -> Optional[str]:
+        """Famille d'entrée testée (`entry_rules.famille`), None sinon."""
+        if self.params is None:
+            return None
+        return self.params.get("entry_rules.famille") or None
+
+    @property
+    def role_lisible(self) -> str:
+        if self.role_label:
+            return self.role_label
+        from src.core.familles import LIBELLES
+
+        famille = self.famille
+        if famille:
+            return LIBELLES.get(famille, f"Famille d'entrée {famille}")
+        if self.is_baseline:
+            return "Témoin historique"
+        if self.role == CONSENSUS:
+            return "Consensus des bras votants"
+        return "Sortie testée"
+
+    def reglages_non_lus(self) -> list[str]:
+        """Clés présentes dans le document du bras mais lues par AUCUN code."""
+        if self.params is None:
+            return []
+        from src.core.params import PARAMETRES_NON_APPLIQUES
+
+        return sorted(
+            cle for cle in PARAMETRES_NON_APPLIQUES
+            if self.params.get(cle, None) is not None
+        )
 
     @property
     def is_test(self) -> bool:
@@ -170,7 +210,8 @@ class StrategyArm:
 
     @property
     def is_voter(self) -> bool:
-        return self.role == VOTER
+        # Un bras en pause ne vote plus : il n'est même plus évalué.
+        return self.role == VOTER and not self.paused
 
     @property
     def label(self) -> str:
@@ -204,6 +245,11 @@ class StrategyArm:
             "stop_loss_pct": exits.get("stop_loss_pct"),
             "take_profit_1": exits.get("take_profit_1"),
             "max_hold_time_minutes": exits.get("max_hold_time_minutes"),
+            "paused": self.paused,
+            "famille": self.famille,
+            "role_label": self.role_lisible,
+            "learning": self.learning is not None,
+            "reglages_non_lus": self.reglages_non_lus(),
         }
 
 
@@ -484,7 +530,10 @@ def bootstrap_arms(
         # `"learning": false` dans le manifeste = paramètres FIGÉS (opt-in,
         # défaut true). Pour un bras d'expérience, l'apprentissage déplacerait
         # TP1/SL/filtres et détruirait la variable testée.
-        learns = bool(entry.get("learning", True))
+        paused = bool(entry.get("paused", False))
+        # Un bras en pause n'apprend plus : sans nouvelles entrées, ajuster ses
+        # réglages sur ses dernières sorties n'aurait aucun sens.
+        learns = bool(entry.get("learning", True)) and not paused
         bounds = {
             key: (float(low), float(high))
             for key, (low, high) in (entry.get("bounds") or {}).items()
@@ -538,7 +587,9 @@ def bootstrap_arms(
                 ),
                 bounds=bounds,
                 discovery=discovery,
-                social_wishlist=bool(entry.get("social_wishlist", True)),
+                social_wishlist=bool(entry.get("social_wishlist", True)) and not paused,
+                paused=paused,
+                role_label=str(entry.get("role_label", "") or ""),
             )
         )
 

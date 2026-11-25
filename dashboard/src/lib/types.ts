@@ -133,10 +133,20 @@ export type BotState = {
 /** Une stratégie : ses règles, son portefeuille, ce qu'elle a vu ce cycle. */
 export type Arm = {
   name: string
-  role: 'voter' | 'consensus'
+  role: 'voter' | 'consensus' | 'test'
   enabled: boolean
   capital_pct: number
   description?: string
+  /** Bras en pause (2026-11-23) : plus d'entrée, positions jusqu'à leur sortie. */
+  paused?: boolean
+  /** Rôle lisible : famille d'entrée, sortie testée, témoin… */
+  role_label?: string
+  /** Famille d'entrée testée (bras `entree_*`). */
+  famille?: string | null
+  /** false = réglages figés (apprentissage coupé). */
+  learning?: boolean
+  /** Clés présentes dans la config mais lues par aucun code. */
+  reglages_non_lus?: string[]
   entry_threshold: number
   min_confluence: number
   stop_loss_pct?: number

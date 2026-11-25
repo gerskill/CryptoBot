@@ -25,7 +25,7 @@ export type ShortcutAction =
 
 /** Lettres « g puis… » : l'index est celui de l'onglet dans NavBar. */
 const GOTO: Record<Space, readonly string[]> = {
-  memecoins: ['d', 'l', 'w', 'c', 'b'],
+  memecoins: ['a', 'd', 'l', 'w', 'c', 'b', 'p'],
   liquid: ['a', 'p', 'm', 'b', 'i'],
 }
 const MAX_TAB_INDEX = 5
@@ -68,7 +68,7 @@ export const SHORTCUT_DOCS: readonly { keys: readonly string[]; label: string }[
   { keys: ['Ctrl/Cmd', 'K'], label: 'Ouvrir la palette de commandes' },
   { keys: ['/'], label: 'Ouvrir la palette (hors champ de saisie)' },
   { keys: ['1', '2', '3', '4', '5'], label: 'Aller à l’onglet n° 1 à 5 de l’espace actif (AZERTY : sans Maj)' },
-  { keys: ['g', 'puis lettre'], label: 'Aller à un onglet : d, l, w, c, b (Memecoins) ou a, p, m, b, i (Liquid)' },
+  { keys: ['g', 'puis lettre'], label: 'Aller à un onglet : a (Compte), d, l, w, c, b, p (Memecoins) ou a, p, m, b, i (Liquid)' },
   { keys: ['s'], label: 'Basculer entre les espaces Memecoins et Liquid' },
   { keys: ['?'], label: 'Afficher cette aide' },
   { keys: ['Échap'], label: 'Fermer la palette ou l’aide' },

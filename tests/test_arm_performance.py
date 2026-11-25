@@ -167,6 +167,21 @@ class TestEndpointPerformance(ApiTestCase):
         self.assertNotIn("eteint", [r["arm"] for r in reponse["arms"]])
         self.assertAlmostEqual(reponse["fleet"]["pnl_usd"], 16.0)
 
+    def test_bras_en_pause_garde_mais_marque_avec_son_role(self):
+        """2026-11-23 : un doublon en pause reste dans l'historique, marqué à part."""
+        self._manifest([
+            {"name": "baseline", "capital_pct": 1.0, "role_label": "Témoin historique"},
+            {"name": "sniper_ar", "capital_pct": 0.0, "role": "test", "paused": True,
+             "role_label": "En pause · doublon de sniper"},
+            {"name": "entree_hasard", "capital_pct": 0.0, "role": "test",
+             "overrides": {"entry_rules": {"famille": "hasard"}}},
+        ])
+        rows = {r["arm"]: r for r in self.server.get_arms_performance(window="7d")["arms"]}
+        self.assertTrue(rows["sniper_ar"]["paused"])
+        self.assertEqual(rows["sniper_ar"]["role_label"], "En pause · doublon de sniper")
+        self.assertFalse(rows["baseline"]["paused"])
+        self.assertEqual(rows["entree_hasard"]["famille"], "hasard")
+
     def test_fenetre_inconnue_refusee_plutot_que_choisie_apres_coup(self):
         from fastapi import HTTPException
 

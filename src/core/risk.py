@@ -46,8 +46,14 @@ def pre_trade_check(
     require_market_data: bool = False,
     max_score_alpha: Optional[float] = None,
     max_volume_liquidity_ratio: Optional[float] = None,
+    max_arm_exposure_pct: float = 0.0,
+    arm_exposure_size_usd: Optional[float] = None,
 ) -> Optional[str]:
     """None = ouverture autorisée. Sinon, la raison du refus.
+
+    `max_arm_exposure_pct` : plafond du total engagé PAR BRAS, en % de la base
+    prudente du compte du bras (voir `arm_exposure_verdict`). 0 = désactivé.
+    `arm_exposure_size_usd` : taille à ajouter pour ce contrôle (défaut : `size_usd`).
 
     Appeler au début de `_open_position` (chemin unique) avec
     `require_market_data=True` après la garde économique. Un appel anticipé
@@ -72,6 +78,14 @@ def pre_trade_check(
     blocker = portfolio.can_open(candidate, max_positions)
     if blocker:
         return blocker
+
+    arm_blocker = arm_exposure_verdict(
+        portfolio,
+        size_usd if arm_exposure_size_usd is None else arm_exposure_size_usd,
+        max_arm_exposure_pct,
+    )
+    if arm_blocker:
+        return arm_blocker
 
     pump_blocker = anti_pump_verdict(
         candidate,
@@ -99,6 +113,39 @@ def pre_trade_check(
     if economics_reject:
         return economics_reject
 
+    return None
+
+
+def arm_exposure_verdict(
+    portfolio: Any, size_usd: float, max_arm_exposure_pct: float
+) -> Optional[str]:
+    """Plafond du total engagé par bras (validation Killian attendue, 2026-11-22).
+
+    Refuse un NOUVEAU trade si (déjà engagé + nouveau trade) dépasserait
+    `max_arm_exposure_pct` % de la base prudente du compte du bras
+    (`portfolio.exposure_base()` = min(solde de départ, valeur actuelle)).
+    Ne ferme jamais une position ouverte. 0 ou absent = désactivé.
+    Un portefeuille qui ne sait pas mesurer (bancs de test) n'est pas bloqué.
+    """
+    try:
+        pct = float(max_arm_exposure_pct or 0)
+    except (TypeError, ValueError):
+        return None
+    if pct <= 0:
+        return None
+    engaged_fn = getattr(portfolio, "engaged_total", None)
+    base_fn = getattr(portfolio, "exposure_base", None)
+    if not callable(engaged_fn) or not callable(base_fn):
+        return None
+    engaged = float(engaged_fn())
+    base = float(base_fn())
+    cap = base * pct / 100.0
+    size = max(0.0, float(size_usd or 0))
+    if engaged + size > cap + 1e-9:
+        return (
+            f"plafond du bras : {engaged:.2f} $ déjà engagés + {size:.2f} $ "
+            f"dépasseraient {pct:g} % du compte ({cap:.2f} $ sur {base:.2f} $)"
+        )
     return None
 
 

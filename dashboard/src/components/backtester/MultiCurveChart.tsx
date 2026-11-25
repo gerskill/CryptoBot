@@ -15,10 +15,12 @@ type Props = {
   highlighted: string | null
   /** Courbe agrégée (`arm=all`), tracée en pointillés comme référence. */
   aggregate?: number[]
+  /** Décimales du solde final : 2 quand les P&L se comptent en centimes. */
+  digits?: number
 }
 
 /** P&L cumulé multi-bras. SVG 0-100 commun, échelle dynamique sur le visible. */
-export function MultiCurveChart({ curves, visible, highlighted, aggregate }: Props) {
+export function MultiCurveChart({ curves, visible, highlighted, aggregate, digits = 0 }: Props) {
   const visibleCurves = curves.filter((curve) => visible.has(curve.arm))
 
   if (visibleCurves.length === 0) {
@@ -82,7 +84,7 @@ export function MultiCurveChart({ curves, visible, highlighted, aggregate }: Pro
       </svg>
       <div className="mt-1 flex justify-between font-mono text-[11px] text-dim tabular-nums">
         <span>$0</span>
-        <span>{usd(finalLabel, 0)}</span>
+        <span>{usd(finalLabel, digits)}</span>
       </div>
     </div>
   )

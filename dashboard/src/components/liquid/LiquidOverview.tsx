@@ -5,7 +5,7 @@ import { sendLiquidAction } from '../../lib/pilotage'
 import { usePilotageStore } from '../../lib/pilotageStore'
 import type { PredictionArm, PredictionSummary } from '../../lib/predictionTypes'
 import { pnlColor } from '../../lib/format'
-import { DOMAIN_LABEL, FAMILLES, ROLE_LABEL, signed } from './liquidLabels'
+import { DOMAIN_LABEL, FAMILLES, ROLE_LABEL, engagementBlocked, engagementLine, marketLine, signed } from './liquidLabels'
 
 /** Une carte par bras : qui il est, de qui il descend, où il en est. */
 function ArmCard({ arm, need, onToggle }: {
@@ -53,6 +53,18 @@ function ArmCard({ arm, need, onToggle }: {
             <div className="mt-1 flex items-baseline justify-between font-mono text-[11px] tabular-nums text-dim">
               <span>compte {arm.compte.valeur.toFixed(2)} $</span>
               <span>solde {arm.compte.solde.toFixed(2)} $ · engagé {arm.compte.engage.toFixed(2)} $</span>
+            </div>
+          )}
+          {marketLine(arm.compte) && (
+            <div className={`mt-0.5 text-right font-mono text-[11px] tabular-nums ${pnlColor(arm.compte?.pnl_latent ?? 0)}`}
+                 title="Valeur si les paris ouverts étaient revendus maintenant au meilleur acheteur, frais de vente déduits. Le résultat réglé ne change pas.">
+              {marketLine(arm.compte)}
+            </div>
+          )}
+          {engagementLine(arm.engagement) && (
+            <div className={`mt-0.5 text-right font-mono text-[11px] tabular-nums ${engagementBlocked(arm.engagement) ? 'text-blood' : 'text-muted'}`}
+                 title="Total misé sur les paris ouverts, comparé à la limite de 25 % du compte ; et la part sur les paris de plus de 24 h (limite 10 %). Au-delà, le bras attend que ses paris se terminent.">
+              {engagementLine(arm.engagement)}{engagementBlocked(arm.engagement) ? ' · en attente' : ''}
             </div>
           )}
           {arm.apprentissage?.decision && (

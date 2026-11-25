@@ -86,21 +86,161 @@ def min_shares(price: float, min_order_usd: float, rule: str = "min_cote") -> fl
     return float(math.ceil(min_order_usd / basis - 1e-9))
 
 
+def mark_bet(bet: dict[str, Any], book: Optional[dict[str, list[tuple[float, float]]]],
+             mid: Optional[float], sell_fee_pct: float) -> dict[str, Any]:
+    """Valeur de revente d'un pari ouvert, comme si on le vendait maintenant.
+
+    Ordre de préférence (le plus prudent d'abord) :
+      1. « carnet »  : les parts sont vendues en descendant le carnet acheteur
+         (meilleur bid d'abord), moins les frais de vente Liquid (0,90 %,
+         confirmés le 2026-11-22). Les parts que le carnet n'absorbe pas valent
+         0 : on ne compte pas un acheteur qui n'existe pas (« carnet_partiel »).
+      2. « milieu »  : aucun acheteur dans le carnet → prix milieu affiché.
+         Plus optimiste : signalé comme tel.
+      3. « cout »    : ni carnet ni prix → valeur = prix payé (mise + frais),
+         P&L latent 0. On ne devine pas.
+    Affichage et comptabilité seulement : aucune règle d'entrée ou de sortie
+    ne lit cette valeur.
+    """
+    shares = float(bet.get("shares") or 0)
+    cost = float(bet.get("stake_usd") or 0) + float(bet.get("fee_entry_usd") or 0)
+    bids = [(p, z) for p, z in ((book or {}).get("bids") or []) if 0 < p < 1 and z > 0]
+    if shares > 0 and bids:
+        left, proceeds = shares, 0.0
+        for price, size in bids:
+            take = min(size, left)
+            proceeds += take * price
+            left -= take
+            if left <= 1e-9:
+                break
+        value = proceeds * (1 - sell_fee_pct)
+        return {"valeur": round(value, 6), "methode": "carnet" if left <= 1e-9 else "carnet_partiel",
+                "prix": round(bids[0][0], 6), "pnl_latent": round(value - cost, 6)}
+    if shares > 0 and mid is not None and 0 <= mid <= 1:
+        value = shares * mid * (1 - sell_fee_pct)
+        return {"valeur": round(value, 6), "methode": "milieu", "prix": round(mid, 6),
+                "pnl_latent": round(value - cost, 6)}
+    return {"valeur": round(cost, 6), "methode": "cout", "prix": None, "pnl_latent": 0.0}
+
+
 def account(capital: float, settled: list[dict[str, Any]],
-            open_bets: list[dict[str, Any]]) -> dict[str, float]:
+            open_bets: list[dict[str, Any]],
+            marks: Optional[dict[str, dict[str, Any]]] = None) -> dict[str, Any]:
     """Compte d'un bras, comme un vrai compte : solde, engagé, valeur.
 
     Une mise et ses frais d'achat quittent le solde à l'achat ; la recette
     du règlement y revient. `valeur` = capital + gains et pertes réglés.
+
+    Avec `marks` (valeurs de revente par id de pari, voir `mark_bet`), le
+    compte donne aussi sa valeur AU MARCHÉ : `equite_marche` = solde + ce que
+    rapporterait la revente des paris ouverts. `pnl_latent` reste séparé de
+    `resultat_regle` : le réalisé n'est jamais mélangé au latent.
     """
     realized = sum(float(b["pnl_net"]) for b in settled
                    if b.get("status") == "regle" and b.get("pnl_net") is not None)
     engaged = sum(float(b.get("stake_usd") or 0) + float(b.get("fee_entry_usd") or 0)
                   for b in open_bets)
     equity = capital + realized
-    return {"capital": round(capital, 4), "valeur": round(equity, 4),
-            "engage": round(engaged, 4), "solde": round(equity - engaged, 4),
-            "resultat_regle": round(realized, 4)}
+    out: dict[str, Any] = {"capital": round(capital, 4), "valeur": round(equity, 4),
+                           "engage": round(engaged, 4), "solde": round(equity - engaged, 4),
+                           "resultat_regle": round(realized, 4)}
+    if marks is not None:
+        open_value, methods = 0.0, {}
+        for bet in open_bets:
+            mark = marks.get(str(bet.get("id")))
+            if mark is None:
+                mark = mark_bet(bet, None, None, 0.0)  # pas encore valorisé : au coût
+            open_value += float(mark["valeur"])
+            methods[mark["methode"]] = methods.get(mark["methode"], 0) + 1
+        out.update(valeur_ouverte=round(open_value, 4),
+                   pnl_latent=round(open_value - engaged, 4),
+                   equite_marche=round(equity - engaged + open_value, 4),
+                   methodes_valorisation=methods)
+    return out
+
+
+def bet_is_long(bet: dict[str, Any], long_hours: float = 24.0) -> bool:
+    """Un pari est « long » si son règlement tombe plus de `long_hours` après
+    l'entrée. Échéance ou heure d'entrée inconnue = long (prudent)."""
+    from datetime import datetime
+    try:
+        expiry = datetime.fromisoformat(str(bet["expiry"]))
+        entry = datetime.fromisoformat(str(bet["entry_time"]))
+    except (KeyError, TypeError, ValueError):
+        return True
+    return (expiry - entry).total_seconds() > long_hours * 3600
+
+
+def engagement_limit(compte: dict[str, Any], pct: Optional[float],
+                     open_bets: Optional[list[dict[str, Any]]] = None,
+                     long_pct: Optional[float] = None,
+                     long_hours: float = 24.0) -> Optional[dict[str, Any]]:
+    """Limites d'engagement d'un bras (demandes de Killian, 2026-11-22).
+
+    Engagé = mises + frais d'achat des paris OUVERTS. Base = la plus prudente
+    (le minimum) entre le capital de départ de la saison, la valeur réalisée
+    (capital + réglé) et l'équité au marché si elle est connue.
+      - total : engagé ≤ base × `pct` (25 %) ;
+      - long  : engagé sur les paris dont le règlement tombe plus de
+        `long_hours` (24 h) après l'entrée ≤ base × `long_pct` (10 %).
+        Échéance inconnue = long. Les paris courts ne comptent que dans le total.
+    Les paris déjà ouverts au-delà ne sont jamais fermés : le bras attend
+    simplement de repasser sous la limite.
+    """
+    if (pct is None or pct <= 0) and (long_pct is None or long_pct <= 0):
+        return None
+    candidates = [float(compte["capital"]), float(compte["valeur"])]
+    if compte.get("equite_marche") is not None:
+        candidates.append(float(compte["equite_marche"]))
+    base = max(0.0, min(candidates))
+    engaged = float(compte.get("engage") or 0.0)
+    out: dict[str, Any] = {"base": round(base, 4), "engage": round(engaged, 4)}
+    if pct is not None and pct > 0:
+        limit = base * float(pct)
+        out.update(pct=float(pct), limite=round(limit, 4),
+                   disponible=round(max(0.0, limit - engaged), 4), depasse=engaged > limit + 1e-9)
+    if long_pct is not None and long_pct > 0:
+        engaged_long = sum(float(b.get("stake_usd") or 0) + float(b.get("fee_entry_usd") or 0)
+                           for b in (open_bets or []) if bet_is_long(b, long_hours))
+        limit_long = base * float(long_pct)
+        out.update(long_heures=float(long_hours), long_pct=float(long_pct),
+                   limite_long=round(limit_long, 4), engage_long=round(engaged_long, 4),
+                   disponible_long=round(max(0.0, limit_long - engaged_long), 4),
+                   depasse_long=engaged_long > limit_long + 1e-9)
+    return out
+
+
+def equity_drawdown(capital: float, settled: list[dict[str, Any]],
+                    final_equity: Optional[float] = None) -> dict[str, Optional[float]]:
+    """Plus forte baisse du compte depuis son plus haut, lisible.
+
+    Courbe = capital, puis capital + chaque résultat réglé (ordre stable),
+    puis, si fournie, l'équité au marché d'aujourd'hui (latent compris). La
+    baisse est rapportée au PLUS HAUT atteint : elle ne peut pas dépasser
+    100 % (l'ancien `drawdown_max_pct`, rapporté au capital de départ,
+    affichait 134 % ou 168 %).
+    """
+    rows = sorted([b for b in settled if b.get("status") == "regle" and b.get("pnl_net") is not None],
+                  key=order_key)
+    if capital <= 0:
+        return {"drawdown_pic_pct": None, "drawdown_pic_usd": None, "plus_haut": None}
+    equity = peak = float(capital)
+    worst_usd = worst_pct = 0.0
+    path = [float(b["pnl_net"]) for b in rows]
+    points = []
+    for pnl in path:
+        equity += pnl
+        points.append(equity)
+    if final_equity is not None:
+        points.append(float(final_equity))
+    for point in points:
+        peak = max(peak, point)
+        drop = peak - point
+        worst_usd = max(worst_usd, drop)
+        if peak > 0:
+            worst_pct = max(worst_pct, min(100.0, 100 * drop / peak))
+    return {"drawdown_pic_pct": round(worst_pct, 3), "drawdown_pic_usd": round(worst_usd, 4),
+            "plus_haut": round(peak, 4)}
 
 
 def net_pnl(stake_usd: float, shares: float, settle_value: float,

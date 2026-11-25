@@ -92,6 +92,14 @@ class TestConfig(unittest.TestCase):
         files = [os.path.join(root, "config/params.json")] + glob.glob(os.path.join(root, "config/arms/*.json"))
         for f in files:
             d = json.load(open(f))
+            famille = (d.get("entry_rules") or {}).get("famille")
+            if famille and famille != "score":
+                # Familles d'entrée (2026-11-23) : une seule théorie par bras,
+                # sans le plafond de score ni l'anti-pump du témoin.
+                self.assertNotIn("max_score_alpha", d["entry_rules"], f)
+                self.assertNotIn("max_volume_liquidity_ratio", d["entry_rules"], f)
+                self.assertEqual(d["mode"], "PAPER", f)
+                continue
             self.assertEqual(d["entry_rules"]["max_score_alpha"], 75, f)
             attendu = 2 if f.endswith("tp1_20_vl2.json") else 5  # seul bras test a 2
             self.assertEqual(d["entry_rules"]["max_volume_liquidity_ratio"], attendu, f)

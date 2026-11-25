@@ -27,7 +27,7 @@ describe('useUrlSync', () => {
   it('ignore une URL bricolée et la remet au propre', () => {
     window.history.replaceState(null, '', '/?space=x&tab=<b>&window=999&famille=%00')
     renderHook(() => useUrlSync())
-    expect(useStore.getState().view).toBe('dashboard')
+    expect(useStore.getState().view).toBe('compte')
     expect(window.location.search).toBe('')
   })
 
@@ -74,7 +74,7 @@ describe('useUrlSync', () => {
     act(() => useStore.getState().setView('weekly'))
     window.history.replaceState(null, '', '/')
     act(() => { window.dispatchEvent(new PopStateEvent('popstate')) })
-    expect(useStore.getState().view).toBe('dashboard')
+    expect(useStore.getState().view).toBe('compte')
     expect(window.location.search).toBe('')
   })
 })

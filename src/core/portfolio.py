@@ -1014,6 +1014,25 @@ class PaperPortfolio:
                 position.duration_minutes(),
             )
 
+    def engaged_total(self) -> float:
+        """Montant engagé par le bras, au prix d'entrée, TOUTES positions ouvertes comprises.
+
+        Plafond par bras (2026-11-22). Base prudente : on compte aussi les positions ouvertes
+        AVANT le compte courant (elles occupent encore une place et du risque) et la part
+        d'entrée progressive pas encore achetée (`scale_in_pending_usd`, déjà promise).
+        """
+        return sum(
+            p.size_usd * p.remaining_fraction + float(getattr(p, "scale_in_pending_usd", 0) or 0)
+            for p in self.positions.values()
+        )
+
+    def exposure_base(self) -> float:
+        """Base du plafond par bras : la PLUS PETITE entre le solde de départ du compte
+        (`baseline`, 500 $ pour le compte n°4) et la valeur actuelle du compte au prix
+        d'entrée (`equity`). Après des pertes, le plafond baisse ; après des gains, il ne
+        monte pas au-delà du solde de départ."""
+        return max(0.0, min(float(self.baseline), float(self.equity())))
+
     def equity(self) -> float:
         """Capital libre + valeur d'entrée des positions ouvertes (approximation)."""
         engaged = sum(

@@ -18,9 +18,11 @@ from src.prediction import overlay
 from src.prediction.markets import (DOMAINES_SEUIL, Market, parse_outcome_meta,
                                     settled_outcomes)
 from src.prediction.paper import (BetStore, _write_atomic, account, append_jsonl,
-                                  buy_shares, compute_stats, min_shares, net_pnl,
-                                  read_json, read_jsonl, remaining_asks,
-                                  simulate_entry)
+                                  buy_shares, compute_stats, engagement_limit, equity_drawdown, mark_bet,
+                                  min_shares, net_pnl, read_json, read_jsonl,
+                                  remaining_asks, simulate_entry)
+
+MARKS_FILE = "marks.json"
 
 INTERVAL_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
 # Écart minimal entre le prix au règlement et le seuil pour trancher soi-même.
@@ -61,6 +63,8 @@ class PredictionRunner:
         # Parts achetées CE cycle, par pièce, tous bras confondus : un même
         # carnet ne se vend pas deux fois.
         self._taken: dict[str, float] = {}
+        # Valeurs au marché du cycle précédent (limite d'engagement total).
+        self._marks_prev: dict[str, Any] = {}
 
     # ---------- accès fichiers ----------
 
@@ -184,6 +188,20 @@ class PredictionRunner:
         compte = account(cfg["capital_fictif_usd"], store.settled(), open_bets)
         valeur = compte["valeur"]
         target = valeur * cfg["mise_pct"]
+        # Limite d'engagement total (25 % du compte, base la plus prudente).
+        # Vérifiée avant le carnet (pas de lecture inutile) puis avec le coût réel.
+        long_hours = float(cfg.get("engagement_long_heures", 24.0))
+        limite = engagement_limit(
+            account(cfg["capital_fictif_usd"], store.settled(), open_bets,
+                    getattr(self, "_marks_prev", None) or {}),
+            cfg.get("engagement_total_max_pct"), open_bets,
+            cfg.get("engagement_long_max_pct"), long_hours)
+        # Long = règlement plus de 24 h après maintenant ; échéance inconnue = long.
+        is_long = (market.expiry is None
+                   or (market.expiry - moment).total_seconds() > long_hours * 3600)
+        refus = self._engagement_refus(limite, target * (1 + cfg["frais_pct"]), is_long)
+        if refus:
+            return refus
         exposure = sum(b["stake_usd"] for b in open_bets if b.get("domain") == market.domain)
         exposure_cap = valeur * cfg["exposition_max_pct_par_domaine"] + 1e-9
         if exposure + target > exposure_cap:
@@ -222,6 +240,9 @@ class PredictionRunner:
         fee, settle_fee = cfg["frais_pct"], cfg["frais_reglement_pct"]
         if stake * (1 + fee) > compte["solde"] + 1e-9:
             return "solde_insuffisant"
+        refus = self._engagement_refus(limite, stake * (1 + fee), is_long)
+        if refus:
+            return refus
         if exposure + stake > exposure_cap:
             return "exposition_max"
         # Dans les DEUX sens (juge, 2026-11-17) : un carnet très en dessous du
@@ -279,6 +300,17 @@ class PredictionRunner:
         # même horodatage que la ligne du tableau.
         self._track(side.coin, moment, (ask + bid) / 2 if bid is not None else ask, bid, ask)
         return "ouvert"
+
+    @staticmethod
+    def _engagement_refus(limite: Optional[dict[str, Any]], cout: float, is_long: bool) -> str:
+        """Motif de refus si ce coût ferait dépasser une limite d'engagement."""
+        if not limite:
+            return ""
+        if "limite" in limite and limite["engage"] + cout > limite["limite"] + 1e-9:
+            return "engagement_total_max"
+        if is_long and "limite_long" in limite and limite["engage_long"] + cout > limite["limite_long"] + 1e-9:
+            return "engagement_long_max"
+        return ""
 
     # ---------- règlement ----------
 
@@ -348,10 +380,13 @@ class PredictionRunner:
 
     def _settle_all(self, arms: list[dict[str, Any]], mids: dict[str, float],
                     live_outcomes: set[int], moment: datetime,
-                    official: Optional[dict[int, bool]] = None) -> int:
+                    official: Optional[dict[int, bool]] = None,
+                    data_dir: Optional[str] = None) -> int:
         settled = 0
         for arm in arms:
-            store = self.store(arm["name"])
+            # `data_dir` : dossier d'une saison archivée dont les paris encore
+            # ouverts doivent finir proprement (voir `_settle_previous_seasons`).
+            store = BetStore(data_dir, arm["name"]) if data_dir else self.store(arm["name"])
             for bet in store.open_bets():
                 self._track(bet["coin"], moment, mids.get(bet["coin"]))
                 yes_value = self._yes_value(bet, mids, live_outcomes, moment, official)
@@ -390,6 +425,64 @@ class PredictionRunner:
                 store.close(bet["id"], closed)
                 settled += 1
         return settled
+
+    def _settle_previous_seasons(self, mids: dict[str, float], live_outcomes: set[int],
+                                 moment: datetime, official: Optional[dict[int, bool]]) -> int:
+        """Règle les paris encore ouverts des saisons archivées.
+
+        `saisons_a_terminer` (config) liste des dossiers relatifs à
+        `data_dir`, ex. « archive/saison2_46usd_20261122 ». Les paris y sont
+        réglés avec les mêmes règles qu'avant, dans LEUR saison : ils ne
+        touchent jamais les comptes de la saison en cours. Aucun nouveau pari
+        n'y est ouvert.
+        """
+        total = 0
+        for rel in self.config.get("saisons_a_terminer") or []:
+            directory = os.path.normpath(os.path.join(self.data_dir, str(rel)))
+            if not directory.startswith(os.path.normpath(self.data_dir) + os.sep):
+                continue  # jamais en dehors du dossier de données
+            arms_dir = os.path.join(directory, "arms")
+            if not os.path.isdir(arms_dir):
+                continue
+            names = sorted(n for n in os.listdir(arms_dir)
+                           if os.path.isdir(os.path.join(arms_dir, n))
+                           and BetStore(directory, n).open_bets())
+            if names:
+                total += self._settle_all([{"name": n} for n in names], mids, live_outcomes,
+                                          moment, official, data_dir=directory)
+        return total
+
+    def _marks(self, arms: list[dict[str, Any]], mids: dict[str, float],
+               moment: datetime) -> int:
+        """Valeur de revente de chaque pari ouvert de la saison, au carnet.
+
+        Écrit `marks.json` (lu par le tableau de bord). Un carnet par pièce,
+        lu une fois par cycle (cache `_books`). Affichage seulement.
+        """
+        sell_fee = float(self.config.get("frais_vente_pct", self.config.get("frais_pct", 0.0)))
+        # Plafond de lectures de carnet NOUVELLES pour la valorisation : au-delà,
+        # le prix milieu sert (méthode « milieu », signalée). Un cycle ne doit
+        # pas s'allonger sans limite quand il y a beaucoup de paris ouverts.
+        budget = int(self.config.get("valorisation_carnets_max", 60))
+        marks: dict[str, dict[str, Any]] = {}
+        for arm in arms:
+            for bet in self.store(arm["name"]).open_bets():
+                coin = bet.get("coin")
+                if not coin:
+                    continue
+                if coin in self._books:
+                    book = self._books[coin]
+                elif budget > 0:
+                    budget -= 1
+                    book = self._book(coin)
+                else:
+                    book = None
+                mark = mark_bet(bet, book, mids.get(coin), sell_fee)
+                mark["arm"] = arm["name"]
+                marks[str(bet.get("id"))] = mark
+        _write_atomic(os.path.join(self.data_dir, MARKS_FILE),
+                      {"updated_at_iso": _iso(moment), "frais_vente_pct": sell_fee, "bets": marks})
+        return len(marks)
 
     # ---------- incohérences ----------
 
@@ -534,6 +627,10 @@ class PredictionRunner:
         self._candles = {}
         self._books = {}
         self._taken = {}
+        # Valeurs au marché du cycle précédent : servent à la limite d'engagement
+        # total (base la plus prudente). Absentes = capital et réalisé seuls.
+        marks_file = read_json(os.path.join(self.data_dir, MARKS_FILE), {}) or {}
+        self._marks_prev = marks_file.get("bets") if isinstance(marks_file.get("bets"), dict) else {}
         meta = self.api.outcome_meta()
         if meta is None:
             # Sans la liste des marchés on ne sait pas lesquels sont clos : ne
@@ -558,6 +655,12 @@ class PredictionRunner:
         settled = self._settle_all([a for a in self.config["arms"] if a.get("role") in roles],
                                    mids, {m.outcome for m in markets}, moment,
                                    settled_outcomes(meta))
+        # Paris des saisons archivées : ils finissent dans LEUR saison.
+        try:
+            anciens = self._settle_previous_seasons(mids, {m.outcome for m in markets}, moment,
+                                                    settled_outcomes(meta))
+        except Exception as exc:  # noqa: BLE001 — le cycle ne meurt jamais
+            anciens = {"erreur": type(exc).__name__}
 
         # Marchés déjà pariés, lus une fois par cycle puis tenus à jour en mémoire.
         seen = {a["name"]: self.store(a["name"]).seen_outcomes() for a in bettors}
@@ -611,6 +714,13 @@ class PredictionRunner:
         except Exception as exc:  # noqa: BLE001 — le cycle ne meurt jamais
             appris = {"erreur": type(exc).__name__}
 
+        # Valeur au marché des paris ouverts (affichage seulement).
+        try:
+            marques = self._marks([a for a in self.config["arms"] if a.get("role") in roles],
+                                  mids, moment)
+        except Exception as exc:  # noqa: BLE001 — le cycle ne meurt jamais
+            marques = {"erreur": type(exc).__name__}
+
         by_domain: dict[str, int] = {}
         for market in markets:
             if not market.is_fallback:
@@ -625,6 +735,8 @@ class PredictionRunner:
             "marches_par_domaine": by_domain,
             "ouverts_ce_cycle": opened,
             "regles_ce_cycle": settled,
+            "regles_saisons_precedentes": anciens,
+            "paris_valorises": marques,
             "incoherences_ce_cycle": anomalies,
             "instantane_ecrit": snapshot,
             "perps_releves": perps,
@@ -639,8 +751,12 @@ class PredictionRunner:
 def summary(config: dict[str, Any], data_dir: str) -> list[dict[str, Any]]:
     """Une ligne par bras, chiffres attribués à CE bras."""
     rows = []
+    marks_file = read_json(os.path.join(data_dir, MARKS_FILE), {}) or {}
+    marks = marks_file.get("bets") if isinstance(marks_file.get("bets"), dict) else {}
     for arm in overlay.effective_config(config, data_dir)["arms"]:
         store = BetStore(data_dir, arm["name"])
+        compte = account(config["capital_fictif_usd"], store.settled(), store.open_bets(), marks)
+        compte["valorise_le"] = marks_file.get("updated_at_iso")
         rows.append({
             "arm": arm["name"],
             "role": arm.get("role"),
@@ -655,7 +771,15 @@ def summary(config: dict[str, Any], data_dir: str) -> list[dict[str, Any]]:
                                              "max_jours", "min_minutes", "intervalle") if k in arm},
             "description": arm.get("description", ""),
             "ouverts": len(store.open_bets()),
-            "compte": account(config["capital_fictif_usd"], store.settled(), store.open_bets()),
+            "compte": compte,
+            # Baisse depuis le plus haut, latent compris, en % du plus haut (≤ 100 %).
+            "drawdown": equity_drawdown(config["capital_fictif_usd"], store.settled(),
+                                        compte.get("equite_marche")),
+            # Limite d'engagement total : engagé / limite, base la plus prudente.
+            # Et limite sur les paris longs (> 24 h, échéance inconnue comprise).
+            "engagement": engagement_limit(compte, config.get("engagement_total_max_pct"),
+                                           store.open_bets(), config.get("engagement_long_max_pct"),
+                                           float(config.get("engagement_long_heures", 24.0))),
             "origine": arm.get("origine"),
             "apprentissage": learning.read_diagnostic(data_dir, arm["name"]),
             "stats": compute_stats(store.settled(), config["capital_fictif_usd"],

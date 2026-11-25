@@ -7,6 +7,7 @@ export const SPACES: { id: Space; label: string; sub: string }[] = [
 ]
 
 export const MEME_TABS: { id: View; label: string }[] = [
+  { id: 'compte', label: 'Compte' },
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'live', label: 'Live Prices' },
   { id: 'weekly', label: 'Weekly' },

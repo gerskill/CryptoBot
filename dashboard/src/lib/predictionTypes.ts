@@ -41,6 +41,37 @@ export type PredictionAccount = {
   engage: number
   solde: number
   resultat_regle: number
+  /** Valorisation au marché (`paper.py::mark_bet`) : absente avant la saison 3. */
+  valeur_ouverte?: number
+  /** Gain ou perte si les paris ouverts étaient revendus maintenant. Jamais mélangé au réalisé. */
+  pnl_latent?: number
+  /** Solde + valeur de revente des paris ouverts. */
+  equite_marche?: number
+  methodes_valorisation?: Record<string, number>
+  valorise_le?: string | null
+}
+
+/** Baisse depuis le plus haut du compte, latent compris (`paper.py::equity_drawdown`). */
+export type PredictionDrawdown = {
+  drawdown_pic_pct: number | null
+  drawdown_pic_usd: number | null
+  plus_haut: number | null
+}
+
+/** Limites d'engagement d'un bras (`paper.py::engagement_limit`), base la plus prudente. */
+export type PredictionEngagement = {
+  base: number
+  engage: number
+  pct?: number
+  limite?: number
+  disponible?: number
+  depasse?: boolean
+  long_heures?: number
+  long_pct?: number
+  limite_long?: number
+  engage_long?: number
+  disponible_long?: number
+  depasse_long?: boolean
 }
 
 /** Dernier passage de l'agent d'apprentissage (`learning.py::read_diagnostic`). */
@@ -71,6 +102,8 @@ export type PredictionArm = {
   ouverts: number
   /** Absents d'une réponse antérieure à l'ADR 018. */
   compte?: PredictionAccount
+  drawdown?: PredictionDrawdown
+  engagement?: PredictionEngagement | null
   origine?: 'site' | 'apprentissage' | null
   apprentissage?: LearningDiagnostic | null
   stats: PredictionStats

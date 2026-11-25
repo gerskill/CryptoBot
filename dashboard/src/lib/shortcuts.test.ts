@@ -25,7 +25,8 @@ describe('resolveKey', () => {
   })
   it('g puis une lettre va à l’onglet, selon l’espace', () => {
     expect(resolveKey(key('g'), ctx)).toEqual({ type: 'pending-g' })
-    expect(resolveKey(key('w'), { ...ctx, pendingG: true })).toEqual({ type: 'tab', index: 2 })
+    expect(resolveKey(key('w'), { ...ctx, pendingG: true })).toEqual({ type: 'tab', index: 3 })
+    expect(resolveKey(key('a'), { ...ctx, pendingG: true })).toEqual({ type: 'tab', index: 0 })
     expect(resolveKey(key('m'), { space: 'liquid', pendingG: true })).toEqual({ type: 'tab', index: 2 })
     expect(resolveKey(key('z'), { ...ctx, pendingG: true })).toBeNull()
   })

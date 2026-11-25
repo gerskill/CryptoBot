@@ -32,7 +32,7 @@ const SORT_OPTIONS = [
   { key: 'positions', label: 'Positions' },
 ]
 const DESC_FIRST = ['pnl', 'trades', 'positions']
-const SEARCH_OF = (a: Arm) => [a.name, a.role, a.description]
+const SEARCH_OF = (a: Arm) => [a.name, a.role, a.role_label ?? '', a.description]
 const ACCESSORS = {
   nom: (a: Arm) => a.name,
   pnl: (a: Arm) => (a.stats ? a.stats.total_pnl_usd : null),
@@ -142,6 +142,9 @@ function ArmRow({ arm, onOpen }: { arm: Arm; onOpen: OpenHandler }) {
               ≥{arm.min_confluence}
             </span>
           )}
+          {arm.paused && (
+            <span className="shrink-0 rounded bg-white/10 px-1 text-[11px] text-dim">pause</span>
+          )}
           {positions > 0 && (
             <span className="shrink-0 rounded bg-toxic/20 px-1 text-[11px] text-toxic">
               {positions} en cours
@@ -158,9 +161,14 @@ function ArmRow({ arm, onOpen }: { arm: Arm; onOpen: OpenHandler }) {
             {trades ? usd(pnl) : '—'}
           </span>
         </div>
-        <div className="mt-1.5 pl-[4.5rem]">
-          <Funnel arm={arm} />
-        </div>
+        {arm.role_label && (
+          <div className="mt-0.5 truncate pl-[4.5rem] text-[11px] text-dim">{arm.role_label}</div>
+        )}
+        {!arm.paused && (
+          <div className="mt-1.5 pl-[4.5rem]">
+            <Funnel arm={arm} />
+          </div>
+        )}
       </button>
     </div>
   )
@@ -238,12 +246,17 @@ export function TheArms() {
     )
   }
 
+  // Bras en pause rangés À PART (2026-11-23) : jamais mélangés aux actifs.
+  const visibleActifs = explore.visible.filter((a) => !a.paused)
+  const visiblePause = explore.visible.filter((a) => a.paused)
+  const nbActifs = arms.filter((a) => !a.paused).length
+  const nbPause = arms.length - nbActifs
   const totalPnl = arms.reduce((sum, a) => sum + (a.stats?.total_pnl_usd ?? 0), 0)
   const totalTrades = arms.reduce((sum, a) => sum + (a.stats?.total_trades ?? 0), 0)
   const active = arms.filter((a) => (a.stats?.open_positions ?? 0) > 0).length
 
   return (
-    <Panel title={`Stratégies · ${arms.length}`}>
+    <Panel title={nbPause ? `Stratégies · ${nbActifs} actives · ${nbPause} en pause` : `Stratégies · ${arms.length}`}>
       <div className="mb-2 flex items-baseline gap-3 px-1 font-mono text-[11px] text-dim">
         <span>
           {totalTrades} trades cumulés
@@ -284,9 +297,23 @@ export function TheArms() {
         <NoResults query={explore.query} />
       ) : (
         <div>
-          {explore.visible.map((arm) => (
+          {visibleActifs.map((arm) => (
             <ArmRow key={arm.name} arm={arm} onOpen={openArm(arm.name)} />
           ))}
+          {visiblePause.length > 0 && (
+            <>
+              <h3 className="mb-1 mt-4 px-1 text-[11px] uppercase tracking-wide text-dim">
+                En pause · {visiblePause.length}
+              </h3>
+              <p className="mb-1 px-1 text-[11px] leading-snug text-dim">
+                Doublons arrêtés&nbsp;: plus aucune entrée, leurs positions vont jusqu’à leur
+                sortie normale, l’historique est gardé.
+              </p>
+              {visiblePause.map((arm) => (
+                <ArmRow key={arm.name} arm={arm} onOpen={openArm(arm.name)} />
+              ))}
+            </>
+          )}
         </div>
       )}
 
@@ -306,7 +333,15 @@ export function TheArms() {
         open={selected !== null}
         onClose={closeArm}
         title={selected?.name ?? ''}
-        subtitle={selected ? (selected.enabled ? 'stratégie' : 'stratégie désactivée') : undefined}
+        subtitle={
+          selected
+            ? selected.paused
+              ? 'stratégie en pause'
+              : selected.enabled
+                ? 'stratégie'
+                : 'stratégie désactivée'
+            : undefined
+        }
       >
         {selected && <ArmDetail arm={selected} />}
       </Drawer>

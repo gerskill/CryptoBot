@@ -26,7 +26,7 @@ export type UrlState = {
 }
 
 export const DEFAULT_URL_STATE: UrlState = {
-  space: 'memecoins', view: 'dashboard', liquidView: 'apercu', window: '7d', panel: null, filters: {},
+  space: 'memecoins', view: 'compte', liquidView: 'apercu', window: '7d', panel: null, filters: {},
 }
 
 const MAX_TEXT = 60
