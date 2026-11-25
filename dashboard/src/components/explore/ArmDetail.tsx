@@ -13,12 +13,29 @@ export function ArmDetail({ arm }: { arm: Arm }) {
   const seen = (arm.kept ?? 0) + (arm.rejected ?? 0)
   return (
     <>
+      {arm.role_label && <p className="mb-1 text-xs font-medium text-ink">{arm.role_label}</p>}
       {arm.description && <p className="text-xs leading-relaxed text-muted">{arm.description}</p>}
       <Fields
         title="Règles"
         rows={[
-          ['Rôle', arm.role === 'consensus' ? `consensus (≥ ${arm.min_confluence} bras d’accord)` : 'vote'],
+          [
+            'Rôle',
+            arm.role === 'consensus'
+              ? `consensus (≥ ${arm.min_confluence} bras d’accord)`
+              : arm.role === 'test'
+                ? 'test (ne vote pas)'
+                : 'vote',
+          ],
           ['Activée', arm.enabled ? null : 'non'],
+          ['État', arm.paused ? 'en pause (plus aucune entrée, positions jusqu’à leur sortie)' : null],
+          ['Famille d’entrée', arm.famille ?? null],
+          ['Apprentissage', arm.learning === false ? 'coupé (réglages figés)' : null],
+          [
+            'Réglages non lus',
+            arm.reglages_non_lus && arm.reglages_non_lus.length
+              ? `${arm.reglages_non_lus.length} (sans effet : ${arm.reglages_non_lus.join(', ')})`
+              : null,
+          ],
           ['Part du capital', `${arm.capital_pct} %`],
           ['Seuil alpha', arm.entry_threshold],
           ['Stop loss', arm.stop_loss_pct != null ? `${arm.stop_loss_pct} %` : null],

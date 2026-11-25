@@ -8,6 +8,7 @@
   "price_interval_seconds": 60,
   "price_horizon_seconds": 7200,
   "reject_sample_rate": 0.02,
-  "max_calls_per_min": 2,
-  "kline_lookback_seconds": 1800
+  "max_calls_per_min": 4,
+  "kline_lookback_seconds": 1800,
+  "post_exit_horizon_seconds": 21600
 }

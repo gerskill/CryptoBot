@@ -10,7 +10,8 @@
       "enabled": true,
       "capital_pct": 0.158,
       "notify": "all",
-      "description": "Temoin. params.json actuel, fichiers data/ historiques continus depuis avant le multi-bras -- c'est la reference pour verdict_vs_reference. Depuis 2026-08-03 il apprend comme les six autres bras (filtres, sorties, tampon de glissement, relachement sur inactivite) : l'objectif est qu'il devienne lui-meme une bonne strategie, candidate au passage en reel, pas qu'il reste fige."
+      "description": "Temoin. params.json actuel, fichiers data/ historiques continus depuis avant le multi-bras -- c'est la reference pour verdict_vs_reference. Depuis 2026-08-03 il apprend comme les six autres bras (filtres, sorties, tampon de glissement, relachement sur inactivite) : l'objectif est qu'il devienne lui-meme une bonne strategie, candidate au passage en reel, pas qu'il reste fige.",
+      "role_label": "Témoin historique · entrée score + technique, sortie qui apprend"
     },
     {
       "name": "sniper",
@@ -59,7 +60,8 @@
         "filters.min_volume_liquidity_ratio": 0.5,
         "filters.require_social": true,
         "filters.max_price_change_1h": 400
-      }
+      },
+      "role_label": "Stratégie complète · jeunes tokens, sortie qui apprend"
     },
     {
       "name": "sniper_ar",
@@ -102,7 +104,9 @@
         "filters.onchain_max_wallet_pct": 20,
         "filters.onchain_max_shared_funder": 3
       },
-      "learning": false
+      "learning": false,
+      "paused": true,
+      "role_label": "En pause · doublon de sniper (81 % des mêmes achats)"
     },
     {
       "name": "sniper_young",
@@ -111,7 +115,9 @@
       "capital_pct": 0.10525,
       "notify": "none",
       "description": "Fork de sniper, une seule variable changee : filters.min_age_hours 1.025h -> 0.5125h (mi-chemin vers la borne basse de PARAM_BOUNDS, 0.0h). config/arms/sniper_young.json est pre-cree comme copie EXACTE du document VIVANT de sniper (pas du snapshot d'overrides ci-dessus, qui date de la creation initiale et ne reflete plus l'etat appris) -- seuls filters.min_age_hours et le nom changent. Les 'overrides' de ce bloc ne s'appliquent donc jamais (materialise_arm_params ne regenere pas un fichier existant) ; ils sont laisses vides a dessein pour ne pas laisser croire a un deuxieme jeu de valeurs. Reference de comparaison : sniper (tout identique sinon), pas le temoin. Erreur corrigee le 2026-08-09 : un premier essai (runner_young) forkait runner sur la valeur PERIMEE du manifeste (1.0h) alors que runner avait deja appris jusqu'a 0.0h (comme baseline, scalp et quality) -- sniper (1.025h vecu) et consensus (0.525h vecu) sont les deux seuls bras avec encore de la marge ; sniper choisi car role voter (isole), pas consensus (depend du vote des autres bras).",
-      "overrides": {}
+      "overrides": {},
+      "paused": true,
+      "role_label": "En pause · doublon de sniper (72 % des mêmes achats)"
     },
     {
       "name": "scalp",
@@ -154,7 +160,8 @@
         "filters.max_drawdown_from_ath_pct": 40,
         "filters.min_market_cap": 50000,
         "filters.max_dev_tokens_launched": 15
-      }
+      },
+      "role_label": "Stratégie complète · petits gains rapides"
     },
     {
       "name": "runner",
@@ -195,7 +202,8 @@
         "filters.min_market_cap": 100000,
         "filters.require_social": true,
         "filters.max_dev_tokens_launched": 10
-      }
+      },
+      "role_label": "Stratégie complète · laisser courir (paliers)"
     },
     {
       "name": "quality",
@@ -248,7 +256,8 @@
           15,
           15
         ]
-      }
+      },
+      "role_label": "Stratégie complète · sélection stricte"
     },
     {
       "name": "tp1_15",
@@ -264,7 +273,8 @@
         "exit_rules.breakeven_stop_exact": true,
         "exit_rules.trailing_stop_activation": 15.0,
         "exit_rules.trailing_stop_distance_pct": 20.0
-      }
+      },
+      "role_label": "Sortie testée · TP1 +15 % puis stop au prix d'entrée"
     },
     {
       "name": "tp1_20",
@@ -280,7 +290,9 @@
         "exit_rules.breakeven_stop_exact": true,
         "exit_rules.trailing_stop_activation": 20.0,
         "exit_rules.trailing_stop_distance_pct": 20.0
-      }
+      },
+      "paused": true,
+      "role_label": "En pause · doublon de tp1_30 (75 % des mêmes achats)"
     },
     {
       "name": "tp1_20_vl2",
@@ -297,7 +309,9 @@
         "exit_rules.trailing_stop_activation": 20.0,
         "exit_rules.trailing_stop_distance_pct": 20.0,
         "entry_rules.max_volume_liquidity_ratio": 2
-      }
+      },
+      "paused": true,
+      "role_label": "En pause · doublon de tp1_30 (72 % des mêmes achats)"
     },
     {
       "name": "tp1_30",
@@ -313,7 +327,8 @@
         "exit_rules.breakeven_stop_exact": true,
         "exit_rules.trailing_stop_activation": 30.0,
         "exit_rules.trailing_stop_distance_pct": 20.0
-      }
+      },
+      "role_label": "Sortie testée · TP1 +30 % puis stop au prix d'entrée"
     },
     {
       "name": "scaled_be",
@@ -328,7 +343,8 @@
         "entry_rules.scale_in_max_pct": 10.0,
         "entry_rules.scale_in_initial_fraction": 0.3333333333,
         "entry_rules.max_exit_cost_pct_entry": 5.0
-      }
+      },
+      "role_label": "Sortie testée · entrée progressive + breakeven"
     },
     {
       "name": "anti_rug",
@@ -350,7 +366,9 @@
         "entry_rules.anti_rug_max_fresh_top10": 3,
         "entry_rules.anti_rug_max_fresh_first_buyers": 2,
         "entry_rules.anti_rug_max_data_age_sec": 3600
-      }
+      },
+      "paused": true,
+      "role_label": "En pause · doublon (70 % des achats de score_v2, dépend de Helius saturé)"
     },
     {
       "name": "mature_liquid",
@@ -377,7 +395,8 @@
             "not_wash_trading"
           ]
         }
-      }
+      },
+      "role_label": "Stratégie complète · tokens matures (sortie du témoin)"
     },
     {
       "name": "copy_smart",
@@ -414,7 +433,8 @@
         "entry_rules.copy_smart_copycat_min_len_fuzzy": 4,
         "exit_rules.stop_loss_pct": -15,
         "exit_rules.stop_loss_slippage_buffer_pct": 0.0
-      }
+      },
+      "role_label": "Stratégie complète · copie de smart wallets"
     },
     {
       "name": "fixes3",
@@ -434,7 +454,8 @@
         "filters.max_price_change_5m": 10.0,
         "filters.max_price_change_1h": 200.0,
         "exit_rules.breakeven_trigger": 20.0
-      }
+      },
+      "role_label": "Sortie testée · TP1 +15 % + refus frais > 3 % et pump 5 min"
     },
     {
       "name": "consensus_af",
@@ -468,7 +489,9 @@
         "entry_rules.max_exit_cost_pct_entry": 3.0,
         "filters.max_price_change_5m": 10.0,
         "entry_rules.consensus_gate": true
-      }
+      },
+      "paused": true,
+      "role_label": "En pause · doublon de sniper_ar / sniper (65-68 % des mêmes achats)"
     },
     {
       "name": "consensus",
@@ -504,7 +527,8 @@
           15,
           15
         ]
-      }
+      },
+      "role_label": "Consensus des bras votants"
     },
     {
       "name": "score_v2",
@@ -516,10 +540,437 @@
       "description": "TEST (proposition 2026-10-10, NON deploye tant que Killian n'a pas valide) : fork EXACT du temoin (memes filtres, seuil alpha v1 55, memes sorties) + filtre d'entree score v2 (src/core/score_v2.py) : probabilite logistique 2 variables (variation 5 min, log10 volume1h/liquidite), entree seulement si prob >= 0.205 (mediane d'entrainement). Anti-pump : les entrees a fort momentum 5 min et fort volume/liquidite finissent plus souvent au stop. Hors echantillon : AUC 0.62 (PnL>0), PF baseline 0.77 -> 0.98 sur la moitie retenue, sans edge prouve. role 'test' : ne vote pas, hors exposition de flotte et hors pool ; learning=false ; capital_pct 0. Verdict vs baseline apres >= 200 trades. Ne sert PAS a la taille (calibration insuffisante).",
       "overrides": {
         "entry_rules.score_v2_min_prob": 0.205
+      },
+      "paused": true,
+      "role_label": "En pause · doublon de scaled_be (87 % des mêmes achats)"
+    },
+    {
+      "name": "entree_hasard",
+      "role": "test",
+      "role_label": "Famille d'entrée E0 · hasard (témoin de comparaison)",
+      "enabled": true,
+      "capital_pct": 0.0,
+      "notify": "none",
+      "learning": false,
+      "social_wishlist": false,
+      "description": "TEST 2026-11-23 (accord Killian) : famille d'entrée. Sortie de référence figée (stop -25 %, vente totale +30 %, 4 h max, sans breakeven ni trailing), mise fixe 1 %, compte 500 $, apprentissage coupé, 3 positions max. E0 HASARD : parmi les tokens qui passent la sécurité minimale commune, un tirage au sort (20 %). Sert de point de comparaison : une famille n'est gardée que si elle fait clairement mieux que le hasard.",
+      "overrides": {
+        "risk_per_trade": 0.01,
+        "max_concurrent_positions": 3,
+        "risk_rules.max_concurrent_positions": 3,
+        "scan.alpha_score_entry_threshold": 0,
+        "filters": {
+          "min_liquidity_usd": 40000,
+          "min_volume_1h": 2000,
+          "min_age_hours": 0.5,
+          "max_age_hours": 20.5,
+          "min_holders": 25,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 40,
+          "max_dev_wallet_pct": 10,
+          "min_lp_locked_pct": 50,
+          "min_smart_money_buys_30min": 0,
+          "min_social_mentions_1h": 0,
+          "reject_wash_trading": true
+        },
+        "exit_rules": {
+          "stop_loss_pct": -25.0,
+          "stop_loss_slippage_buffer_pct": 0.0,
+          "take_profit_1": 30.0,
+          "take_profit_2": 30.0,
+          "take_profit_3": 30.0,
+          "partial_sell_tp1_pct": 1.0,
+          "partial_sell_tp2_pct": 1.0,
+          "breakeven_trigger": 0,
+          "breakeven_stop_exact": false,
+          "trailing_stop_activation": 1000.0,
+          "trailing_stop_distance_pct": 80.0,
+          "max_hold_time_minutes": 240
+        },
+        "entry_rules": {
+          "famille": "hasard",
+          "taille_fixe": true,
+          "sans_technique": true,
+          "famille_reglages": {
+            "probabilite": 0.2
+          }
+        }
+      }
+    },
+    {
+      "name": "entree_score",
+      "role": "test",
+      "role_label": "Famille d'entrée E1 · score alpha actuel",
+      "enabled": true,
+      "capital_pct": 0.0,
+      "notify": "none",
+      "learning": false,
+      "social_wishlist": false,
+      "description": "TEST 2026-11-23 (accord Killian) : famille d'entrée. Sortie de référence figée (stop -25 %, vente totale +30 %, 4 h max, sans breakeven ni trailing), mise fixe 1 %, compte 500 $, apprentissage coupé, 3 positions max. E1 SCORE ACTUEL : l'entrée d'aujourd'hui (score alpha >= 55, plafond score 75, anti-pump volume/liquidité 5, analyse technique).",
+      "overrides": {
+        "risk_per_trade": 0.01,
+        "max_concurrent_positions": 3,
+        "risk_rules.max_concurrent_positions": 3,
+        "scan.alpha_score_entry_threshold": 55,
+        "filters": {
+          "min_liquidity_usd": 40000,
+          "min_volume_1h": 2000,
+          "min_age_hours": 0.5,
+          "max_age_hours": 20.5,
+          "min_holders": 25,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 40,
+          "max_dev_wallet_pct": 10,
+          "min_lp_locked_pct": 50,
+          "min_smart_money_buys_30min": 0,
+          "min_social_mentions_1h": 0,
+          "reject_wash_trading": true
+        },
+        "exit_rules": {
+          "stop_loss_pct": -25.0,
+          "stop_loss_slippage_buffer_pct": 0.0,
+          "take_profit_1": 30.0,
+          "take_profit_2": 30.0,
+          "take_profit_3": 30.0,
+          "partial_sell_tp1_pct": 1.0,
+          "partial_sell_tp2_pct": 1.0,
+          "breakeven_trigger": 0,
+          "breakeven_stop_exact": false,
+          "trailing_stop_activation": 1000.0,
+          "trailing_stop_distance_pct": 80.0,
+          "max_hold_time_minutes": 240
+        },
+        "entry_rules": {
+          "famille": "score",
+          "taille_fixe": true,
+          "sans_technique": false,
+          "max_score_alpha": 75,
+          "max_volume_liquidity_ratio": 5
+        }
+      }
+    },
+    {
+      "name": "entree_securite",
+      "role": "test",
+      "role_label": "Famille d'entrée E2 · sécurité seule",
+      "enabled": true,
+      "capital_pct": 0.0,
+      "notify": "none",
+      "learning": false,
+      "social_wishlist": false,
+      "description": "TEST 2026-11-23 (accord Killian) : famille d'entrée. Sortie de référence figée (stop -25 %, vente totale +30 %, 4 h max, sans breakeven ni trailing), mise fixe 1 %, compte 500 $, apprentissage coupé, 3 positions max. E2 SÉCURITÉ SEULE : autorités révoquées, LP verrouillée >= 90 %, rugcheck >= 85, top10 <= 30 %, dev <= 5 %, bundlers/insiders bas. Aucun score.",
+      "overrides": {
+        "risk_per_trade": 0.01,
+        "max_concurrent_positions": 3,
+        "risk_rules.max_concurrent_positions": 3,
+        "scan.alpha_score_entry_threshold": 0,
+        "filters": {
+          "min_liquidity_usd": 40000,
+          "min_volume_1h": 2000,
+          "min_age_hours": 0.5,
+          "max_age_hours": 20.5,
+          "min_holders": 25,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 40,
+          "max_dev_wallet_pct": 10,
+          "min_lp_locked_pct": 50,
+          "min_smart_money_buys_30min": 0,
+          "min_social_mentions_1h": 0,
+          "reject_wash_trading": true
+        },
+        "exit_rules": {
+          "stop_loss_pct": -25.0,
+          "stop_loss_slippage_buffer_pct": 0.0,
+          "take_profit_1": 30.0,
+          "take_profit_2": 30.0,
+          "take_profit_3": 30.0,
+          "partial_sell_tp1_pct": 1.0,
+          "partial_sell_tp2_pct": 1.0,
+          "breakeven_trigger": 0,
+          "breakeven_stop_exact": false,
+          "trailing_stop_activation": 1000.0,
+          "trailing_stop_distance_pct": 80.0,
+          "max_hold_time_minutes": 240
+        },
+        "entry_rules": {
+          "famille": "securite",
+          "taille_fixe": true,
+          "sans_technique": true
+        }
+      }
+    },
+    {
+      "name": "entree_wallets",
+      "role": "test",
+      "role_label": "Famille d'entrée E3 · wallets suivis",
+      "enabled": true,
+      "capital_pct": 0.0,
+      "notify": "none",
+      "learning": false,
+      "social_wishlist": false,
+      "description": "TEST 2026-11-23 (accord Killian) : famille d'entrée. Sortie de référence figée (stop -25 %, vente totale +30 %, 4 h max, sans breakeven ni trailing), mise fixe 1 %, compte 500 $, apprentissage coupé, 3 positions max. E3 WALLETS SUIVIS : au moins 2 wallets smart money (GMGN) ont acheté dans les 30 dernières minutes et ne revendent pas.",
+      "overrides": {
+        "risk_per_trade": 0.01,
+        "max_concurrent_positions": 3,
+        "risk_rules.max_concurrent_positions": 3,
+        "scan.alpha_score_entry_threshold": 0,
+        "filters": {
+          "min_liquidity_usd": 40000,
+          "min_volume_1h": 2000,
+          "min_age_hours": 0.5,
+          "max_age_hours": 20.5,
+          "min_holders": 25,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 40,
+          "max_dev_wallet_pct": 10,
+          "min_lp_locked_pct": 50,
+          "min_smart_money_buys_30min": 0,
+          "min_social_mentions_1h": 0,
+          "reject_wash_trading": true
+        },
+        "exit_rules": {
+          "stop_loss_pct": -25.0,
+          "stop_loss_slippage_buffer_pct": 0.0,
+          "take_profit_1": 30.0,
+          "take_profit_2": 30.0,
+          "take_profit_3": 30.0,
+          "partial_sell_tp1_pct": 1.0,
+          "partial_sell_tp2_pct": 1.0,
+          "breakeven_trigger": 0,
+          "breakeven_stop_exact": false,
+          "trailing_stop_activation": 1000.0,
+          "trailing_stop_distance_pct": 80.0,
+          "max_hold_time_minutes": 240
+        },
+        "entry_rules": {
+          "famille": "wallets",
+          "taille_fixe": true,
+          "sans_technique": true
+        }
+      }
+    },
+    {
+      "name": "entree_acheteurs",
+      "role": "test",
+      "role_label": "Famille d'entrée E4 · afflux d'acheteurs et de volume",
+      "enabled": true,
+      "capital_pct": 0.0,
+      "notify": "none",
+      "learning": false,
+      "social_wishlist": false,
+      "description": "TEST 2026-11-23 (accord Killian) : famille d'entrée. Sortie de référence figée (stop -25 %, vente totale +30 %, 4 h max, sans breakeven ni trailing), mise fixe 1 %, compte 500 $, apprentissage coupé, 3 positions max. E4 AFFLUX D'ACHETEURS : >= 40 achats en 5 min, >= 60 % d'acheteurs, +1 à +10 % sur 5 min, volume 5 min >= 1,5 x la moyenne de l'heure.",
+      "overrides": {
+        "risk_per_trade": 0.01,
+        "max_concurrent_positions": 3,
+        "risk_rules.max_concurrent_positions": 3,
+        "scan.alpha_score_entry_threshold": 0,
+        "filters": {
+          "min_liquidity_usd": 40000,
+          "min_volume_1h": 2000,
+          "min_age_hours": 0.5,
+          "max_age_hours": 20.5,
+          "min_holders": 25,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 40,
+          "max_dev_wallet_pct": 10,
+          "min_lp_locked_pct": 50,
+          "min_smart_money_buys_30min": 0,
+          "min_social_mentions_1h": 0,
+          "reject_wash_trading": true
+        },
+        "exit_rules": {
+          "stop_loss_pct": -25.0,
+          "stop_loss_slippage_buffer_pct": 0.0,
+          "take_profit_1": 30.0,
+          "take_profit_2": 30.0,
+          "take_profit_3": 30.0,
+          "partial_sell_tp1_pct": 1.0,
+          "partial_sell_tp2_pct": 1.0,
+          "breakeven_trigger": 0,
+          "breakeven_stop_exact": false,
+          "trailing_stop_activation": 1000.0,
+          "trailing_stop_distance_pct": 80.0,
+          "max_hold_time_minutes": 240
+        },
+        "entry_rules": {
+          "famille": "acheteurs",
+          "taille_fixe": true,
+          "sans_technique": true
+        }
+      }
+    },
+    {
+      "name": "entree_repli",
+      "role": "test",
+      "role_label": "Famille d'entrée E5 · rachat après une première hausse",
+      "enabled": true,
+      "capital_pct": 0.0,
+      "notify": "none",
+      "learning": false,
+      "social_wishlist": false,
+      "description": "TEST 2026-11-23 (accord Killian) : famille d'entrée. Sortie de référence figée (stop -25 %, vente totale +30 %, 4 h max, sans breakeven ni trailing), mise fixe 1 %, compte 500 $, apprentissage coupé, 3 positions max. E5 REPLI : +20 % ou plus sur 1 h, puis recul de 0 à -15 % sur 5 min et 10 à 40 % sous le plus haut.",
+      "overrides": {
+        "risk_per_trade": 0.01,
+        "max_concurrent_positions": 3,
+        "risk_rules.max_concurrent_positions": 3,
+        "scan.alpha_score_entry_threshold": 0,
+        "filters": {
+          "min_liquidity_usd": 40000,
+          "min_volume_1h": 2000,
+          "min_age_hours": 0.5,
+          "max_age_hours": 20.5,
+          "min_holders": 25,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 40,
+          "max_dev_wallet_pct": 10,
+          "min_lp_locked_pct": 50,
+          "min_smart_money_buys_30min": 0,
+          "min_social_mentions_1h": 0,
+          "reject_wash_trading": true
+        },
+        "exit_rules": {
+          "stop_loss_pct": -25.0,
+          "stop_loss_slippage_buffer_pct": 0.0,
+          "take_profit_1": 30.0,
+          "take_profit_2": 30.0,
+          "take_profit_3": 30.0,
+          "partial_sell_tp1_pct": 1.0,
+          "partial_sell_tp2_pct": 1.0,
+          "breakeven_trigger": 0,
+          "breakeven_stop_exact": false,
+          "trailing_stop_activation": 1000.0,
+          "trailing_stop_distance_pct": 80.0,
+          "max_hold_time_minutes": 240
+        },
+        "entry_rules": {
+          "famille": "repli",
+          "taille_fixe": true,
+          "sans_technique": true
+        }
+      }
+    },
+    {
+      "name": "entree_mature",
+      "role": "test",
+      "role_label": "Famille d'entrée E6 · token mature et liquide",
+      "enabled": true,
+      "capital_pct": 0.0,
+      "notify": "none",
+      "learning": false,
+      "social_wishlist": false,
+      "description": "TEST 2026-11-23 (accord Killian) : famille d'entrée. Sortie de référence figée (stop -25 %, vente totale +30 %, 4 h max, sans breakeven ni trailing), mise fixe 1 %, compte 500 $, apprentissage coupé, 3 positions max. E6 MATURE : tokens de 24 h à 30 jours, liquidité >= 250 000 $, volume 1 h >= 20 000 $ (même lot que mature_liquid), sans score ni technique.",
+      "overrides": {
+        "risk_per_trade": 0.01,
+        "max_concurrent_positions": 3,
+        "risk_rules.max_concurrent_positions": 3,
+        "scan.alpha_score_entry_threshold": 0,
+        "filters": {
+          "min_liquidity_usd": 250000,
+          "min_holders": 25,
+          "min_volume_1h": 20000,
+          "max_dev_wallet_pct": 10,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 40,
+          "min_social_mentions_1h": 0,
+          "min_smart_money_buys_30min": 0,
+          "max_age_hours": 720.0,
+          "min_age_hours": 24.0
+        },
+        "exit_rules": {
+          "stop_loss_pct": -25.0,
+          "stop_loss_slippage_buffer_pct": 0.0,
+          "take_profit_1": 30.0,
+          "take_profit_2": 30.0,
+          "take_profit_3": 30.0,
+          "partial_sell_tp1_pct": 1.0,
+          "partial_sell_tp2_pct": 1.0,
+          "breakeven_trigger": 0,
+          "breakeven_stop_exact": false,
+          "trailing_stop_activation": 1000.0,
+          "trailing_stop_distance_pct": 80.0,
+          "max_hold_time_minutes": 240
+        },
+        "entry_rules": {
+          "famille": "mature",
+          "taille_fixe": true,
+          "sans_technique": true
+        },
+        "scan.mature_source": {
+          "refresh_cycles": 10,
+          "max_candidates": 15,
+          "gmgn_interval": "24h",
+          "gmgn_limit": 50,
+          "gmgn_order_by": "volume",
+          "gmgn_filters": [
+            "not_wash_trading"
+          ]
+        }
+      },
+      "discovery": "mature"
+    },
+    {
+      "name": "entree_consensus",
+      "role": "test",
+      "role_label": "Famille d'entrée E7 · accord de plusieurs familles",
+      "enabled": true,
+      "capital_pct": 0.0,
+      "notify": "none",
+      "learning": false,
+      "social_wishlist": false,
+      "description": "TEST 2026-11-23 (accord Killian) : famille d'entrée. Sortie de référence figée (stop -25 %, vente totale +30 %, 4 h max, sans breakeven ni trailing), mise fixe 1 %, compte 500 $, apprentissage coupé, 3 positions max. E7 CONSENSUS : au moins 2 des familles E1 à E5 acceptent le même token au même cycle (le hasard ne vote pas).",
+      "overrides": {
+        "risk_per_trade": 0.01,
+        "max_concurrent_positions": 3,
+        "risk_rules.max_concurrent_positions": 3,
+        "scan.alpha_score_entry_threshold": 0,
+        "filters": {
+          "min_liquidity_usd": 40000,
+          "min_volume_1h": 2000,
+          "min_age_hours": 0.5,
+          "max_age_hours": 20.5,
+          "min_holders": 25,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 40,
+          "max_dev_wallet_pct": 10,
+          "min_lp_locked_pct": 50,
+          "min_smart_money_buys_30min": 0,
+          "min_social_mentions_1h": 0,
+          "reject_wash_trading": true
+        },
+        "exit_rules": {
+          "stop_loss_pct": -25.0,
+          "stop_loss_slippage_buffer_pct": 0.0,
+          "take_profit_1": 30.0,
+          "take_profit_2": 30.0,
+          "take_profit_3": 30.0,
+          "partial_sell_tp1_pct": 1.0,
+          "partial_sell_tp2_pct": 1.0,
+          "breakeven_trigger": 0,
+          "breakeven_stop_exact": false,
+          "trailing_stop_activation": 1000.0,
+          "trailing_stop_distance_pct": 80.0,
+          "max_hold_time_minutes": 240
+        },
+        "entry_rules": {
+          "famille": "consensus",
+          "taille_fixe": true,
+          "sans_technique": true,
+          "famille_reglages": {
+            "membres": [
+              "entree_score",
+              "entree_securite",
+              "entree_wallets",
+              "entree_acheteurs",
+              "entree_repli"
+            ],
+            "min_accords": 2
+          }
+        }
       }
     }
   ],
   "_note_champs": "Chaque bras exploite un jeu de champs DIFFERENT, tous rendus par le meme appel GMGN market trending que la decouverte : les filtrer ne coute aucune requete. sniper mise sur l anti-manipulation (rien d autre n est mesurable a 5 min), scalp sur le momentum court, runner sur la solidite de la LP, quality sur la reputation et les KOL. Un seuil absent d un document ne s applique pas ; une donnee absente ne rejette jamais.",
   "_note_tp1_tests": "2026-10-04 : bras tp1_15/tp1_20/tp1_30 (role test, learning false). Backup : config/strategies.json.bak-pre-tp1arms-20261004-102744. Pour les retirer : enabled=false.",
-  "_note_scaled_be": "2026-10-10 : bras scaled_be (role test, learning false). Backup : config/strategies.json.bak-pre-scaledbe-*. Pour le retirer : enabled=false."
+  "_note_scaled_be": "2026-10-10 : bras scaled_be (role test, learning false). Backup : config/strategies.json.bak-pre-scaledbe-*. Pour le retirer : enabled=false.",
+  "_note_familles": "2026-11-23 : 8 bras entree_* (familles d'entrée, sortie de référence commune) et 7 doublons en pause (paused=true : plus d'entrée, positions jusqu'à leur sortie normale, historique gardé). Voir scripts/familles_entree_manifeste.py."
 }

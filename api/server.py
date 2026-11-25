@@ -410,7 +410,15 @@ def get_arms_performance(window: str = "7d") -> dict[str, Any]:
             None if name == settings.BASELINE_ARM
             else verdict_vs_reference(fenetre, reference, comparisons=comparaisons)
         )
-        arms.append({"arm": name, "role": entry.get("role"), **perf})
+        # Rôle lisible et état de pause (2026-11-23) : le tableau de bord range
+        # les bras en pause à part, sans les mélanger aux bras actifs.
+        famille = ((entry.get("overrides") or {}).get("entry_rules") or {}).get("famille")
+        arms.append({
+            "arm": name, "role": entry.get("role"), **perf,
+            "paused": bool(entry.get("paused", False)),
+            "role_label": entry.get("role_label") or "",
+            "famille": famille,
+        })
 
     flotte = position_stats(fleet)
     flotte["arm"] = "flotte"

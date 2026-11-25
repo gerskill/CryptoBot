@@ -641,8 +641,11 @@ class TestCompteReel(PredictionTestCase):
         api.meta, api.mids, api.books = meta2, mids2, books2
         self.clock[0] += timedelta(seconds=60)
         runner.cycle()
-        self.assertEqual(api.book_calls, 2)
-        self.assertEqual(set(runner._books), {"#1010"})
+        # 3 lectures : le carnet du nouveau marché, plus une lecture FRAÎCHE de
+        # « #1000 » pour valoriser au marché le pari encore ouvert (marks.json).
+        # L'ancien carnet mémorisé n'est jamais réutilisé d'un cycle à l'autre.
+        self.assertEqual(api.book_calls, 3)
+        self.assertEqual(set(runner._books), {"#1010", "#1000"})
 
     def test_un_carnet_absent_n_est_pas_redemande_dans_le_meme_cycle(self):
         # Une lecture qui échoue coûte 3 essais et jusqu'à 7 s d'attente : la

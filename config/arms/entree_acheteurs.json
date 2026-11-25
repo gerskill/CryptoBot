@@ -1,0 +1,88 @@
+{
+  "version": "2.0",
+  "mode": "PAPER",
+  "capital_total": 7000.0,
+  "risk_per_trade": 0.01,
+  "max_concurrent_positions": 3,
+  "scan": {
+    "interval_seconds": 45,
+    "monitor_interval_seconds": 5,
+    "chains": [
+      "solana"
+    ],
+    "cache_ttl_minutes": 30,
+    "max_candidates_enriched": 25,
+    "alpha_score_entry_threshold": 0,
+    "social_lookup_min_alpha": 70,
+    "social_max_lookups_per_cycle": 6,
+    "_note_monitor": "5s au lieu de 20s : mesure sur 10 trades, 8 sorties SL sur 8 depassaient leur seuil de 4.6 points en moyenne (pire -40.5% pour un SL a -25%). Cout : 1 requete par position et par tick, quota DexScreener 300/min.",
+    "gmgn_intervals": [
+      "5m",
+      "1h",
+      "24h"
+    ],
+    "gmgn_limit": 100,
+    "gmgn_order_by": "volume",
+    "gmgn_filters": [
+      "not_wash_trading"
+    ],
+    "_note_gmgn": "Decouverte GMGN filtree cote serveur. Mesure 2026-08-01 : le flux DexScreener /token-profiles est de la promo payante, liquidite mediane 1634$. GMGN rend liquidite + holders + top10 + smart money en UN appel deja filtre, donc on n enrichit plus du dechet. 3 intervalles = 3 appels par cycle."
+  },
+  "filters": {
+    "min_liquidity_usd": 40000,
+    "min_volume_1h": 2000,
+    "min_age_hours": 0.5,
+    "max_age_hours": 20.5,
+    "min_holders": 25,
+    "min_rugcheck_score": 70,
+    "max_top_wallet_concentration": 40,
+    "max_dev_wallet_pct": 10,
+    "min_lp_locked_pct": 50,
+    "min_smart_money_buys_30min": 0,
+    "min_social_mentions_1h": 0,
+    "reject_wash_trading": true
+  },
+  "entry_rules": {
+    "famille": "acheteurs",
+    "taille_fixe": true,
+    "sans_technique": true
+  },
+  "exit_rules": {
+    "stop_loss_pct": -25.0,
+    "stop_loss_slippage_buffer_pct": 0.0,
+    "take_profit_1": 30.0,
+    "take_profit_2": 30.0,
+    "take_profit_3": 30.0,
+    "partial_sell_tp1_pct": 1.0,
+    "partial_sell_tp2_pct": 1.0,
+    "breakeven_trigger": 0,
+    "breakeven_stop_exact": false,
+    "trailing_stop_activation": 1000.0,
+    "trailing_stop_distance_pct": 80.0,
+    "max_hold_time_minutes": 240
+  },
+  "scoring_weights": {
+    "liquidity": 0.2,
+    "volume_momentum": 0.25,
+    "social_sentiment": 0.2,
+    "smart_money": 0.12,
+    "rugcheck": 0.15,
+    "wallet_reliability": 0.08
+  },
+  "learning": {},
+  "risk_rules": {
+    "cooldown_hours": 0,
+    "consecutive_losses_trigger": 3,
+    "_note": "PAPER LEARNING MODE (2026-09-24, decision proprietaire) : cooldown_hours=0 ET max_drawdown_stop_pct=0. En papier on veut TOUTES les entrees qualifiees pour apprendre / ameliorer les bras ; rien a proteger en capital reel. AVANT tout passage LIVE : remettre cooldown_hours=2 et max_drawdown_stop_pct=25 (ou seuil valide).",
+    "max_drawdown_stop_pct": 0,
+    "max_concurrent_positions": 3
+  },
+  "api_budgets": {
+    "_note": "Plafonds MENSUELS d appels. 0 = illimite. Twitter Free = 100 lectures/mois. Depuis fevrier 2026 les nouveaux comptes X sont en pay-per-use (0.005 $/lecture) ; les paliers Basic 200 $ et Pro 5000 $ sont fermes aux nouvelles inscriptions. Ce bot est sur le palier GRATUIT : 100, pas 15000.",
+    "twitter": 100,
+    "birdeye": 0,
+    "helius": 0,
+    "gmgn": 0
+  },
+  "strategy": "entree_acheteurs"
+}

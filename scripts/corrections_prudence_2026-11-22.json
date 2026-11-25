@@ -1,0 +1,12 @@
+{
+  "_note": "Issues vérifiées le 2026-11-22 des paris saison 2 « comptés perdus par prudence ». valeur_cote : 1 = le côté parié a gagné, 0 = perdu. Seules les issues CERTAINES sont dans `certaines` ; `probables` ne s'appliquent qu'avec --inclure-probables.",
+  "certaines": [
+    {"id": "pm_temoin-359041-1794894361", "valeur_cote": 1, "source": "NBA.com / feuille officielle NBA : Knicks 102 – Timberwolves 99, 19/11/2026. Côté parié NYK : gagné."},
+    {"id": "pm_pile_ou_face-359041-1794894361", "valeur_cote": 1, "source": "NBA.com / feuille officielle NBA : Knicks 102 – Timberwolves 99, 19/11/2026. Côté parié NYK : gagné. (Même pari que pm_temoin, réglé à 0 après 24 h sans le drapeau prudence.)"},
+    {"id": "pm_temoin-354380-1794894361", "valeur_cote": 0, "source": "UEFA/BBC : Israël 1 – Autriche 1, 17/11/2026. Côté parié Autriche gagnante : perdu (confirmé)."},
+    {"id": "pm_barriere-373481-1794939930", "valeur_cote": 0, "source": "Bougies 1 h BTC Hyperliquid : plus bas 59 355 le 20/11 vers 15:00 UTC, donc 60 000 touché. Côté parié No : perdu (confirmé)."}
+  ],
+  "probables": [
+    {"id": "pm_vol_normal-383310-1794899173", "valeur_cote": 1, "source": "Bougies 5 min BTC Hyperliquid : 64 656 à la clôture 07:05–07:10 UTC et 64 657 à l'ouverture de 07:10, au-dessus de 64 640 (écart 0,03 %, sous la marge de 0,05 % du bot) ; carnet Yes à 0,913 à 07:09. Probablement gagné, non certain."}
+  ]
+}

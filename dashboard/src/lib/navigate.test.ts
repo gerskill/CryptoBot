@@ -22,7 +22,7 @@ describe('navigation et état local à la vue', () => {
     expect(useStore.getState().panel).toBe('runner')
   })
   it('rester sur le même onglet conserve le contexte', () => {
-    useStore.getState().setView('dashboard')
+    useStore.getState().setView('compte')
     expect(useStore.getState().panel).toBe('sniper')
   })
 })

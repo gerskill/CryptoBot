@@ -87,3 +87,26 @@ describe('stratégies : explorer', () => {
     expect(useStore.getState().panel).toBe('sniper')
   })
 })
+
+describe('stratégies : bras en pause et rôles (2026-11-23)', () => {
+  it('range les bras en pause à part et affiche le rôle', () => {
+    useStore.setState({
+      state: {
+        bot_online: true,
+        arms: [
+          arm('entree_hasard', 0, 0, 0, { role: 'test', role_label: "Famille d'entrée E0 · hasard (témoin de comparaison)" }),
+          arm('sniper_ar', -3, 40, 1, { role: 'test', paused: true, role_label: 'En pause · doublon de sniper' }),
+          arm('sniper', 40, 20, 1),
+        ],
+      },
+    })
+    render(<TheArms />)
+    expect(screen.getByText('Stratégies · 2 actives · 1 en pause')).toBeTruthy()
+    expect(screen.getByText('En pause · 1')).toBeTruthy()
+    expect(screen.getByText("Famille d'entrée E0 · hasard (témoin de comparaison)")).toBeTruthy()
+    const boutons = screen.getAllByRole('button', { name: /^Détail de / }).map((b) => b.textContent ?? '')
+    // Le bras en pause vient APRÈS les actifs, jamais mélangé.
+    expect(boutons[boutons.length - 1]).toMatch(/sniper_ar/)
+    expect(screen.getByText('pause')).toBeTruthy()
+  })
+})

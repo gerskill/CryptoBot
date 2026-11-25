@@ -29,6 +29,8 @@ from typing import Any, Iterable, Iterator, Optional
 GATES = (
     "filtres",
     "seuil_alpha",
+    # Porte de la famille d'entrée (bras `entree_*`, 2026-11-23).
+    "famille",
     "confluence",
     "portefeuille",
     # APRÈS `portefeuille` et AVANT `technique` : la concentration sectorielle

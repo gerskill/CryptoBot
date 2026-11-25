@@ -13,7 +13,7 @@ describe('useGlobalShortcuts', () => {
 
   it('change d’onglet avec un chiffre', () => {
     renderHook(() => useGlobalShortcuts())
-    fireEvent.keyDown(window, { key: '3' })
+    fireEvent.keyDown(window, { key: '4' })
     expect(useStore.getState().view).toBe('weekly')
   })
 
@@ -40,7 +40,7 @@ describe('useGlobalShortcuts', () => {
     const input = document.createElement('input')
     document.body.appendChild(input)
     fireEvent.keyDown(input, { key: '2' })
-    expect(useStore.getState().view).toBe('dashboard')
+    expect(useStore.getState().view).toBe('compte')
     input.remove()
   })
 
@@ -49,7 +49,7 @@ describe('useGlobalShortcuts', () => {
     const ev = new KeyboardEvent('keydown', { key: '2', ctrlKey: true, cancelable: true, bubbles: true })
     window.dispatchEvent(ev)
     expect(ev.defaultPrevented).toBe(false)
-    expect(useStore.getState().view).toBe('dashboard')
+    expect(useStore.getState().view).toBe('compte')
   })
 
   it('ignore la répétition automatique', () => {
@@ -64,13 +64,13 @@ describe('useGlobalShortcuts', () => {
     fireEvent.keyDown(window, { key: 'g' })
     fireEvent.keyDown(window, { key: 'Shift' })
     fireEvent.keyDown(window, { key: 'c' })
-    expect(useStore.getState().view).toBe('dashboard')
+    expect(useStore.getState().view).toBe('compte')
   })
 
   it('est désactivable', () => {
     localStorage.setItem('cryptobot.shortcuts.enabled', 'off')
     renderHook(() => useGlobalShortcuts())
     fireEvent.keyDown(window, { key: '3' })
-    expect(useStore.getState().view).toBe('dashboard')
+    expect(useStore.getState().view).toBe('compte')
   })
 })

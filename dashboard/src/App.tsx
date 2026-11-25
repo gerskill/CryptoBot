@@ -1,3 +1,4 @@
+import { AccountView } from './components/account/AccountView'
 import { useLiveState } from './lib/useLiveState'
 import { useAlertMonitor } from './lib/useAlertMonitor'
 import { useStore } from './lib/store'
@@ -64,6 +65,7 @@ export default function App() {
   return (
     <Shell>
       {space === 'liquid' && <LiquidDashboard />}
+      {space === 'memecoins' && view === 'compte' && <AccountView />}
       {space === 'memecoins' && view === 'dashboard' && <DashboardView />}
       {space === 'memecoins' && view === 'live' && <LivePrices />}
       {space === 'memecoins' && view === 'weekly' && <WeeklyReport />}

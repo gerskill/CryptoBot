@@ -36,6 +36,7 @@ ENTRY_GATES = (
     "score_v2",
     "copy_smart",
     "anti_rug",
+    "famille",
     "confluence",
     "portefeuille",
     "correlation",
@@ -54,6 +55,8 @@ DEFAULTS = {
     "min_free_bytes": 5 * 1024 * 1024 * 1024,
     "price_interval_seconds": 60,
     "price_horizon_seconds": 2 * 3600,
+    # Suivi APRÈS la sortie (2026-11-23) : 0 = désactivé.
+    "post_exit_horizon_seconds": 0,
     "reject_sample_rate": 0.02,
     "max_calls_per_min": 2,
     "kline_lookback_seconds": 30 * 60,
@@ -661,6 +664,27 @@ class ResearchJournal:
         with self._lock:
             self._entered.add(token)
 
+    def note_exited(self, token: str) -> None:
+        """Prolonge le suivi du prix `post_exit_horizon_seconds` après une sortie.
+
+        Sert à rejouer d'autres sorties sur les mêmes entrées. Même file que
+        les entrées (prioritaire), mêmes requêtes groupées par 30 tokens.
+        """
+        horizon = float(self.config.get("post_exit_horizon_seconds") or 0)
+        if not self.enabled or not token or horizon <= 0:
+            return
+        now = self.clock()
+        with self._lock:
+            track = self._tracks.get(token)
+            if track is None:
+                self._tracks[token] = {
+                    "since": now, "until": now + horizon, "last": 0.0, "reason": "exited",
+                }
+            else:
+                track["until"] = max(float(track.get("until", now)), now + horizon)
+                if track.get("reason") != "entered":
+                    track["reason"] = "exited"
+
     def note_klines(self, token: str, candles: Iterable[Any], source: str) -> None:
         if not self.enabled or not self.config.get("klines_enabled"):
             return
@@ -822,7 +846,8 @@ class ResearchJournal:
                 # coupe pas le suivi au milieu de la position.
                 track["reason"] = "entered"
                 track["since"] = now
-                track["until"] = now + horizon
+                # `max` : ne raccourcit jamais un suivi d'après-sortie déjà en cours.
+                track["until"] = max(float(track.get("until", 0) or 0), now + horizon)
                 track["last"] = now
         if price is None and liquidity is None:
             return
@@ -853,7 +878,7 @@ class ResearchJournal:
                     continue
                 if now - track["last"] + 1e-6 < interval:
                     continue
-                if track.get("reason") == "entered":
+                if track.get("reason") in ("entered", "exited"):
                     due_entered.append(token)
                 else:
                     due_other.append(token)

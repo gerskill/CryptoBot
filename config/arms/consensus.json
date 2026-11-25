@@ -40,7 +40,7 @@
     "max_tax_buy": 5,
     "max_tax_sell": 5,
     "max_age_hours": 15.0,
-    "min_age_hours": 3.0,
+    "min_age_hours": 1.5,
     "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose.",
     "max_bundler_rate": 0.5,
     "max_insider_rate": 0.25,
@@ -85,41 +85,41 @@
     "wallet_reliability": 0.08
   },
   "learning": {
-    "total_trades": 728,
-    "winning_trades": 146,
-    "losing_trades": 582,
-    "avg_win_pct": 54.89,
-    "avg_loss_pct": -24.1,
+    "total_trades": 748,
+    "winning_trades": 154,
+    "losing_trades": 594,
+    "avg_win_pct": 54.07,
+    "avg_loss_pct": -23.98,
     "win_rate_by_age": {
       "1-2h": {
         "win_rate": 16.9,
         "sample": 89
       },
       "4h+": {
-        "win_rate": 21.8,
-        "sample": 390
+        "win_rate": 22.5,
+        "sample": 405
       },
       "0-1h": {
         "win_rate": 7.7,
         "sample": 26
       },
       "2-4h": {
-        "win_rate": 19.7,
-        "sample": 223
+        "win_rate": 20.2,
+        "sample": 228
       }
     },
     "win_rate_by_liquidity": {
       "30-50K": {
-        "win_rate": 15.8,
-        "sample": 234
+        "win_rate": 16.5,
+        "sample": 236
       },
       ">50K": {
-        "win_rate": 25.1,
-        "sample": 371
+        "win_rate": 25.5,
+        "sample": 388
       },
       "10-30K": {
-        "win_rate": 13.0,
-        "sample": 123
+        "win_rate": 12.9,
+        "sample": 124
       }
     },
     "win_rate_by_social_score": {},
@@ -6743,12 +6743,142 @@
         "new_value": 19000.0,
         "reason": "inactif depuis 308 cycles sans entrée (seuil 300) — motif « liquidité N < N »",
         "trades_sample_size": 308
+      },
+      {
+        "timestamp": "2026-11-15T20:32:37.242301+00:00",
+        "param_name": "filters.max_age_hours",
+        "old_value": 15.0,
+        "new_value": 14.5,
+        "reason": "WR 22.0% sur tokens 4h+",
+        "trades_sample_size": 391
+      },
+      {
+        "timestamp": "2026-11-15T20:32:37.270902+00:00",
+        "param_name": "filters.min_liquidity_usd",
+        "old_value": 19000.0,
+        "new_value": 24000.0,
+        "reason": "WR 13.0% sous 30K",
+        "trades_sample_size": 10
+      },
+      {
+        "timestamp": "2026-11-15T20:32:37.380203+00:00",
+        "param_name": "filters",
+        "old_value": {
+          "min_liquidity_usd": 24000.0,
+          "min_holders": 40,
+          "min_volume_1h": 2000,
+          "max_dev_wallet_pct": 10,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 40,
+          "min_social_mentions_1h": 0,
+          "min_smart_money_buys_30min": 0,
+          "max_tax_buy": 5,
+          "max_tax_sell": 5,
+          "max_age_hours": 14.5,
+          "min_age_hours": 3.0,
+          "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose.",
+          "max_bundler_rate": 0.5,
+          "max_insider_rate": 0.25,
+          "reject_wash_trading": true,
+          "reject_creator_sold": true,
+          "min_swaps": 50
+        },
+        "new_value": {
+          "min_liquidity_usd": 19000.0,
+          "min_holders": 40,
+          "min_volume_1h": 2000,
+          "max_dev_wallet_pct": 10,
+          "min_rugcheck_score": 70,
+          "max_top_wallet_concentration": 40,
+          "min_social_mentions_1h": 0,
+          "min_smart_money_buys_30min": 0,
+          "max_tax_buy": 5,
+          "max_tax_sell": 5,
+          "max_age_hours": 15.0,
+          "min_age_hours": 3.0,
+          "_note_smart_money": "0 = collecte sans filtrer. Le champ etait inactif faute de source ; GMGN le remplit maintenant, et un seuil de 3 rejetterait la quasi-totalite des memecoins jeunes. On mesure la distribution d'abord, le shadow tracker dira si relever le seuil ameliore quelque chose.",
+          "max_bundler_rate": 0.5,
+          "max_insider_rate": 0.25,
+          "reject_wash_trading": true,
+          "reject_creator_sold": true,
+          "min_swaps": 50
+        },
+        "reason": "backtest : P&L/trade -4.9633 → -4.9633, pas d'amélioration ≥ 10% — annulé",
+        "trades_sample_size": 50
+      },
+      {
+        "timestamp": "2026-11-15T23:50:18.986930+00:00",
+        "param_name": "exit_rules.max_hold_time_minutes",
+        "old_value": 570.0,
+        "new_value": 600.0,
+        "reason": "30 trades gagnants coupés par le time stop",
+        "trades_sample_size": 30
+      },
+      {
+        "timestamp": "2026-11-15T23:50:20.327075+00:00",
+        "param_name": "exit_rules",
+        "old_value": {
+          "stop_loss_pct": -21.0,
+          "take_profit_1": 15.0,
+          "breakeven_stop_exact": true,
+          "take_profit_2": 250.0,
+          "take_profit_3": 400,
+          "breakeven_trigger": 100,
+          "partial_sell_tp1_pct": 0.5,
+          "partial_sell_tp2_pct": 0.5,
+          "trailing_stop_activation": 150.0,
+          "trailing_stop_distance_pct": 80,
+          "max_hold_time_minutes": 600.0,
+          "stop_loss_slippage_buffer_pct": 6.0,
+          "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
+        },
+        "new_value": {
+          "stop_loss_pct": -21.0,
+          "take_profit_1": 15.0,
+          "breakeven_stop_exact": true,
+          "take_profit_2": 250.0,
+          "take_profit_3": 400,
+          "breakeven_trigger": 100,
+          "partial_sell_tp1_pct": 0.5,
+          "partial_sell_tp2_pct": 0.5,
+          "trailing_stop_activation": 150.0,
+          "trailing_stop_distance_pct": 80,
+          "max_hold_time_minutes": 570.0,
+          "stop_loss_slippage_buffer_pct": 6.0,
+          "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
+        },
+        "reason": "backtest sorties : P&L/trade -1.002 → -1.002, pas d'amélioration ≥ 10% — annulé",
+        "trades_sample_size": 100
+      },
+      {
+        "timestamp": "2026-11-22T02:32:16.804758+00:00",
+        "param_name": "filters.min_age_hours",
+        "old_value": 3.0,
+        "new_value": 2.5,
+        "reason": "inactif depuis 329 cycles sans entrée (seuil 300) — motif « âge Nh < Nh »",
+        "trades_sample_size": 329
+      },
+      {
+        "timestamp": "2026-11-22T03:26:27.659404+00:00",
+        "param_name": "filters.min_age_hours",
+        "old_value": 2.5,
+        "new_value": 2.0,
+        "reason": "inactif depuis 340 cycles sans entrée (seuil 300) — motif « âge Nh < Nh »",
+        "trades_sample_size": 340
+      },
+      {
+        "timestamp": "2026-11-22T04:16:02.349152+00:00",
+        "param_name": "filters.min_age_hours",
+        "old_value": 2.0,
+        "new_value": 1.5,
+        "reason": "inactif depuis 316 cycles sans entrée (seuil 300) — motif « âge Nh < Nh »",
+        "trades_sample_size": 316
       }
     ],
     "last_adjustment_at": {
-      "filters": 679,
-      "weights": 680,
-      "exits": 680,
+      "filters": 729,
+      "weights": 730,
+      "exits": 730,
       "risk": 720
     }
   },

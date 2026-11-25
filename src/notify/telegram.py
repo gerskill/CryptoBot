@@ -8,6 +8,8 @@ from typing import Any, Optional
 
 import requests
 
+from src.core.masque_secrets import masquer
+
 BASE_URL = "https://api.telegram.org"
 REQUEST_TIMEOUT = 10
 
@@ -33,13 +35,14 @@ class TelegramNotifier:
             )
             body = response.json()
             if not body.get("ok"):
-                print(f"[Telegram] {method} : {body.get('description')}")
+                print(masquer(f"[Telegram] {method} : {body.get('description')}"))
                 return None
             return body.get("result")
         except requests.exceptions.RequestException as exc:
-            print(f"[Telegram] {method} erreur réseau : {exc}")
+            # L'erreur recopie l'URL, qui contient le jeton : masquée AVANT d'être écrite.
+            print(masquer(f"[Telegram] {method} erreur réseau : {exc}"))
         except ValueError as exc:
-            print(f"[Telegram] {method} JSON invalide : {exc}")
+            print(masquer(f"[Telegram] {method} JSON invalide : {exc}"))
         return None
 
     def send(self, text: str, silent: bool = False) -> bool:

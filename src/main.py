@@ -12,6 +12,7 @@ Arrêt     : Ctrl-C, ou /STOP depuis Telegram (ferme toutes les positions).
 """
 
 import math
+import random
 import os
 import signal
 import threading
@@ -48,6 +49,7 @@ from src.agents.onchain_observer import SOCIAL_SCORE_SOURCE, OnchainObserver, so
 from src.core.score_v2 import score_v2_gate
 from src.core.anti_rug import anti_rug_gate
 from src.core import copy_smart
+from src.core import familles
 from src.core.arm import CONSENSUS, attach_portfolios, bootstrap_arms
 from src.apis.jupiter import SOL_MINT, JupiterAPI
 from src.core import correlation, economics
@@ -55,6 +57,9 @@ from src.core.risk import is_soft_reject, pre_trade_check
 from src.core.budget import load_budgets
 from src.core.compte import compte_actuel
 from src.core.sans_prix import SuiviSansPrix
+from src.core.panne_reseau import DetecteurPanne, dns_repond
+from src.core.masque_secrets import enregistrer_secrets, installer_filtre_sorties
+from src.notify.signe_de_vie import SigneDeVie, url_configuree
 from src.core.dev_watchdog import DevWatchdog
 from src.core.capabilities import build_registry
 from src.core.economics import size_for_cost
@@ -402,6 +407,8 @@ class AlphaLoop:
         self._next_scan_at = 0.0
         self._last_scan: Optional[ScanResult] = None
         self._last_evaluations: dict = {}
+        # Tirages des familles d'entrée (`entree_hasard`).
+        self._rng_familles = random.Random()
         self._last_confluence: dict = {}
         self._last_dashboard = 0.0
         # PREMIER DIGEST PEU APRÈS LE DÉMARRAGE, pas quatre heures après.
@@ -436,6 +443,14 @@ class AlphaLoop:
     def run(self) -> None:
         interval = self.params.get("scan.interval_seconds", 90)
         self._print_banner(interval)
+        # Signe de vie extérieur : désactivé tant qu'aucune URL n'est configurée (jamais affichée).
+        url_signe = url_configuree(self.params)
+        enregistrer_secrets([url_signe])
+        self._signe_de_vie = SigneDeVie(
+            url_signe,
+            intervalle=float(self.params.get("monitoring.signe_de_vie_minutes", 5) or 5) * 60,
+        )
+        print(f"[SigneDeVie] {self._signe_de_vie.description()}")
         self.telegram.send(f"🤖 <b>Alpha Loop démarré</b> — mode {self.mode}")
         # La surveillance des positions tourne pendant le scan, pas seulement
         # dans le temps qui reste après. Un seul fil, arrêté avec la boucle.
@@ -453,6 +468,9 @@ class AlphaLoop:
 
             elapsed = time.monotonic() - started
             self._last_cycle_duration_sec = round(elapsed, 1)
+            signe = getattr(self, "_signe_de_vie", None)
+            if signe is not None:
+                signe.pointer()
             metrics = getattr(self, "_watch_metrics", None)
             if metrics is not None:
                 metrics["last_scan_sec"] = round(elapsed, 1)
@@ -612,11 +630,16 @@ class AlphaLoop:
         # Un bras à source « mature » (2026-10-11) n'entre PAS dans
         # l'enveloppe : l'élargir à 30 jours changerait le lot de tous les bras.
         main_arms = [a for a in self.arms if getattr(a, "discovery", "main") == "main"]
+        # L'enveloppe garde les bras EN PAUSE (2026-11-23) : mettre un doublon
+        # en pause ne doit pas changer le lot que voient les autres bras.
         envelope = discovery_envelope([arm.filters() for arm in main_arms])
         batch = self.pipeline.collect(envelope)
         self._observe_wallets(batch)
-        batches = {arm.name: batch for arm in self.arms}
-        mature_arms = [a for a in self.arms if getattr(a, "discovery", "main") == "mature"]
+        # Bras évalués : tous sauf ceux en pause (ils n'ouvrent plus rien, leurs
+        # positions ouvertes sont suivies par la surveillance, pas par le scan).
+        evalues = [a for a in self.arms if not getattr(a, "paused", False)]
+        batches = {arm.name: batch for arm in evalues}
+        mature_arms = [a for a in evalues if getattr(a, "discovery", "main") == "mature"]
         if mature_arms:
             try:
                 mature_batch = self.pipeline.collect_mature(
@@ -631,11 +654,11 @@ class AlphaLoop:
 
         pre = {
             arm.name: self.pipeline.evaluate(batches[arm.name], params=arm.params, label=arm.label)
-            for arm in self.arms
+            for arm in evalues
         }
         # Seuls les bras qui partagent l'arbitrage social y entrent : un fork
         # du témoin doublerait sinon la « demande » sur ses tokens.
-        sharing = {arm.name for arm in self.arms if getattr(arm, "social_wishlist", True)}
+        sharing = {arm.name for arm in evalues if getattr(arm, "social_wishlist", True)}
         addresses = merge_social_wishlists(
             {name: evaluation.wishlist for name, evaluation in pre.items() if name in sharing},
             limit=self.params.get("scan.social_max_lookups_per_cycle", 2),
@@ -658,7 +681,7 @@ class AlphaLoop:
                 label=arm.label,
                 verbose=arm.is_baseline,
             )
-            for arm in self.arms
+            for arm in evalues
         }
 
         # Effets de cache sur l'UNION : surveillé dès qu'un bras le garde,
@@ -724,7 +747,11 @@ class AlphaLoop:
             return
         print("\n🧬 BRAS")
         for arm in self.arms:
-            evaluation = evaluations[arm.name]
+            evaluation = evaluations.get(arm.name)
+            if evaluation is None:
+                # Bras en pause : plus évalué.
+                print(f"  {arm.name:>10} | en pause")
+                continue
             qualified = [
                 c for c in evaluation.result.candidates
                 if c.alpha_score_absolute >= arm.entry_threshold
@@ -1103,6 +1130,12 @@ class AlphaLoop:
         return self.params.get("risk_rules.max_sector_positions", 3)
 
     @property
+    def max_arm_exposure_pct(self) -> float:
+        """Plafond du total engagé par bras, en % du compte du bras (2026-11-22).
+        Défaut 10 % ; `risk_rules.max_arm_exposure_pct` = 0 le désactive."""
+        return self.params.get("risk_rules.max_arm_exposure_pct", 10.0)
+
+    @property
     def max_sector_exposure_pct(self) -> float:
         return self.params.get("risk_rules.max_sector_exposure_pct", 50.0)
 
@@ -1172,6 +1205,7 @@ class AlphaLoop:
         # `ok` / `missing` comptent les PAIRES, pas les positions : deux bras
         # sur le même token ne font qu'une lecture. L'âge ne bouge que
         # lorsqu'au moins un prix frais est arrivé.
+        self._observer_panne(ok, missing)
         metrics = getattr(self, "_watch_metrics", None)
         if metrics is not None:
             metrics["quotes_ok"] = ok
@@ -1573,6 +1607,39 @@ class AlphaLoop:
             )
             return None
 
+    def _detecteur_panne(self) -> DetecteurPanne:
+        """Créé à la demande (les bancs de test construisent la boucle sans `__init__`). Sans
+        Jupiter (bancs), aucune sonde possible : jamais de panne déclarée, comme avant."""
+        detecteur = getattr(self, "_panne", None)
+        if detecteur is None:
+            jupiter = getattr(self, "jupiter", None)
+            sonde = None
+            if jupiter is not None:
+                def sonde() -> bool:
+                    return dns_repond() and quote_is_usable(jupiter.price(SOL_MINT))
+            detecteur = self._panne = DetecteurPanne(sonde=sonde)
+        return detecteur
+
+    def _observer_panne(self, ok: int, missing: int) -> None:
+        """Un appel par tick de surveillance : dit quand une panne générale commence et finit."""
+        detecteur = self._detecteur_panne()
+        duree = detecteur.duree_minutes()
+        changement = detecteur.observer_tick(ok, missing)
+        if changement == "debut":
+            print(
+                f"[Panne] 🌐 aucune source ne répond ({missing} paire(s) sans prix) : panne "
+                f"générale, aucune position ne sera fermée faute de prix"
+            )
+        elif changement == "fin":
+            print(f"[Panne] 🌐 prix revenus après {duree:.0f} min : règles normales rétablies")
+            try:
+                self.telegram.send(
+                    f"🌐 <b>Réseau revenu</b> après {duree:.0f} min de panne générale. "
+                    f"Les positions reprennent leurs règles normales au prix actuel."
+                )
+            except Exception:
+                pass
+
     def _suivi_sans_prix(self) -> SuiviSansPrix:
         """Suivi « depuis quand cette position n'a plus de prix », créé à la demande (les bancs
         de test construisent la boucle sans `__init__`)."""
@@ -1599,6 +1666,16 @@ class AlphaLoop:
             # Python). <= 0 non plus n'est pas un prix. On ne reprend pas
             # `_last_prices` : c'est l'affichage, pas un prix exécutable.
             if not quote_is_usable(price):
+                # PANNE GÉNÉRALE (Internet ou sources coupés, 20-21/11 : 30 h) : ce n'est pas le
+                # token qui est mort. On ne ferme rien ; au premier vrai prix, les sorties
+                # normales (stop, time stop...) jouent. Voir src/core/panne_reseau.py.
+                if self._detecteur_panne().en_panne:
+                    if verbose:
+                        print(
+                            f"[Monitor]{arm.label} {position.symbol} : panne générale, "
+                            f"position gardée jusqu'au retour des prix"
+                        )
+                    continue
                 # Sans prix, aucune règle de sortie ne peut jouer (OGTA : 31 h ouverte, stop à
                 # -25 % muet). On prévient UNE fois après 2 h, avant la fermeture zombie.
                 minutes_sans_prix = self._suivi_sans_prix().prix_absent(position.id)
@@ -1835,11 +1912,51 @@ class AlphaLoop:
             notifier.send_learning("\n".join(decisions))
 
     def _try_entries(self, evaluation, arm, confluence: dict) -> None:
+        if getattr(arm, "paused", False):
+            # Bras en pause : plus aucune entrée, les positions ouvertes vont
+            # jusqu'à leur sortie normale.
+            return
         threshold = arm.entry_threshold
         max_positions = arm.max_positions
+        # FAMILLE D'ENTRÉE (2026-11-23, bras `entree_*`) : une seule théorie
+        # d'entrée par bras, jugée par une porte pure (src/core/familles.py).
+        regles = arm.params.get("entry_rules", {}) or {}
+        famille = regles.get("famille") or None
+        candidats = list(candidats_au_seuil(evaluation.result.candidates, threshold))
+        rng = getattr(self, "_rng_familles", None) or random.Random()
+        if famille == familles.HASARD:
+            # L'ordre du score alpha ne doit pas guider le hasard.
+            rng.shuffle(candidats)
 
-        for candidate in candidats_au_seuil(evaluation.result.candidates, threshold):
+        for candidate in candidats:
             trace = (arm.name, candidate.token_address, candidate.symbol)
+
+            if famille:
+                if famille == familles.CONSENSUS:
+                    cfg = familles.reglages(famille, regles)
+                    membres = []
+                    for nom in cfg.get("membres") or []:
+                        autre = next((a for a in self.arms if a.name == nom), None)
+                        if autre is None or getattr(autre, "paused", False):
+                            continue
+                        membres.append((
+                            nom, (getattr(self, "_last_evaluations", None) or {}).get(nom),
+                        autre.entry_threshold,
+                            autre.params.get("entry_rules", {}) or {},
+                        ))
+                    accord, juges = familles.accords_consensus(candidate, membres)
+                    besoin = int(cfg.get("min_accords", 2))
+                    ok_fam = len(accord) >= besoin
+                    why_fam = "" if ok_fam else f"{len(accord)} famille(s) d'accord < {besoin}"
+                    extra = {"accord": accord, "juges": len(juges)}
+                else:
+                    ok_fam, why_fam = familles.porte(
+                        famille, candidate, regles, rng=rng.random
+                    )
+                    extra = {"famille": famille}
+                self.funnel.record(*trace, "famille", ok_fam, why_fam, extra)
+                if not ok_fam:
+                    continue
 
             # SCORE V2 (opt-in, 2026-10-10) : filtre anti-pump APRÈS le seuil
             # alpha v1, pour que le bras reste un sous-ensemble exact du témoin.
@@ -1934,6 +2051,10 @@ class AlphaLoop:
                     size_usd=arm.portfolio.capital * MAX_POSITION_PCT_OF_CAPITAL,
                     max_sector_positions=self.max_sector_positions,
                     max_sector_exposure_pct=self.max_sector_exposure_pct,
+                    # Contrôle anticipé : ne bloque que si le bras est DÉJÀ au plafond
+                    # (la vraie taille n'est connue que dans `_open_position`).
+                    max_arm_exposure_pct=getattr(self, "max_arm_exposure_pct", 0.0),
+                    arm_exposure_size_usd=0.0,
                     live_allowed=(
                         self.learning.live_mode_allowed()
                         if self.mode == "LIVE" and self.learning is not None
@@ -1953,6 +2074,14 @@ class AlphaLoop:
                 if is_soft_reject(early_reject):
                     continue
                 break
+
+            if bool(regles.get("sans_technique", False)):
+                # Famille jugée sur SA théorie seule : pas d'analyse de bougies
+                # (aucun appel kline GMGN/Birdeye non plus).
+                self.funnel.record(*trace, "technique", True, "non utilisée (famille)")
+                print(f"\n🎯{arm.label} {candidate.symbol} — famille {famille} → entrée")
+                self._open_position(candidate, arm)
+                continue
 
             verdict = self._technical_verdict(candidate)
             self.funnel.record(
@@ -2176,11 +2305,18 @@ class AlphaLoop:
 
     def _open_position(self, candidate: Candidate, arm) -> None:
         stats = arm.portfolio.stats()
-        size = arm.portfolio.position_size(
-            risk_per_trade=arm.params.get("risk_per_trade", 0.03),
-            win_rate=stats["win_rate"] / 100,
-            total_trades=stats["total_trades"],
-        )
+        if bool(arm.params.get("entry_rules.taille_fixe", False)):
+            # Mise FIXE (bras `entree_*`) : capital × risk_per_trade, sans la
+            # majoration Kelly, pour que la taille ne dépende pas du résultat.
+            size = round(
+                arm.portfolio.capital * float(arm.params.get("risk_per_trade", 0.01)), 4
+            )
+        else:
+            size = arm.portfolio.position_size(
+                risk_per_trade=arm.params.get("risk_per_trade", 0.03),
+                win_rate=stats["win_rate"] / 100,
+                total_trades=stats["total_trades"],
+            )
         # Dernière mesure carnet (peut réduire la taille). Le refus d'ouvrir
         # passe ensuite par `pre_trade_check` — porte unique avant `open`.
         size, verdict = self._economics_guard(candidate, size, arm)
@@ -2233,6 +2369,9 @@ class AlphaLoop:
                 risk_rules=self.params.get("risk_rules") or {},
                 max_score_alpha=arm.params.get("entry_rules.max_score_alpha"),
                 max_volume_liquidity_ratio=arm.params.get("entry_rules.max_volume_liquidity_ratio"),
+                max_arm_exposure_pct=getattr(self, "max_arm_exposure_pct", 0.0),
+                # Taille PRÉVUE (entrée progressive comprise), pas la seule fraction initiale.
+                arm_exposure_size_usd=max(size, 0.0),
                 require_market_data=True,
             )
         self.funnel.record(
@@ -2431,6 +2570,15 @@ class AlphaLoop:
         `position_id` et `arm` sont écrits pour que ces lignes se joignent au
         journal de trades : une volatilité sans son P&L ne sert à rien.
         """
+        # Suivi du prix APRÈS la sortie (2026-11-23) : permet de rejouer
+        # d'autres sorties sur les mêmes entrées. Aucun appel ici, le fil du
+        # journal de recherche regroupe 30 tokens par requête.
+        try:
+            journal = self._research()
+            if journal is not None:
+                journal.note_exited(position.token_address)
+        except Exception:
+            pass
         snapshots = self.history.snapshots(position.token_address)
         contexte = {
             "position_id": row.get("position_id") or position.id,
@@ -2578,6 +2726,9 @@ class AlphaLoop:
 
 
 def main() -> None:
+    # Avant tout affichage : aucun jeton ne doit atteindre le journal (logs/bot.log).
+    enregistrer_secrets([settings.TELEGRAM_BOT_TOKEN])
+    installer_filtre_sorties()
     # Une seule boucle à la fois : deux instances corrompent l'état partagé.
     lock = InstanceLock(settings.LOCK_PATH)
     holder = lock.acquire()

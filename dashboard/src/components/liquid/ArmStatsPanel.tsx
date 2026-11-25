@@ -1,7 +1,7 @@
 import { Panel, Stat, Empty } from '../Panel'
 import { pnlColor, prob } from '../../lib/format'
 import type { PredictionArm, PredictionSummary } from '../../lib/predictionTypes'
-import { DOMAIN_LABEL, ratio, signed } from './liquidLabels'
+import { DOMAIN_LABEL, drawdownLabel, ratio, signed } from './liquidLabels'
 
 function Calibration({ arm }: { arm: PredictionArm }) {
   const rows = arm.stats.calibration.filter((r) => r.paris > 0)
@@ -60,8 +60,14 @@ export function ArmStatsPanel({ arm, armName, cfg }: {
                     tone={s.paris_regles < cfg.min_paris_verdict ? 'warn' : 'neutral'} />
                   <Stat label="Gagnés" value={s.win_rate == null ? '—' : `${(s.win_rate * 100).toFixed(1)} %`} />
                   <Stat label="Profit factor" value={ratio(s.profit_factor)} hint="gains ÷ pertes, frais déduits" />
-                  <Stat label="Drawdown max" value={s.drawdown_max_pct == null ? '—' : `${s.drawdown_max_pct.toFixed(1)} %`}
-                    hint="du capital fictif" tone={(s.drawdown_max_pct ?? 0) > 10 ? 'loss' : 'neutral'} />
+                  {arm.drawdown ? (
+                    <Stat label="Baisse depuis le plus haut" value={drawdownLabel(arm.drawdown)}
+                      hint="du plus haut du compte, paris ouverts au prix du marché"
+                      tone={(arm.drawdown.drawdown_pic_pct ?? 0) > 10 ? 'loss' : 'neutral'} />
+                  ) : (
+                    <Stat label="Drawdown max" value={s.drawdown_max_pct == null ? '—' : `${s.drawdown_max_pct.toFixed(1)} %`}
+                      hint="du capital fictif" tone={(s.drawdown_max_pct ?? 0) > 10 ? 'loss' : 'neutral'} />
+                  )}
                   <Stat label="Pires 5 %" value={s.pires_5pct_moyenne == null ? '—' : signed(s.pires_5pct_moyenne)}
                     hint="moyenne par pari" />
                   <Stat label="Brier bras / marché"
