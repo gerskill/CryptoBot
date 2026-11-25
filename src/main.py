@@ -67,6 +67,7 @@ from src.core.confluence import (
     top_confluence,
 )
 from src.core.funnel import FunnelRecorder
+from src.core.chrono import Chrono
 from src.core.signals import aggregate
 from src.core.journal import TradeJournal
 from src.core.learning import LearningEngine
@@ -418,6 +419,7 @@ class AlphaLoop:
         # dashboard — `scan.duration_sec` ne couvrait que le sous-temps de
         # collecte, pas le cycle entier (monitoring, entrées, notifications).
         self._last_cycle_duration_sec = 0.0
+        self._last_cycle_steps: dict[str, float] = {}
 
     def _starting_capital(self) -> float:
         # Compte paper courant (data/compte.json, 2026-11-21) : prime sur capital_total.
@@ -453,6 +455,10 @@ class AlphaLoop:
 
             elapsed = time.monotonic() - started
             self._last_cycle_duration_sec = round(elapsed, 1)
+            chrono = getattr(self, "_chrono", None)
+            if chrono is not None:
+                self._last_cycle_steps = chrono.resume()
+                print(chrono.ligne(elapsed, self.cycle_count))
             metrics = getattr(self, "_watch_metrics", None)
             if metrics is not None:
                 metrics["last_scan_sec"] = round(elapsed, 1)
@@ -531,11 +537,14 @@ class AlphaLoop:
         if watch is None or not watch.alive:
             self._monitor_positions()
 
+        # Chronométrage des étapes (2026-11-25, src/core/chrono.py) : mesure seule.
+        chrono = self._chrono = Chrono()
         self.market.reset_cycle()
         result = self._scan_all_arms()
-        self._request_onchain_observation()
-        self._print_result(result)
-        self._track_rejections(result)
+        with chrono.etape("après scan"):
+            self._request_onchain_observation()
+            self._print_result(result)
+            self._track_rejections(result)
 
         if not self.paused:
             # Ordre du manifeste, consensus en DERNIER : il lit le décompte
@@ -543,23 +552,27 @@ class AlphaLoop:
             for arm in self.arms:
                 evaluation = self._last_evaluations.get(arm.name)
                 if evaluation is not None:
-                    self.funnel.record_evaluation(
-                        arm.name, evaluation, arm.entry_threshold
-                    )
-                    self._try_entries(evaluation, arm, self._last_confluence)
-        self._record_research()
-        self.funnel.flush()
+                    with chrono.etape(f"entrées/{arm.name}"):
+                        self.funnel.record_evaluation(
+                            arm.name, evaluation, arm.entry_threshold
+                        )
+                        self._try_entries(evaluation, arm, self._last_confluence)
+        with chrono.etape("recherche+entonnoir"):
+            self._record_research()
+            self.funnel.flush()
 
         # APRÈS le flush : le relâchement lit l'entonnoir, y compris les lignes
         # de ce cycle-ci.
-        self._relax_inactive_arms()
-        self._recalibrate_quota()
+        with chrono.etape("apprentissage"):
+            self._relax_inactive_arms()
+            self._recalibrate_quota()
         # Un seul appel par cycle : le reporter décide lui-même si son lot ou
         # son rapport sont dus, et absorbe toute panne.
-        self.reporter.tick(self.arms)
-        self.cache.purge()
-        self._publish_state(result)
-        self._periodic_reports()
+        with chrono.etape("rapports+état"):
+            self.reporter.tick(self.arms)
+            self.cache.purge()
+            self._publish_state(result)
+            self._periodic_reports()
 
     def _relax_inactive_arms(self) -> None:
         """Desserre les bras qui n'entrent plus, depuis le CYCLE.
@@ -613,26 +626,31 @@ class AlphaLoop:
         # l'enveloppe : l'élargir à 30 jours changerait le lot de tous les bras.
         main_arms = [a for a in self.arms if getattr(a, "discovery", "main") == "main"]
         envelope = discovery_envelope([arm.filters() for arm in main_arms])
-        batch = self.pipeline.collect(envelope)
-        self._observe_wallets(batch)
+        chrono = getattr(self, "_chrono", None) or Chrono()
+        with chrono.etape("collecte"):
+            batch = self.pipeline.collect(envelope)
+        with chrono.etape("wallets"):
+            self._observe_wallets(batch)
         batches = {arm.name: batch for arm in self.arms}
         mature_arms = [a for a in self.arms if getattr(a, "discovery", "main") == "mature"]
         if mature_arms:
-            try:
-                mature_batch = self.pipeline.collect_mature(
-                    mature_arms[0].filters(),
-                    mature_arms[0].params.get("scan.mature_source", {}) or {},
-                )
-            except Exception as exc:  # source opt-in : ne casse jamais le cycle
-                print(f"[Mature] ⚠️ collecte — {type(exc).__name__}: {exc}")
-                mature_batch = CollectedBatch()
+            with chrono.etape("collecte mature"):
+                try:
+                    mature_batch = self.pipeline.collect_mature(
+                        mature_arms[0].filters(),
+                        mature_arms[0].params.get("scan.mature_source", {}) or {},
+                    )
+                except Exception as exc:  # source opt-in : ne casse jamais le cycle
+                    print(f"[Mature] ⚠️ collecte — {type(exc).__name__}: {exc}")
+                    mature_batch = CollectedBatch()
             for arm in mature_arms:
                 batches[arm.name] = mature_batch
 
-        pre = {
-            arm.name: self.pipeline.evaluate(batches[arm.name], params=arm.params, label=arm.label)
-            for arm in self.arms
-        }
+        with chrono.etape("évaluation (1er passage)"):
+            pre = {
+                arm.name: self.pipeline.evaluate(batches[arm.name], params=arm.params, label=arm.label)
+                for arm in self.arms
+            }
         # Seuls les bras qui partagent l'arbitrage social y entrent : un fork
         # du témoin doublerait sinon la « demande » sur ses tokens.
         sharing = {arm.name for arm in self.arms if getattr(arm, "social_wishlist", True)}
@@ -640,7 +658,8 @@ class AlphaLoop:
             {name: evaluation.wishlist for name, evaluation in pre.items() if name in sharing},
             limit=self.params.get("scan.social_max_lookups_per_cycle", 2),
         )
-        social = self.pipeline.enrich_social(batch.enriched, addresses)
+        with chrono.etape("social"):
+            social = self.pipeline.enrich_social(batch.enriched, addresses)
 
         # Demande BRUTE (avant le plafond par cycle) vs ce qui a pu être servi
         # — le signal dont `QuotaAgent` a besoin pour distinguer « le plafond
@@ -650,16 +669,17 @@ class AlphaLoop:
         raw_wanted = len(set().union(*wanted)) if wanted else 0
         self.quota_agent.record_demand("twitter", wanted=raw_wanted, served=len(addresses))
 
-        evaluations = {
-            arm.name: self.pipeline.evaluate(
-                batches[arm.name],
-                params=arm.params,
-                social=social,
-                label=arm.label,
-                verbose=arm.is_baseline,
-            )
-            for arm in self.arms
-        }
+        with chrono.etape("évaluation"):
+            evaluations = {
+                arm.name: self.pipeline.evaluate(
+                    batches[arm.name],
+                    params=arm.params,
+                    social=social,
+                    label=arm.label,
+                    verbose=arm.is_baseline,
+                )
+                for arm in self.arms
+            }
 
         # Effets de cache sur l'UNION : surveillé dès qu'un bras le garde,
         # dé-surveillé seulement si aucun ne le garde. Sans ça le dernier bras
@@ -792,6 +812,8 @@ class AlphaLoop:
                     "interval_seconds": self.params.get("scan.interval_seconds", 90),
                     "next_scan_at": self._next_scan_at,
                     "cycle_duration_sec": self._last_cycle_duration_sec,
+                    # Étapes du cycle précédent, en secondes (src/core/chrono.py).
+                    "cycle_steps": getattr(self, "_last_cycle_steps", {}),
                     # `stats` reste celui du TÉMOIN : l'API, les 36 trades
                     # historiques et la courbe d'équité s'y appuient.
                     # `aggregate` donne la vue d'ensemble sans casser ça.
