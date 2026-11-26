@@ -101,3 +101,39 @@ class TestSousEtape(unittest.TestCase):
         with bot._sous_etape("↳ technique"):
             pass
         self.assertEqual(bot._chrono.resume(), {"↳ technique": 2.5})
+
+
+class TestVerdictEnCache(unittest.TestCase):
+    """« publication état » : 21,6 s de verdicts recalculés à chaque cycle (Mac, 2026-11-26)."""
+
+    def setUp(self):
+        self.bot = object.__new__(main_module.AlphaLoop)
+        self.appels = []
+
+        def calcul(positions, reference, comparisons):
+            self.appels.append(len(positions))
+            return {"n": len(positions)}
+        self.calcul = calcul
+        self.ref = [{"position_id": "r1", "timestamp_exit": "t1"}]
+
+    def test_meme_journal_meme_verdict_sans_recalcul(self):
+        pos = [{"position_id": "a1", "timestamp_exit": "t1"}]
+        for _ in range(3):
+            self.bot._verdict_en_cache("sniper", pos, self.ref, 5, self.calcul)
+        self.assertEqual(self.appels, [1])
+
+    def test_une_position_fermee_force_le_recalcul(self):
+        pos = [{"position_id": "a1", "timestamp_exit": "t1"}]
+        self.bot._verdict_en_cache("sniper", pos, self.ref, 5, self.calcul)
+        pos2 = [*pos, {"position_id": "a2", "timestamp_exit": "t2"}]
+        self.assertEqual(self.bot._verdict_en_cache("sniper", pos2, self.ref, 5, self.calcul), {"n": 2})
+        ref2 = [*self.ref, {"position_id": "r2", "timestamp_exit": "t3"}]
+        self.bot._verdict_en_cache("sniper", pos2, ref2, 5, self.calcul)
+        self.bot._verdict_en_cache("sniper", pos2, ref2, 6, self.calcul)  # comparaisons changées
+        self.assertEqual(self.appels, [1, 2, 2, 2])
+
+    def test_un_cache_par_bras(self):
+        pos = [{"position_id": "a1", "timestamp_exit": "t1"}]
+        self.bot._verdict_en_cache("sniper", pos, self.ref, 5, self.calcul)
+        self.bot._verdict_en_cache("scalp", pos, self.ref, 5, self.calcul)
+        self.assertEqual(len(self.appels), 2)
