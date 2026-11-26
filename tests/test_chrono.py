@@ -84,3 +84,20 @@ class TestBoucle(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSousEtape(unittest.TestCase):
+    """Sous-étapes « ↳ » des entrées (2026-11-26) : 1 cycle sur 10 passait plus de 80 s dans les entrées."""
+
+    def test_sans_cycle_en_cours_rien_n_est_mesure(self):
+        bot = object.__new__(main_module.AlphaLoop)
+        with bot._sous_etape("↳ technique"):
+            pass  # ne lève pas, ne crée rien
+        self.assertFalse(hasattr(bot, "_chrono"))
+
+    def test_dans_un_cycle_la_sous_etape_est_comptee(self):
+        bot = object.__new__(main_module.AlphaLoop)
+        bot._chrono = Chrono(horloge(0.0, 2.5))
+        with bot._sous_etape("↳ technique"):
+            pass
+        self.assertEqual(bot._chrono.resume(), {"↳ technique": 2.5})
