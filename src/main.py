@@ -1000,12 +1000,31 @@ class AlphaLoop:
                 # journal peut déjà exister (redémarrage après la phase 4).
                 row["trades"] = len(arm.journal.read_positions())
             if arm.journal is not None and not arm.is_baseline:
-                row["vs_baseline"] = verdict_vs_reference(
-                    arm.journal.read_positions(), reference,
-                    comparisons=sum(1 for a in self.arms if not a.is_baseline),
+                row["vs_baseline"] = self._verdict_en_cache(
+                    arm.name, arm.journal.read_positions(), reference,
+                    sum(1 for a in self.arms if not a.is_baseline),
+                    verdict_vs_reference,
                 )
             payload.append(row)
         return payload
+
+    def _verdict_en_cache(self, nom: str, positions: list, reference: list, comparaisons: int, calcul):
+        """Verdict contre le témoin, recalculé SEULEMENT quand une position s'est fermée.
+
+        Mesuré au Mac le 2026-11-26 : les 26 verdicts (bootstrap) coûtaient 21,6 s à CHAQUE cycle,
+        soit presque toute l'étape « publication état » (~23 s), alors qu'un verdict ne change que
+        si le journal du bras ou celui du témoin reçoit une position fermée. La clé suit donc ces
+        deux journaux : nombre de positions et dernière sortie de chaque côté, plus le nombre de
+        comparaisons (correction multiple)."""
+        def empreinte(lignes: list) -> tuple:
+            derniere = lignes[-1] if lignes else {}
+            return (len(lignes), derniere.get("position_id"), derniere.get("timestamp_exit"))
+
+        cle = (empreinte(positions), empreinte(reference), comparaisons)
+        cache = self.__dict__.setdefault("_verdicts", {})
+        if nom not in cache or cache[nom][0] != cle:
+            cache[nom] = (cle, calcul(positions, reference, comparisons=comparaisons))
+        return cache[nom][1]
 
     def _track_rejections(self, result: ScanResult) -> None:
         """Met les rejets sous observation et juge ceux arrivés à terme.
