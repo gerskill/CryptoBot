@@ -586,10 +586,14 @@ class AlphaLoop:
             self._recalibrate_quota()
         # Un seul appel par cycle : le reporter décide lui-même si son lot ou
         # son rapport sont dus, et absorbe toute panne.
-        with chrono.etape("rapports+état"):
+        # Découpé (2026-11-26) : « rapports+état » coûtait ~23 s à chaque cycle sur 1 095 mesurés.
+        with chrono.etape("rapports"):
             self.reporter.tick(self.arms)
+        with chrono.etape("purge cache"):
             self.cache.purge()
+        with chrono.etape("publication état"):
             self._publish_state(result)
+        with chrono.etape("rapports périodiques"):
             self._periodic_reports()
 
     def _relax_inactive_arms(self) -> None:
@@ -1933,6 +1937,11 @@ class AlphaLoop:
         if decisions and notifier is not None:
             notifier.send_learning("\n".join(decisions))
 
+    def _sous_etape(self, nom: str):
+        """Chronomètre `nom` dans le cycle en cours ; sans cycle (tests, appel isolé), ne mesure rien."""
+        chrono = getattr(self, "_chrono", None)
+        return chrono.etape(nom) if chrono is not None else nullcontext()
+
     def _try_entries(self, evaluation, arm, confluence: dict) -> None:
         if getattr(arm, "paused", False):
             # Bras en pause : plus aucune entrée, les positions ouvertes vont
@@ -2102,10 +2111,14 @@ class AlphaLoop:
                 # (aucun appel kline GMGN/Birdeye non plus).
                 self.funnel.record(*trace, "technique", True, "non utilisée (famille)")
                 print(f"\n🎯{arm.label} {candidate.symbol} — famille {famille} → entrée")
-                self._open_position(candidate, arm)
+                with self._sous_etape("↳ ouverture"):
+                    self._open_position(candidate, arm)
                 continue
 
-            verdict = self._technical_verdict(candidate)
+            # Sous-étapes « ↳ » : comptées AUSSI dans `entrées/<bras>` (mesuré le 2026-11-26 : 1 cycle
+            # sur 10 passe plus de 80 s dans les entrées, réparti sur tous les bras).
+            with self._sous_etape("↳ technique"):
+                verdict = self._technical_verdict(candidate)
             self.funnel.record(
                 *trace, "technique", verdict.passed,
                 "" if verdict.passed else " / ".join(verdict.reasons)[:160],
@@ -2118,7 +2131,8 @@ class AlphaLoop:
             for reason in verdict.reasons:
                 print(f"     · {reason}")
             if verdict.passed:
-                self._open_position(candidate, arm)
+                with self._sous_etape("↳ ouverture"):
+                    self._open_position(candidate, arm)
                 if copy_wallets and any(
                     p.token_address == candidate.token_address
                     for p in arm.portfolio.positions.values()
