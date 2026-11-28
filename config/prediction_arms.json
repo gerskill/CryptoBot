@@ -50,7 +50,7 @@
       "name": "pm_temoin",
       "role": "temoin",
       "famille": "transverse",
-      "enabled": true,
+      "enabled": false,
       "domaines": [
         "crypto_seuil",
         "actions_seuil",
@@ -69,7 +69,7 @@
       "name": "pm_coherence",
       "role": "observateur",
       "famille": "transverse",
-      "enabled": true,
+      "enabled": false,
       "domaines": [
         "crypto_seuil",
         "actions_seuil",
@@ -86,7 +86,7 @@
       "name": "pm_consensus",
       "role": "consensus",
       "famille": "transverse",
-      "enabled": true,
+      "enabled": false,
       "domaines": [
         "crypto_seuil",
         "actions_seuil",
@@ -100,7 +100,7 @@
       "name": "pm_vol_edge",
       "role": "parieur",
       "famille": "prix",
-      "enabled": true,
+      "enabled": false,
       "domaines": [
         "crypto_seuil"
       ],
@@ -116,7 +116,7 @@
       "name": "pm_vol_normal",
       "role": "parieur",
       "famille": "prix",
-      "enabled": true,
+      "enabled": false,
       "parent": "pm_vol_edge",
       "variable": "estimateur",
       "domaines": [
@@ -134,7 +134,7 @@
       "name": "pm_cloture_actions",
       "role": "parieur",
       "famille": "prix",
-      "enabled": true,
+      "enabled": false,
       "parent": "pm_vol_edge",
       "variable": "domaines",
       "domaines": [
@@ -152,7 +152,7 @@
       "name": "pm_matieres",
       "role": "parieur",
       "famille": "prix",
-      "enabled": true,
+      "enabled": false,
       "parent": "pm_vol_edge",
       "variable": "domaines",
       "domaines": [
@@ -170,7 +170,7 @@
       "name": "pm_barriere",
       "role": "parieur",
       "famille": "prix",
-      "enabled": true,
+      "enabled": false,
       "domaines": [
         "barriere"
       ],
@@ -186,7 +186,7 @@
       "name": "pm_sport_favori",
       "role": "regle",
       "famille": "sport",
-      "enabled": true,
+      "enabled": false,
       "domaines": [
         "sport_match"
       ],
@@ -201,7 +201,7 @@
       "name": "pm_sport_outsider",
       "role": "regle",
       "famille": "sport",
-      "enabled": true,
+      "enabled": false,
       "parent": "pm_sport_favori",
       "variable": "cote",
       "domaines": [
@@ -229,7 +229,7 @@
       "name": "pm_question_favori",
       "role": "regle",
       "famille": "questions",
-      "enabled": true,
+      "enabled": false,
       "domaines": [
         "evenement"
       ],
@@ -244,7 +244,7 @@
       "name": "pm_quasi_certain",
       "role": "regle",
       "famille": "pourcentages",
-      "enabled": true,
+      "enabled": false,
       "parent": "pm_temoin",
       "variable": "prix_min/prix_max",
       "domaines": [
@@ -266,7 +266,7 @@
       "name": "pm_pile_ou_face",
       "role": "regle",
       "famille": "pourcentages",
-      "enabled": true,
+      "enabled": false,
       "parent": "pm_temoin",
       "variable": "prix_min/prix_max",
       "domaines": [
@@ -284,5 +284,6 @@
       "max_jours": 7,
       "description": "Fork de pm_temoin, une seule variable changée : la tranche de prix (50 % à 60 %). Mesure ce que coûtent les frais quand le marché ne sait pas."
     }
-  ]
+  ],
+  "_note_gel_liquid": "GEL LIQUID 2026-11-28 (décision 2 de Killian) : aucun nouveau pari ; les paris déjà pris continuent d'être réglés (runner.py règle tous les bras, même désactivés)."
 }

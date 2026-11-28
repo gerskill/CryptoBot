@@ -14,7 +14,7 @@
     "max_candidates_enriched": 25,
     "alpha_score_entry_threshold": 55,
     "social_lookup_min_alpha": 70,
-    "social_max_lookups_per_cycle": 6,
+    "social_max_lookups_per_cycle": 0,
     "_note_monitor": "5s au lieu de 20s : mesure sur 10 trades, 8 sorties SL sur 8 depassaient leur seuil de 4.6 points en moyenne (pire -40.5% pour un SL a -25%). Cout : 1 requete par position et par tick, quota DexScreener 300/min.",
     "gmgn_intervals": [
       "5m",
@@ -26,7 +26,8 @@
     "gmgn_filters": [
       "not_wash_trading"
     ],
-    "_note_gmgn": "Decouverte GMGN filtree cote serveur. Mesure 2026-08-01 : le flux DexScreener /token-profiles est de la promo payante, liquidite mediane 1634$. GMGN rend liquidite + holders + top10 + smart money en UN appel deja filtre, donc on n enrichit plus du dechet. 3 intervalles = 3 appels par cycle."
+    "_note_gmgn": "Decouverte GMGN filtree cote serveur. Mesure 2026-08-01 : le flux DexScreener /token-profiles est de la promo payante, liquidite mediane 1634$. GMGN rend liquidite + holders + top10 + smart money en UN appel deja filtre, donc on n enrichit plus du dechet. 3 intervalles = 3 appels par cycle.",
+    "_note_twitter_gel": "2026-11-28 (décision 5) : 0 recherche Twitter par cycle. Ne PAS mettre api_budgets.twitter à 0 : un budget à 0 est traité comme « pas de budget »."
   },
   "filters": {
     "min_liquidity_usd": 60000,
@@ -79,35 +80,35 @@
     "wallet_reliability": 0.08
   },
   "learning": {
-    "total_trades": 1670,
-    "winning_trades": 668,
-    "losing_trades": 1002,
-    "avg_win_pct": 25.16,
+    "total_trades": 1713,
+    "winning_trades": 689,
+    "losing_trades": 1024,
+    "avg_win_pct": 24.56,
     "avg_loss_pct": -27.56,
     "best_performer_filter": null,
     "worst_performer_filter": null,
     "win_rate_by_age": {
       "4h+": {
-        "win_rate": 47.5,
-        "sample": 859
+        "win_rate": 48.0,
+        "sample": 884
       },
       "0-1h": {
-        "win_rate": 26.2,
-        "sample": 240
+        "win_rate": 25.4,
+        "sample": 248
       },
       "1-2h": {
-        "win_rate": 31.5,
-        "sample": 213
+        "win_rate": 31.8,
+        "sample": 217
       },
       "2-4h": {
-        "win_rate": 36.3,
-        "sample": 358
+        "win_rate": 36.5,
+        "sample": 364
       }
     },
     "win_rate_by_liquidity": {
       ">50K": {
-        "win_rate": 45.2,
-        "sample": 1360
+        "win_rate": 45.3,
+        "sample": 1403
       },
       "30-50K": {
         "win_rate": 16.5,
@@ -10369,13 +10370,55 @@
         },
         "reason": "backtest : P&L/trade -0.369 → -0.3858, pas d'amélioration ≥ 10% — annulé",
         "trades_sample_size": 50
+      },
+      {
+        "timestamp": "2026-11-27T06:25:18.943926+00:00",
+        "param_name": "exit_rules.max_hold_time_minutes",
+        "old_value": 420,
+        "new_value": 450.0,
+        "reason": "44 trades gagnants coupés par le time stop",
+        "trades_sample_size": 44
+      },
+      {
+        "timestamp": "2026-11-27T06:25:19.461904+00:00",
+        "param_name": "exit_rules",
+        "old_value": {
+          "stop_loss_pct": -25,
+          "take_profit_1": 150.0,
+          "take_profit_2": 300,
+          "take_profit_3": 500,
+          "breakeven_trigger": 10,
+          "partial_sell_tp1_pct": 0.5,
+          "partial_sell_tp2_pct": 0.5,
+          "trailing_stop_activation": 200,
+          "trailing_stop_distance_pct": 80,
+          "max_hold_time_minutes": 450.0,
+          "stop_loss_slippage_buffer_pct": 10.0,
+          "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
+        },
+        "new_value": {
+          "stop_loss_pct": -25,
+          "take_profit_1": 150.0,
+          "take_profit_2": 300,
+          "take_profit_3": 500,
+          "breakeven_trigger": 10,
+          "partial_sell_tp1_pct": 0.5,
+          "partial_sell_tp2_pct": 0.5,
+          "trailing_stop_activation": 200,
+          "trailing_stop_distance_pct": 80,
+          "max_hold_time_minutes": 420,
+          "stop_loss_slippage_buffer_pct": 10.0,
+          "_note_sl_buffer": "0 VOLONTAIREMENT. Le depassement de 4.6 points a ete mesure avec un monitoring a 20s ; il est passe a 5s, le glissement va donc chuter. Appliquer l'ancien tampon PAR-DESSUS l'ajustement automatique du SL (-25 -> -20, decide sur les memes trades) declencherait a -15.4% : double correction d'une meme cause. On MESURE le depassement reel a 5s via stop_loss_trigger_pct vs pnl_pct du journal, puis on regle."
+        },
+        "reason": "backtest sorties : P&L/trade -0.5681 → -0.5681, pas d'amélioration ≥ 10% — annulé",
+        "trades_sample_size": 100
       }
     ],
     "last_adjustment_at": {
-      "filters": 1629,
-      "weights": 1624,
-      "exits": 1624,
-      "risk": 1624
+      "filters": 1679,
+      "weights": 1674,
+      "exits": 1674,
+      "risk": 1674
     }
   },
   "risk_rules": {
