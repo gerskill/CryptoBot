@@ -11,7 +11,9 @@
       "capital_pct": 0.158,
       "notify": "all",
       "description": "Temoin. params.json actuel, fichiers data/ historiques continus depuis avant le multi-bras -- c'est la reference pour verdict_vs_reference. Depuis 2026-08-03 il apprend comme les six autres bras (filtres, sorties, tampon de glissement, relachement sur inactivite) : l'objectif est qu'il devienne lui-meme une bonne strategie, candidate au passage en reel, pas qu'il reste fige.",
-      "role_label": "Témoin historique · entrée score + technique, sortie qui apprend"
+      "role_label": "Témoin historique · entrée score + technique, sortie qui apprend",
+      "learning": false,
+      "paused": false
     },
     {
       "name": "sniper",
@@ -61,7 +63,9 @@
         "filters.require_social": true,
         "filters.max_price_change_1h": 400
       },
-      "role_label": "Stratégie complète · jeunes tokens, sortie qui apprend"
+      "role_label": "Stratégie complète · jeunes tokens, sortie qui apprend",
+      "learning": false,
+      "paused": false
     },
     {
       "name": "sniper_ar",
@@ -117,7 +121,8 @@
       "description": "Fork de sniper, une seule variable changee : filters.min_age_hours 1.025h -> 0.5125h (mi-chemin vers la borne basse de PARAM_BOUNDS, 0.0h). config/arms/sniper_young.json est pre-cree comme copie EXACTE du document VIVANT de sniper (pas du snapshot d'overrides ci-dessus, qui date de la creation initiale et ne reflete plus l'etat appris) -- seuls filters.min_age_hours et le nom changent. Les 'overrides' de ce bloc ne s'appliquent donc jamais (materialise_arm_params ne regenere pas un fichier existant) ; ils sont laisses vides a dessein pour ne pas laisser croire a un deuxieme jeu de valeurs. Reference de comparaison : sniper (tout identique sinon), pas le temoin. Erreur corrigee le 2026-08-09 : un premier essai (runner_young) forkait runner sur la valeur PERIMEE du manifeste (1.0h) alors que runner avait deja appris jusqu'a 0.0h (comme baseline, scalp et quality) -- sniper (1.025h vecu) et consensus (0.525h vecu) sont les deux seuls bras avec encore de la marge ; sniper choisi car role voter (isole), pas consensus (depend du vote des autres bras).",
       "overrides": {},
       "paused": true,
-      "role_label": "En pause · doublon de sniper (72 % des mêmes achats)"
+      "role_label": "En pause · doublon de sniper (72 % des mêmes achats)",
+      "learning": false
     },
     {
       "name": "scalp",
@@ -161,7 +166,9 @@
         "filters.min_market_cap": 50000,
         "filters.max_dev_tokens_launched": 15
       },
-      "role_label": "Stratégie complète · petits gains rapides"
+      "role_label": "Stratégie complète · petits gains rapides",
+      "learning": false,
+      "paused": true
     },
     {
       "name": "runner",
@@ -203,7 +210,9 @@
         "filters.require_social": true,
         "filters.max_dev_tokens_launched": 10
       },
-      "role_label": "Stratégie complète · laisser courir (paliers)"
+      "role_label": "Stratégie complète · laisser courir (paliers)",
+      "learning": false,
+      "paused": true
     },
     {
       "name": "quality",
@@ -257,7 +266,9 @@
           15
         ]
       },
-      "role_label": "Stratégie complète · sélection stricte"
+      "role_label": "Stratégie complète · sélection stricte",
+      "learning": false,
+      "paused": false
     },
     {
       "name": "tp1_15",
@@ -274,7 +285,8 @@
         "exit_rules.trailing_stop_activation": 15.0,
         "exit_rules.trailing_stop_distance_pct": 20.0
       },
-      "role_label": "Sortie testée · TP1 +15 % puis stop au prix d'entrée"
+      "role_label": "Sortie testée · TP1 +15 % puis stop au prix d'entrée",
+      "paused": true
     },
     {
       "name": "tp1_20",
@@ -328,7 +340,8 @@
         "exit_rules.trailing_stop_activation": 30.0,
         "exit_rules.trailing_stop_distance_pct": 20.0
       },
-      "role_label": "Sortie testée · TP1 +30 % puis stop au prix d'entrée"
+      "role_label": "Sortie testée · TP1 +30 % puis stop au prix d'entrée",
+      "paused": true
     },
     {
       "name": "scaled_be",
@@ -344,7 +357,8 @@
         "entry_rules.scale_in_initial_fraction": 0.3333333333,
         "entry_rules.max_exit_cost_pct_entry": 5.0
       },
-      "role_label": "Sortie testée · entrée progressive + breakeven"
+      "role_label": "Sortie testée · entrée progressive + breakeven",
+      "paused": true
     },
     {
       "name": "anti_rug",
@@ -396,7 +410,8 @@
           ]
         }
       },
-      "role_label": "Stratégie complète · tokens matures (sortie du témoin)"
+      "role_label": "Stratégie complète · tokens matures (sortie du témoin)",
+      "paused": true
     },
     {
       "name": "copy_smart",
@@ -434,7 +449,8 @@
         "exit_rules.stop_loss_pct": -15,
         "exit_rules.stop_loss_slippage_buffer_pct": 0.0
       },
-      "role_label": "Stratégie complète · copie de smart wallets"
+      "role_label": "Stratégie complète · copie de smart wallets",
+      "paused": true
     },
     {
       "name": "fixes3",
@@ -455,7 +471,8 @@
         "filters.max_price_change_1h": 200.0,
         "exit_rules.breakeven_trigger": 20.0
       },
-      "role_label": "Sortie testée · TP1 +15 % + refus frais > 3 % et pump 5 min"
+      "role_label": "Sortie testée · TP1 +15 % + refus frais > 3 % et pump 5 min",
+      "paused": true
     },
     {
       "name": "consensus_af",
@@ -528,7 +545,9 @@
           15
         ]
       },
-      "role_label": "Consensus des bras votants"
+      "role_label": "Consensus des bras votants",
+      "learning": false,
+      "paused": true
     },
     {
       "name": "score_v2",
@@ -595,7 +614,8 @@
             "probabilite": 0.2
           }
         }
-      }
+      },
+      "paused": false
     },
     {
       "name": "entree_score",
@@ -647,7 +667,8 @@
           "max_score_alpha": 75,
           "max_volume_liquidity_ratio": 5
         }
-      }
+      },
+      "paused": false
     },
     {
       "name": "entree_securite",
@@ -697,7 +718,8 @@
           "taille_fixe": true,
           "sans_technique": true
         }
-      }
+      },
+      "paused": true
     },
     {
       "name": "entree_wallets",
@@ -747,7 +769,8 @@
           "taille_fixe": true,
           "sans_technique": true
         }
-      }
+      },
+      "paused": true
     },
     {
       "name": "entree_acheteurs",
@@ -797,7 +820,8 @@
           "taille_fixe": true,
           "sans_technique": true
         }
-      }
+      },
+      "paused": true
     },
     {
       "name": "entree_repli",
@@ -847,7 +871,8 @@
           "taille_fixe": true,
           "sans_technique": true
         }
-      }
+      },
+      "paused": true
     },
     {
       "name": "entree_mature",
@@ -906,7 +931,8 @@
           ]
         }
       },
-      "discovery": "mature"
+      "discovery": "mature",
+      "paused": true
     },
     {
       "name": "entree_consensus",
@@ -966,11 +992,13 @@
             "min_accords": 2
           }
         }
-      }
+      },
+      "paused": true
     }
   ],
   "_note_champs": "Chaque bras exploite un jeu de champs DIFFERENT, tous rendus par le meme appel GMGN market trending que la decouverte : les filtrer ne coute aucune requete. sniper mise sur l anti-manipulation (rien d autre n est mesurable a 5 min), scalp sur le momentum court, runner sur la solidite de la LP, quality sur la reputation et les KOL. Un seuil absent d un document ne s applique pas ; une donnee absente ne rejette jamais.",
   "_note_tp1_tests": "2026-10-04 : bras tp1_15/tp1_20/tp1_30 (role test, learning false). Backup : config/strategies.json.bak-pre-tp1arms-20261004-102744. Pour les retirer : enabled=false.",
   "_note_scaled_be": "2026-10-10 : bras scaled_be (role test, learning false). Backup : config/strategies.json.bak-pre-scaledbe-*. Pour le retirer : enabled=false.",
-  "_note_familles": "2026-11-23 : 8 bras entree_* (familles d'entrée, sortie de référence commune) et 7 doublons en pause (paused=true : plus d'entrée, positions jusqu'à leur sortie normale, historique gardé). Voir scripts/familles_entree_manifeste.py."
+  "_note_familles": "2026-11-23 : 8 bras entree_* (familles d'entrée, sortie de référence commune) et 7 doublons en pause (paused=true : plus d'entrée, positions jusqu'à leur sortie normale, historique gardé). Voir scripts/familles_entree_manifeste.py.",
+  "_note_gel_mesure": "GEL DE MESURE 2026-11-28 -> 2026-12-12 (décisions de Killian du 28/11) : 5 bras actifs (baseline, entree_hasard, entree_score, quality, sniper), apprentissage figé (learning=false), les autres en pause (positions ouvertes suivies, rien d'effacé). Sauvegarde d'avant : /Volumes/PortableSSD/CryptoBot-Diagnostic/audit_quantitatif_2026-11-28/config_reference_avant_gel_2026-11-28/"
 }
