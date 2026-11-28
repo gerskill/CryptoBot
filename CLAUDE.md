@@ -13,7 +13,7 @@ Lire aussi `AGENTS.md` et `CONTEXT.md`. Mode **PAPER uniquement** : aucune trans
 
 ### Journal automatique (chef de projet)
 À la **fin de chaque session**, ajoute (sans jamais effacer ni réécrire ce qui existe) une entrée datée **à la fin** du fichier :
-`~/Documents/Obsidian Vault/CryptoBot/Journal.md`
+`/Volumes/PortableSSD/Obsidian/CryptoBot/Journal.md` (coffre Obsidian sur le SSD ; `~/Documents/Obsidian Vault` n'existe pas sur le Mac, vérifié le 2026-11-28)
 
 Format de l'entrée :
 ```
